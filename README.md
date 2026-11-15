@@ -192,7 +192,9 @@ scripts/hud.gd          Interface
 scripts/pause_menu.gd   Menu pause de la bataille (Échap)
 scripts/battle_report.gd  Panneau du bilan de fin de bataille (données : battle.build_end_report)
 scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si absents)
-scripts/battle_audio.gd Sons de bataille et musique
+scripts/battle_audio.gd Sons de bataille : banques, cors de charge et de retraite, fanfare, vent, oiseaux, pluie
+scripts/game_audio.gd   Audio persistant (GameAudio) : musiques menu / carte / bataille / victoire / défaite
+                        avec fondu enchaîné, sons d'interface branchés sur tous les boutons
 assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, défaite, économie, évènements,
@@ -202,6 +204,7 @@ tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge,
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
+tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)

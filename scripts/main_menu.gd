@@ -26,6 +26,7 @@ var theme_ui: Theme
 
 func _ready() -> void:
 	GameOptions.ensure_loaded()
+	GameAudio.music("menu")
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	font = ThemeDB.fallback_font
 	theme_ui = UiTheme.make(17)

@@ -1028,6 +1028,7 @@ func update_arrows(dt: float) -> void:
 func arrow_impact(a: Dictionary) -> void:
 	var hits := soldiers_near(a["to"], 6.0)
 	if hits.is_empty():
+		audio.play_miss(a["to"]) # Flèche perdue : sifflement
 		return
 	var victim: Soldier = hits[0]
 	if is_in_forest(victim.pos) and rng.randf() < 0.5:
