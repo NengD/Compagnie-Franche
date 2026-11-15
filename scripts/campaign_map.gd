@@ -42,6 +42,7 @@ class RankIcon extends Control:
 
 
 func _ready() -> void:
+	GameOptions.ensure_loaded()
 	if CampaignState.current == null:
 		# Au lancement du jeu : reprend la campagne sauvegardée s'il y en a une
 		var loaded := CampaignState.load_game()
@@ -154,6 +155,10 @@ func town_at(p: Vector2) -> int:
 # ---------------------------------------------------------------- Ordres
 
 func _unhandled_input(event: InputEvent) -> void:
+	var k := event as InputEventKey
+	if k != null and k.pressed and not k.echo and k.keycode == KEY_ESCAPE:
+		back_to_menu()
+		return
 	var mm := event as InputEventMouseMotion
 	if mm != null:
 		hover = town_at(mm.position)
@@ -205,6 +210,15 @@ func do_accept(c: Dictionary) -> void:
 func do_skirmish() -> void:
 	state.pending = {}
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func back_to_menu() -> void:
+	if walking:
+		# Termine la marche en cours avant de quitter (sauvegarde cohérente)
+		walking = false
+		state.travel(walk_to)
+		state.save()
+	get_tree().change_scene_to_file("res://scenes/menu.tscn")
 
 
 func do_new_campaign() -> void:
@@ -394,6 +408,7 @@ func refresh_ui() -> void:
 		add_label(s, 11, Color(0.72, 0.69, 0.62))
 
 	box.add_child(HSeparator.new())
+	add_button("Menu principal (Échap)", back_to_menu)
 	add_button("Escarmouche libre (hors campagne)", do_skirmish)
 	if confirm_new:
 		add_label("Effacer la campagne en cours (jour %d) ?" % state.day, 12, Color(1, 0.62, 0.3))

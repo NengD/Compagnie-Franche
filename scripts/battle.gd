@@ -82,11 +82,14 @@ var dust: Array = [] ## Poussière : [position, vitesse, vie restante, vie total
 var shake := 0.0 ## Intensité de la secousse de caméra (0 à 1), décroît avec le temps
 var shake_enabled := true ## Désactivée sans fenêtre (tests)
 var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
+var game_speed := 1.0 ## Vitesse de la simulation (options, touche V)
 
 
 # ---------------------------------------------------------------- Mise en place
 
 func _ready() -> void:
+	GameOptions.ensure_loaded()
+	game_speed = GameOptions.speed
 	if CampaignState.current != null and CampaignState.current.in_battle():
 		campaign = CampaignState.current
 	if seed_override != 0:
@@ -431,7 +434,11 @@ func start_battle() -> void:
 func _process(delta: float) -> void:
 	update_camera(delta)
 	if not paused:
-		simulate(minf(delta, 0.05) * time_factor(delta))
+		# Vitesse x1,5 / x2 (options, touche V) et ralenti de fin : plusieurs pas d'au plus 0,05 s
+		var dt := minf(delta, 0.05) * time_factor(delta) * game_speed
+		var steps := maxi(1, ceili(dt / 0.05 - 0.001))
+		for i in steps:
+			simulate(dt / steps)
 	for m in messages:
 		m[1] -= delta
 	messages = messages.filter(func(m): return m[1] > 0.0)
@@ -1144,7 +1151,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		for r in player_regiments():
 			r.selected = true
 		return
-	match k.keycode:
+	# Touches reconfigurables (Options) : ramenées à leur touche par défaut
+	match GameOptions.remap_key(GameOptions.event_keycode(k)):
 		KEY_SPACE:
 			if state == State.DEPLOY:
 				start_battle()
@@ -1172,6 +1180,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_M:
 			audio.set_enabled(not audio.enabled)
 			add_message("Son activé." if audio.enabled else "Son coupé.")
+		KEY_V:
+			game_speed = GameOptions.next_speed()
+			GameOptions.save_options()
+			add_message("Vitesse du jeu : %s" % GameOptions.speed_label(game_speed))
 		KEY_ENTER, KEY_KP_ENTER:
 			if state == State.VICTORY or state == State.DEFEAT:
 				if campaign != null:
@@ -1179,9 +1191,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					get_tree().reload_current_scene()
 		KEY_ESCAPE:
-			# Escarmouche : retour à la carte de campagne (un contrat se joue jusqu'au bout)
+			# Escarmouche : retour au menu principal (un contrat se joue jusqu'au bout)
 			if campaign == null:
-				get_tree().change_scene_to_file("res://scenes/campaign.tscn")
+				get_tree().change_scene_to_file("res://scenes/menu.tscn")
 	# Touches 1 à 9 (position physique, fonctionne en AZERTY)
 	var idx: int = int(k.physical_keycode) - int(KEY_1)
 	if idx >= 0 and idx < 9:
