@@ -60,7 +60,7 @@ func _draw() -> void:
 	var x0 := vs.x * 0.5 - list.size() * (cw + 6) * 0.5
 	for i in list.size():
 		var r = list[i]
-		var rect := Rect2(x0 + i * (cw + 6), vs.y - 72, cw, 64)
+		var rect := Rect2(x0 + i * (cw + 6), vs.y - 86, cw, 78)
 		draw_rect(rect, Color(0.08, 0.07, 0.06, 0.82))
 		var border := Color(1, 0.9, 0.4) if r.selected else Color(0.45, 0.4, 0.3)
 		draw_rect(rect, border, false, 2.0 if r.selected else 1.0)
@@ -88,6 +88,17 @@ func _draw() -> void:
 		text(rect.position + Vector2(6, 58), status, 11, scol)
 		if r.hidden:
 			text(rect.position + Vector2(cw - 40, 58), "caché", 11, Color(0.4, 1, 0.5))
+		# Ordres permanents : tenir la position (G), tir retenu (X)
+		var orders: Array[String] = []
+		if r.hold_position:
+			orders.append("tient [G]")
+		if r.stats["ranged"] and not r.fire_at_will:
+			orders.append("tir retenu [X]")
+		var group := battle.group_label(r) as String
+		if group != "":
+			text(rect.position + Vector2(0, 72), group, 11, Color(0.75, 0.75, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, cw - 6)
+		if not orders.is_empty():
+			text(rect.position + Vector2(6, 72), " · ".join(orders), 11, Color(0.55, 0.85, 1))
 
 	# Messages
 	var y := 52.0
@@ -105,7 +116,11 @@ func _draw() -> void:
 			"Clic droit glissé : tracer la ligne de front",
 			"Double clic droit : courir (fatigue)",
 			"Ctrl+A : tout   1-8 : un régiment",
+			"Ctrl+1-8 : mémoriser un groupe",
+			"1-8 : rappeler le groupe (2 fois : y aller)",
 			"H : halte   F : formation (ligne / colonne / carré)",
+			"G : tenir la position (on / off)",
+			"X : archers, tir à volonté / cesser le tir",
 			"ZQSD / flèches / molette (clic) : caméra",
 			"Molette : zoom",
 			"T : pluie   Espace : lancer / pause",

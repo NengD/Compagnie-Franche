@@ -30,7 +30,9 @@ var rallied_once := false
 var selected := false
 var engaged := false
 var engaged_flag := false
-var holding := false
+var holding := false ## Archers : à portée de leur cible, ils s'arrêtent pour tirer
+var hold_position := false ## Ordre « tenir la position » (G) : ne poursuit pas, ne s'engage pas seul
+var fire_at_will := true ## Archers : tir à volonté (X) ; sinon, tir seulement sur une cible ordonnée
 var think := 0.0
 var flank_time := 0.0
 

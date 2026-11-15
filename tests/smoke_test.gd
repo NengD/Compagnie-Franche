@@ -38,6 +38,7 @@ var player := TestPlayer.new("tactical") ## Joueur simulé (voir tests/test_play
 var frames := 0
 var finished := false
 var terrain_kind := "plain"
+var max_dust := 0 ## Plus grand nombre de particules de poussière vu pendant la bataille
 
 
 func _initialize() -> void:
@@ -91,6 +92,12 @@ func _process(_delta: float) -> bool:
 			_finish(run_fails)
 			return true
 		print("Course et endurance : OK")
+		var order_fails := _test_orders()
+		if not order_fails.is_empty() or not counter.errors.is_empty():
+			order_fails.append("échec pendant le test des ordres (tenir, tir, groupes)")
+			_finish(order_fails)
+			return true
+		print("Ordres (tenir la position, cesser le tir, groupes) : OK")
 		var asset_fails := _check_assets()
 		if not asset_fails.is_empty():
 			_finish(asset_fails)
@@ -109,6 +116,7 @@ func _process(_delta: float) -> bool:
 			break
 		player.update(battle)
 		battle.simulate(STEP)
+		max_dust = maxi(max_dust, battle.dust.size())
 	if battle.state != battle.State.BATTLE or battle.battle_time >= max_time:
 		# Deux images de plus pour laisser passer _process et _draw sur l'état final
 		if frames > 2:
@@ -564,6 +572,193 @@ func _test_siege(t: Terrain) -> Array[String]:
 		fails.append("palissade : la mêlée à travers le mur devrait être impossible")
 	return fails
 
+## Ordres : tenir la position (G), cesser le tir (X), groupes de contrôle (Ctrl + chiffre).
+## Les combats se font entre régiments de test ajoutés loin des armées, puis retirés.
+## Pendant le test, la bataille est « lancée » mais l'IA ennemie ne commande personne.
+func _test_orders() -> Array[String]:
+	var fails: Array[String] = []
+	battle.state = battle.State.BATTLE
+	battle.ai.team = 2
+	var spot := _clear_spot()
+
+	# --- Tenir la position : un ennemi à 80 px, hors d'allonge
+	var mine: Regiment = battle.add_regiment(0, "men_at_arms", spot, Vector2.UP)
+	var foe: Regiment = battle.add_regiment(1, "spear", spot + Vector2(0, -80), Vector2.DOWN)
+	foe.hold_position = true # L'ennemi ne bouge pas non plus
+	# Témoin : sans l'ordre, le régiment va au-devant de l'ennemi
+	for i in 20:
+		battle.simulate(STEP)
+	if mine.target != foe:
+		fails.append("tenir : sans l'ordre, le régiment devrait s'engager contre l'ennemi proche")
+	_teleport(mine, spot, Vector2.UP)
+	for x in battle.regiments:
+		x.selected = x == mine
+	_press(KEY_G)
+	if not mine.hold_position:
+		fails.append("tenir : la touche G n'active pas l'ordre")
+	var start := mine.center
+	for i in 60:
+		battle.simulate(STEP)
+	print("Tenir : déplacement %.1f px vers un ennemi à 80 px, cible %s" % [
+		mine.center.distance_to(start), "aucune" if mine.target == null else mine.target.display_name()])
+	if mine.target != null or mine.center.distance_to(start) > 4.0:
+		fails.append("tenir : le régiment a quitté sa place (%.1f px)" % mine.center.distance_to(start))
+	# Attaqué, il riposte sans poursuivre
+	foe.hold_position = false
+	foe.target = mine
+	var foe_hp := _total_hp(foe)
+	for i in 80:
+		battle.simulate(STEP)
+	if not (_total_hp(foe) < foe_hp):
+		fails.append("tenir : le régiment ne frappe pas l'ennemi venu à sa portée")
+	if mine.target != null or mine.dest.distance_to(spot) > 0.5:
+		fails.append("tenir : le régiment attaqué s'est lancé à la poursuite")
+	_press(KEY_G)
+	if mine.hold_position:
+		fails.append("tenir : un 2e appui sur G ne lève pas l'ordre")
+	_remove_test_regiment(mine)
+	_remove_test_regiment(foe)
+
+	# --- Cesser le tir : archers et cible à 200 px (à portée)
+	var archers: Regiment = battle.add_regiment(0, "archer", spot, Vector2.UP)
+	var target: Regiment = battle.add_regiment(1, "spear", spot + Vector2(0, -200), Vector2.DOWN)
+	target.hold_position = true
+	for x in battle.regiments:
+		x.selected = x == archers
+	_press(KEY_X)
+	if archers.fire_at_will:
+		fails.append("tir : la touche X ne fait pas cesser le tir")
+	battle.arrows.clear()
+	var fired := 0
+	for i in 80:
+		battle.simulate(STEP)
+		fired += battle.arrows.size()
+	if fired > 0:
+		fails.append("tir : des flèches partent sans ordre alors que le tir à volonté est coupé")
+	# Cible ordonnée (clic droit sur l'ennemi) : ils tirent quand même
+	archers.target = target
+	var ordered := 0
+	for i in 80:
+		battle.simulate(STEP)
+		ordered += battle.arrows.size()
+	print("Tir : flèches sans ordre %d, sur cible ordonnée %d" % [fired, ordered])
+	if ordered <= 0:
+		fails.append("tir : les archers ne tirent pas sur une cible ordonnée")
+	archers.target = null
+	_press(KEY_X)
+	if not archers.fire_at_will:
+		fails.append("tir : un 2e appui sur X ne rétablit pas le tir à volonté")
+	battle.arrows.clear()
+	_remove_test_regiment(archers)
+	_remove_test_regiment(target)
+
+	# --- Groupes de contrôle (touches par position physique, comme en AZERTY)
+	var list: Array[Regiment] = battle.player_regiments()
+	for x in battle.regiments:
+		x.selected = x == list[0] or x == list[2]
+	_press_digit(3, true) # Ctrl + 3 : mémorise
+	if not (list[0].selected and list[2].selected and not list[1].selected):
+		fails.append("groupes : Ctrl + chiffre ne doit pas changer la sélection")
+	for x in battle.regiments:
+		x.selected = x == list[5]
+	_press_digit(3, false) # 3 : rappel du groupe
+	var sel: Array[Regiment] = battle.selected_regiments()
+	if sel.size() != 2 or not sel.has(list[0]) or not sel.has(list[2]):
+		fails.append("groupes : le rappel du groupe 3 sélectionne %d régiment(s)" % sel.size())
+	_press_digit(5, false) # 5 : pas de groupe → régiment n° 5
+	sel = battle.selected_regiments()
+	if sel.size() != 1 or sel[0] != list[4]:
+		fails.append("groupes : sans groupe, le chiffre 5 devrait sélectionner le régiment n° 5")
+	# Double appui : la caméra se centre sur le groupe
+	battle.camera.position = Vector2(400, 400)
+	battle.clamp_camera()
+	var center := (list[0].center + list[2].center) * 0.5
+	var before: float = battle.camera.position.distance_to(center)
+	_press_digit(3, false)
+	_press_digit(3, false)
+	var after: float = battle.camera.position.distance_to(center)
+	print("Groupes : caméra à %.0f px du groupe avant le double appui, %.0f px après" % [before, after])
+	if not (after < before * 0.5):
+		fails.append("groupes : le double appui ne centre pas la caméra sur le groupe")
+	battle.groups.clear()
+	battle.camera.position = Vector2(battle.WORLD_SIZE.x * 0.5, 1560)
+	for x in battle.regiments:
+		x.selected = false
+
+	battle.ai.team = 1
+	battle.state = battle.State.DEPLOY
+	battle.battle_time = 0.0
+	return fails
+
+
+func _press(code: Key) -> void:
+	var key := InputEventKey.new()
+	key.keycode = code
+	key.physical_keycode = code
+	key.pressed = true
+	battle._unhandled_input(key)
+
+
+## Chiffre n (1-9) par sa position physique seulement : en AZERTY, la touche « & » donne 1.
+func _press_digit(n: int, ctrl: bool) -> void:
+	var key := InputEventKey.new()
+	key.physical_keycode = (KEY_1 + n - 1) as Key
+	key.ctrl_pressed = ctrl
+	key.pressed = true
+	battle._unhandled_input(key)
+
+
+func _total_hp(r: Regiment) -> float:
+	var hp := 0.0
+	for s in r.soldiers:
+		if s.alive:
+			hp += s.hp
+	return hp
+
+
+## Retire un régiment ajouté pour un test, sans laisser de trace dans la bataille.
+func _remove_test_regiment(r: Regiment) -> void:
+	for s in r.soldiers:
+		s.alive = false
+		battle.soldiers.erase(s)
+		s.regiment = null
+		s.foe = null
+	for s in battle.soldiers:
+		if s.foe != null and s.foe.regiment == null:
+			s.foe = null
+	battle.initial_strength[r.team] -= r.soldiers.size()
+	r.soldiers.clear()
+	r.update_center()
+	r.target = null
+	r.fire_target = null
+	battle.regiments.erase(r)
+	for o in battle.regiments:
+		if o.target == r:
+			o.target = null
+		if o.fire_target == r:
+			o.fire_target = null
+	battle.corpses.clear()
+	battle.dust.clear()
+	battle.rebuild_grid()
+	for i in battle.regiments.size():
+		battle.regiments[i].id = i
+
+
+## Endroit dégagé (sans forêt) et loin des deux armées pour les régiments de test.
+func _clear_spot() -> Vector2:
+	for y in range(900, 1200, 50):
+		for x in range(200, 3000, 100):
+			var p := Vector2(x, y)
+			var ok := true
+			for off in [Vector2.ZERO, Vector2(-80, 0), Vector2(80, 0), Vector2(0, -240), Vector2(0, 60),
+					Vector2(-80, -240), Vector2(80, -240)]:
+				if battle.is_in_forest(p + off):
+					ok = false
+					break
+			if ok:
+				return p
+	return Vector2(300, 1000)
+
 
 ## Point de départ d'un trajet sans forêt de la longueur voulue dans la zone de déploiement.
 func _clear_lane(dir: Vector2, length: float) -> Vector2:
@@ -639,6 +834,23 @@ func _check() -> Array[String]:
 		fails.append("aucun soldat du joueur n'est mort")
 	if lost[1] <= 0:
 		fails.append("aucun soldat ennemi n'est mort")
+	# Ressenti : poussière limitée, pas de secousse sans fenêtre, ralenti de fin
+	print("Ressenti : poussière max %d particules (limite %d), secousse %.2f, ralenti %s" % [
+		max_dust, battle.MAX_DUST, battle.shake, "oui" if battle.slowmo >= 0.0 else "non"])
+	if max_dust <= 0:
+		fails.append("ressenti : aucune poussière sous les sabots pendant la bataille")
+	if max_dust > battle.MAX_DUST:
+		fails.append("ressenti : trop de particules de poussière (%d)" % max_dust)
+	if battle.shake != 0.0 or battle.camera.offset != Vector2.ZERO:
+		fails.append("ressenti : la caméra tremble alors qu'il n'y a pas de fenêtre")
+	if battle.state != battle.State.BATTLE:
+		if battle.slowmo < 0.0:
+			fails.append("ressenti : pas de ralenti à la fin de la bataille")
+		battle.slowmo = 0.0
+		var slow: float = battle.time_factor(0.1)
+		var back: float = battle.time_factor(10.0)
+		if not is_equal_approx(slow, battle.SLOWMO_SCALE) or not is_equal_approx(back, 1.0) or battle.slowmo >= 0.0:
+			fails.append("ressenti : ralenti incorrect (%.2f puis %.2f)" % [slow, back])
 	if not counter.errors.is_empty():
 		fails.append("%d erreur(s) pendant la bataille" % counter.errors.size())
 	return fails

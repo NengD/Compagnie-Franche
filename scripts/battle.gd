@@ -20,6 +20,12 @@ const HIT_FLANK := 1
 const HIT_REAR := 2
 const LINE_DRAG_MIN_PX := 12.0 ## En dessous, un clic droit glissé reste un simple clic
 const LINE_GAP := 20.0 ## Espace entre deux régiments sur une ligne
+const GROUP_DOUBLE_MS := 400 ## Deux appuis sur le même chiffre en moins de ce délai : centrer la caméra
+const MAX_DUST := 240 ## Particules de poussière au maximum
+const SHAKE_MAX_PX := 7.0 ## Amplitude maximale de la secousse de caméra (pixels écran)
+const SLOWMO_SCALE := 0.3 ## Vitesse du ralenti de fin de bataille
+const SLOWMO_HOLD := 2.0 ## Durée du ralenti à pleine intensité (secondes réelles)
+const SLOWMO_FADE := 1.5 ## Retour progressif à la vitesse normale (secondes réelles)
 
 enum State { DEPLOY, BATTLE, VICTORY, DEFEAT }
 
@@ -66,6 +72,14 @@ var seed_override := 0 ## Graine fixe pour les tests (0 = aléatoire)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
 var campaign_report := "" ## Compte rendu de fin de bataille en campagne
 
+var groups := {} ## Groupes de contrôle : chiffre (0-8) -> Array[Regiment]
+var last_digit := -1 ## Dernier chiffre appuyé (pour le double appui)
+var last_digit_ms := -100000
+var dust: Array = [] ## Poussière : [position, vitesse, vie restante, vie totale, taille]
+var shake := 0.0 ## Intensité de la secousse de caméra (0 à 1), décroît avec le temps
+var shake_enabled := true ## Désactivée sans fenêtre (tests)
+var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
+
 
 # ---------------------------------------------------------------- Mise en place
 
@@ -78,6 +92,7 @@ func _ready() -> void:
 		rng.seed = int(campaign.pending["seed"])
 	else:
 		rng.randomize()
+	shake_enabled = DisplayServer.get_name() != "headless"
 	generate_world()
 	if campaign != null:
 		spawn_army(PLAYER, campaign.battle_army())
@@ -128,6 +143,7 @@ func _exit_tree() -> void:
 	regiments.clear()
 	soldiers.clear()
 	grid.clear()
+	groups.clear()
 
 
 func generate_world() -> void:
@@ -411,7 +427,7 @@ func start_battle() -> void:
 func _process(delta: float) -> void:
 	update_camera(delta)
 	if not paused:
-		simulate(minf(delta, 0.05))
+		simulate(minf(delta, 0.05) * time_factor(delta))
 	for m in messages:
 		m[1] -= delta
 	messages = messages.filter(func(m): return m[1] > 0.0)
@@ -420,6 +436,21 @@ func _process(delta: float) -> void:
 	markers = markers.filter(func(m): return m[2] > 0.0)
 	queue_redraw()
 	hud.queue_redraw()
+
+
+## Ralenti de fin de bataille : facteur appliqué au temps simulé (1 = vitesse normale).
+## real_delta : temps réel écoulé depuis l'image précédente.
+func time_factor(real_delta: float) -> float:
+	if slowmo < 0.0:
+		return 1.0
+	slowmo += real_delta
+	if slowmo < SLOWMO_HOLD:
+		return SLOWMO_SCALE
+	var k := (slowmo - SLOWMO_HOLD) / SLOWMO_FADE
+	if k >= 1.0:
+		slowmo = -1.0
+		return 1.0
+	return lerpf(SLOWMO_SCALE, 1.0, k * k)
 
 
 func simulate(dt: float) -> void:
@@ -433,6 +464,7 @@ func simulate(dt: float) -> void:
 		if s.alive:
 			update_soldier(s, dt)
 	update_arrows(dt)
+	update_dust(dt)
 	update_gallop()
 	cleanup_timer -= dt
 	if cleanup_timer <= 0.0:
@@ -519,7 +551,8 @@ func update_regiment(r: Regiment, dt: float) -> void:
 	else:
 		r.hidden = false
 
-	if r.target != null and (r.target.is_dead() or (r.target.routing and r.type != "cavalry")):
+	# On ne poursuit pas les fuyards (sauf la cavalerie, si elle n'a pas l'ordre de tenir)
+	if r.target != null and (r.target.is_dead() or (r.target.routing and (r.type != "cavalry" or r.hold_position))):
 		r.target = null
 
 	# Moral
@@ -562,8 +595,8 @@ func update_regiment(r: Regiment, dt: float) -> void:
 				var dir := r.target.center - r.center
 				if dir.length() > 1.0:
 					r.facing = dir.normalized()
-	elif r.center.distance_to(r.dest) < 24.0:
-		# Au repos : défend sa position si un ennemi s'approche
+	elif r.center.distance_to(r.dest) < 24.0 and not r.hold_position:
+		# Au repos : défend sa position si un ennemi s'approche (sauf ordre de tenir la position)
 		var e := nearest_enemy_regiment(r, 110.0, true)
 		if e != null and state == State.BATTLE:
 			r.target = e
@@ -604,6 +637,8 @@ func update_archers(r: Regiment, dt: float) -> void:
 				r.holding = true
 				r.dest = r.center
 				r.facing = (r.target.center - r.center).normalized()
+		elif r.hold_position:
+			r.holding = false # Cible hors de portée : on ne quitte pas sa place pour la rejoindre
 		else:
 			r.holding = false
 			if r.think <= 0.0:
@@ -611,8 +646,8 @@ func update_archers(r: Regiment, dt: float) -> void:
 				var dir := (r.target.center - r.center).normalized()
 				r.dest = r.target.center - dir * range_px * 0.85
 				r.facing = dir
-	elif not r.engaged and r.center.distance_to(r.dest) < 24.0 and state == State.BATTLE:
-		# Tir automatique sur l'ennemi visible le plus proche (pas sur une mêlée)
+	elif r.fire_at_will and not r.engaged and r.center.distance_to(r.dest) < 24.0 and state == State.BATTLE:
+		# Tir à volonté : sur l'ennemi visible le plus proche (pas sur une mêlée)
 		var best: Regiment = null
 		var bd := range_px
 		for o in regiments:
@@ -650,6 +685,8 @@ func start_rout(r: Regiment) -> void:
 		add_message("Vos %s fuient le champ de bataille !" % r.display_name().to_lower())
 	else:
 		add_message("Des %s ennemis prennent la fuite !" % r.display_name().to_lower())
+	if audio != null:
+		audio.play_cries(r.center, 4)
 	for o in regiments:
 		if o != r and o.team == r.team and not o.is_dead() and o.center.distance_to(r.center) < 260.0:
 			o.morale -= UnitTypes.MORALE_ROUT_NEARBY
@@ -683,6 +720,7 @@ func update_soldier(s: Soldier, dt: float) -> void:
 	if r.routing:
 		var edge_y := WORLD_SIZE.y + 80.0 if r.team == PLAYER else -80.0
 		move_towards(s, Vector2(s.pos.x, edge_y), speed * 1.15, dt)
+		kick_dust(s, dt)
 		if s.pos.y > WORLD_SIZE.y + 40.0 or s.pos.y < -40.0:
 			s.alive = false
 			s.fled = true
@@ -698,12 +736,18 @@ func update_soldier(s: Soldier, dt: float) -> void:
 			radius = 80.0
 		s.foe = find_foe(s, radius)
 
+	# Tenir la position : on frappe ce qui est à portée, sans quitter le rang pour aller au-devant
+	var stay := r.hold_position and r.target == null
+	if s.foe != null and stay and s.pos.distance_to(s.foe.pos) > float(r.stats["reach"]):
+		s.foe = null
+
 	if s.foe != null:
 		var d := s.pos.distance_to(s.foe.pos)
 		var reach: float = r.stats["reach"]
 		if d > reach:
 			move_towards(s, s.foe.pos, speed, dt)
 			s.momentum = minf(s.momentum + dt * 0.8, 1.0)
+			kick_dust(s, dt)
 		else:
 			r.engaged_flag = true
 			if s.cooldown <= 0.0:
@@ -714,6 +758,7 @@ func update_soldier(s: Soldier, dt: float) -> void:
 		if d > 2.0:
 			move_towards(s, s.slot_pos, speed, dt)
 			s.momentum = minf(s.momentum + dt * 0.8, 1.0)
+			kick_dust(s, dt)
 		else:
 			s.momentum = maxf(s.momentum - dt, 0.0)
 		if r.stats["ranged"] and r.fire_target != null and s.cooldown <= 0.0 and d < 12.0:
@@ -736,6 +781,48 @@ func move_towards(s: Soldier, goal: Vector2, speed: float, dt: float) -> void:
 	s.pos += s.move_dir * step
 	s.moving = true
 	s.anim += dt * (8.0 * UnitTypes.RUN_SPEED if s.regiment.running else 8.0)
+
+
+## Poussière sous les sabots d'un cavalier au galop (ou à la course, ou en fuite).
+## Utilise le hasard global pour ne pas modifier les jets de dés de la simulation.
+func kick_dust(s: Soldier, dt: float) -> void:
+	var r := s.regiment
+	if r.type != "cavalry" or dust.size() >= MAX_DUST:
+		return
+	if not (r.running or r.routing or s.momentum > 0.5):
+		return
+	if r.hidden or is_in_forest(s.pos):
+		return # Pas de nuage qui trahirait une embuscade
+	if randf() > dt * 5.0:
+		return
+	var back := -s.move_dir
+	var p := s.pos + back * randf_range(3.0, 7.0) + Vector2(randf_range(-4, 4), randf_range(-1, 1))
+	var v := back * randf_range(6.0, 16.0) + Vector2(randf_range(-6, 6), randf_range(-10, -3))
+	var life := randf_range(0.5, 0.9)
+	dust.append([p, v, life, life, 2.0 if randf() < 0.6 else 3.0])
+
+
+func update_dust(dt: float) -> void:
+	var keep := []
+	for d in dust:
+		d[2] -= dt
+		if d[2] > 0.0:
+			d[0] += d[1] * dt
+			d[1] *= 1.0 - minf(dt * 2.5, 1.0) # Freinée par l'air
+			keep.append(d)
+	dust = keep
+
+
+## Secousse de caméra autour d'un point du monde, atténuée par la distance au centre de l'écran.
+func add_shake(world_pos: Vector2, amount: float) -> void:
+	if not shake_enabled or camera == null:
+		return
+	var half := get_viewport_rect().size / camera.zoom * 0.5
+	var d := (world_pos - camera.position).abs() / half.max(Vector2(1, 1))
+	var k := maxf(d.x, d.y) # 1 = bord de l'écran
+	var att := clampf(1.25 - k * 0.5, 0.0, 1.0) # Plein à l'écran, nul à 2,5 demi-écrans
+	att *= clampf(camera.zoom.x, 0.5, 1.5) / 1.5 # Vue lointaine : moins de secousse
+	shake = minf(shake + amount * att, 1.0)
 
 
 func separate(s: Soldier) -> void:
@@ -814,6 +901,8 @@ func strike(a: Soldier, b: Soldier) -> void:
 			br.morale -= UnitTypes.MORALE_CHARGE_HIT * (0.5 if br.type == "spear" else 1.0)
 			var push := (b.pos - a.pos).normalized() * 6.0
 			b.pos += push
+			if not (ar.team == ENEMY and ar.hidden):
+				add_shake(b.pos, 0.07 * a.momentum)
 			# Les piques plantées blessent les chevaux qui chargent
 			if br.type == "spear":
 				damage(a, UnitTypes.BRACE_DAMAGE, b)
@@ -921,6 +1010,7 @@ func check_end() -> void:
 		add_message("Votre compagnie est brisée...")
 	else:
 		return
+	slowmo = 0.0 # Ralenti de quelques secondes sur la fin de la bataille
 	if campaign != null:
 		finish_campaign()
 
@@ -1029,6 +1119,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			show_help = not show_help
 		KEY_F:
 			cycle_formation()
+		KEY_G:
+			toggle_hold_position()
+		KEY_X:
+			toggle_fire_at_will()
 		KEY_M:
 			audio.set_enabled(not audio.enabled)
 			add_message("Son activé." if audio.enabled else "Son coupé.")
@@ -1045,12 +1139,111 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Touches 1 à 9 (position physique, fonctionne en AZERTY)
 	var idx: int = int(k.physical_keycode) - int(KEY_1)
 	if idx >= 0 and idx < 9:
-		var list := player_regiments()
-		if idx < list.size():
-			if not k.shift_pressed:
-				for r in regiments:
-					r.selected = false
-			list[idx].selected = true
+		if k.ctrl_pressed:
+			store_group(idx)
+		else:
+			recall_digit(idx, k.shift_pressed)
+
+
+## Ctrl + chiffre : mémorise la sélection dans le groupe (une sélection vide efface le groupe).
+func store_group(idx: int) -> void:
+	var sel := selected_regiments()
+	if sel.is_empty():
+		if groups.erase(idx):
+			add_message("Groupe %d effacé." % (idx + 1))
+		return
+	groups[idx] = sel
+	add_message("Groupe %d : %d régiment%s." % [idx + 1, sel.size(), "s" if sel.size() > 1 else ""])
+
+
+## Membres encore valides (vivants, pas en fuite) d'un groupe de contrôle.
+func group_members(idx: int) -> Array[Regiment]:
+	var out: Array[Regiment] = []
+	if groups.has(idx):
+		for r in groups[idx]:
+			if r.team == PLAYER and not r.is_dead() and not r.routing:
+				out.append(r)
+	return out
+
+
+## Chiffre seul : rappelle le groupe s'il existe, sinon sélectionne le régiment n° idx + 1.
+## Un double appui centre la caméra sur la sélection rappelée.
+func recall_digit(idx: int, add: bool) -> void:
+	var list := group_members(idx)
+	if list.is_empty():
+		var all := player_regiments()
+		if idx < all.size():
+			list.append(all[idx])
+	if list.is_empty():
+		return
+	if not add:
+		for r in regiments:
+			r.selected = false
+	for r in list:
+		r.selected = true
+	var now := Time.get_ticks_msec()
+	if idx == last_digit and now - last_digit_ms <= GROUP_DOUBLE_MS:
+		center_camera_on(list)
+		last_digit = -1
+	else:
+		last_digit = idx
+		last_digit_ms = now
+
+
+## Groupes de contrôle d'un régiment, pour sa carte (« G1 », « G2,4 »…, vide si aucun).
+func group_label(r: Regiment) -> String:
+	var ids: Array[String] = []
+	for g in range(9):
+		if groups.has(g) and (groups[g] as Array).has(r):
+			ids.append(str(g + 1))
+	return "" if ids.is_empty() else "G" + ",".join(ids)
+
+
+func center_camera_on(list: Array[Regiment]) -> void:
+	if list.is_empty():
+		return
+	var c := Vector2.ZERO
+	for r in list:
+		c += r.center
+	camera.position = c / list.size()
+	clamp_camera()
+
+
+## Touche G : tenir la position (bascule). Si tous tiennent déjà, l'ordre est levé.
+func toggle_hold_position() -> void:
+	var sel := selected_regiments()
+	if sel.is_empty():
+		return
+	var on := false
+	for r in sel:
+		if not r.hold_position:
+			on = true
+	for r in sel:
+		r.hold_position = on
+		if on:
+			# On reste là où l'on est : l'éventuelle cible n'est plus poursuivie
+			if r.target != null and not r.stats["ranged"]:
+				r.target = null
+				r.dest = r.center
+			r.running = false
+	add_message("Tenir la position." if on else "Fin de l'ordre de tenir la position.")
+
+
+## Touche X : tir à volonté / cesser le tir (archers sélectionnés).
+func toggle_fire_at_will() -> void:
+	var archers: Array[Regiment] = []
+	for r in selected_regiments():
+		if r.stats["ranged"]:
+			archers.append(r)
+	if archers.is_empty():
+		return
+	var on := false
+	for r in archers:
+		if not r.fire_at_will:
+			on = true
+	for r in archers:
+		r.fire_at_will = on
+	add_message("Tir à volonté !" if on else "Cessez le tir ! (tir seulement sur ordre)")
 
 
 ## Position de la souris dans le monde pour un évènement donné.
@@ -1259,6 +1452,13 @@ func update_camera(delta: float) -> void:
 			v.x += 1
 	camera.position += v * 450.0 * delta / camera.zoom.x
 	clamp_camera()
+	# Secousse : décalage aléatoire (sans toucher à la position) qui s'éteint en une fraction de seconde
+	shake = maxf(shake - delta * 2.2, 0.0)
+	if shake > 0.0:
+		var amp := shake * shake * SHAKE_MAX_PX / camera.zoom.x
+		camera.offset = Vector2(randf_range(-amp, amp), randf_range(-amp, amp)).round()
+	else:
+		camera.offset = Vector2.ZERO
 
 
 func clamp_camera() -> void:
@@ -1300,6 +1500,8 @@ func _draw() -> void:
 
 	for c in corpses:
 		draw_corpse(c)
+
+	draw_dust()
 
 	# Ordres des régiments sélectionnés
 	for r in regiments:
@@ -1563,6 +1765,16 @@ func draw_tree(t: Vector2) -> void:
 	draw_rect(Rect2(p.x - 3, p.y - 13, 7, 2), Color(0.15, 0.35, 0.14, 0.93))
 	draw_rect(Rect2(p.x - 2, p.y - 11, 3, 2), Color(0.22, 0.45, 0.18, 0.93))
 	draw_set_transform(Vector2.ZERO)
+
+
+## Poussière : petits carrés de « pixels » couleur terre qui grossissent un peu et s'estompent.
+func draw_dust() -> void:
+	for d in dust:
+		var k: float = d[2] / d[3] # 1 = vient d'apparaître
+		var sz: float = d[4] * PX * (1.0 if k > 0.5 else 1.5)
+		var p := ((d[0] as Vector2) / PX).round() * PX # Calé sur la grille des pixels
+		var col := Color(0.66, 0.56, 0.4, 0.55 * k).lerp(Color(0.78, 0.72, 0.6, 0.4 * k), 1.0 - k)
+		draw_rect(Rect2(p - Vector2(sz, sz) * 0.5, Vector2(sz, sz)), col)
 
 
 func draw_arrows() -> void:
