@@ -46,18 +46,20 @@ const RANK_DAMAGE := 0.10 ## Bonus de dégâts par rang
 const RANK_MORALE := 0.15 ## Bonus de moral maximal par rang
 var rank := 0
 var kills := 0 ## Ennemis tués pendant la bataille (mêlée et flèches)
+var morale_mult := 1.0 ## Difficulté : multiplicateur du moral maximal (régiments ennemis)
+var damage_mult := 1.0 ## Difficulté : multiplicateur des dégâts (régiments ennemis)
 
 
 ## Fixe le rang d'expérience : le moral maximal monte avec le rang.
 func set_rank(k: int) -> void:
 	rank = clampi(k, 0, RANK_NAMES.size() - 1)
-	max_morale = float(stats["morale"]) * (1.0 + RANK_MORALE * rank)
+	max_morale = float(stats["morale"]) * (1.0 + RANK_MORALE * rank) * morale_mult
 	morale = max_morale
 
 
-## Multiplicateur de dégâts dû à l'expérience.
+## Multiplicateur de dégâts dû à l'expérience (et à la difficulté).
 func rank_damage() -> float:
-	return 1.0 + RANK_DAMAGE * rank
+	return (1.0 + RANK_DAMAGE * rank) * damage_mult
 
 
 func is_dead() -> bool:

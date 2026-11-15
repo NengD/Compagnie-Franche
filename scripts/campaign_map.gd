@@ -227,7 +227,7 @@ func do_new_campaign() -> void:
 		refresh_ui()
 		return
 	confirm_new = false
-	CampaignState.current = CampaignState.new_game()
+	CampaignState.current = CampaignState.new_game(0, state.difficulty) # Même difficulté qu’avant
 	state = CampaignState.current
 	state.save()
 	notice = "Nouvelle campagne."

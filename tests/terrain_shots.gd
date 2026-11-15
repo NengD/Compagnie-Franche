@@ -13,6 +13,7 @@ var frame := 0
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	scene = load("res://scenes/main.tscn")
 	_open()
 

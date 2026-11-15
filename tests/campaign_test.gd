@@ -35,6 +35,7 @@ var waiting := true ## Le _ready de la scène ajoutée n'a pas encore été appe
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	OS.add_logger(counter)
 	CampaignState.save_path = "user://test_campagne.json"
 	CampaignState.delete_save()

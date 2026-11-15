@@ -21,6 +21,7 @@ var fails: Array[String] = []
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--seeds="):
 			n_seeds = int(a.trim_prefix("--seeds="))

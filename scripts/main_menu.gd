@@ -11,7 +11,7 @@ const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée
-var page := "main" ## "main", "confirm_new" ou "options"
+var page := "main" ## "main", "new_campaign" (choix de la difficulté) ou "options"
 var notice := ""
 var waiting_action := "" ## Action dont on attend la nouvelle touche ("" = aucune)
 var font: Font
@@ -52,8 +52,8 @@ func refresh() -> void:
 	match page:
 		"options":
 			build_options()
-		"confirm_new":
-			build_confirm()
+		"new_campaign":
+			build_new_campaign()
 		_:
 			build_main()
 	# Le panneau se recentre sur son nouveau contenu
@@ -100,6 +100,7 @@ func build_main() -> void:
 		focus_later(nb)
 	add_button("Tutoriel", start_tutorial)
 	add_button("Escarmouche", start_skirmish)
+	box.add_child(UiTheme.label("Escarmouche en difficulté %s (Options)" % Difficulty.display_name(GameOptions.difficulty).to_lower(), 13, UiTheme.DIM))
 	add_button("Options", open_options)
 	add_button("Quitter", quit_game)
 	if notice != "":
@@ -109,23 +110,32 @@ func build_main() -> void:
 		box.add_child(l)
 
 
-func build_confirm() -> void:
-	var day := ""
-	var saved := CampaignState.load_game()
-	if saved != null:
-		day = " (jour %d, %d écus, %d hommes)" % [saved.day, int(saved.gold), saved.total_men()]
+## Nouvelle campagne : choix de la difficulté (et avertissement si une campagne est en cours).
+func build_new_campaign() -> void:
 	box.add_child(UiTheme.label("Nouvelle campagne", 22, UiTheme.GOLD))
-	var l := UiTheme.label("Une campagne est en cours%s.\nLa remplacer par une nouvelle ? La sauvegarde sera effacée." % day, 16)
-	l.custom_minimum_size.x = 420
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(l)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_child(row)
-	add_button("Oui, recommencer", confirm_new_campaign, true, row)
-	var no := add_button("Non", back_to_main, true, row)
-	focus_later(no)
+	var saved := CampaignState.load_game() if CampaignState.has_save() else null
+	if CampaignState.has_save():
+		var day := ""
+		if saved != null:
+			day = " (jour %d, %d écus, %d hommes)" % [saved.day, int(saved.gold), saved.total_men()]
+		var l := UiTheme.label("Une campagne est en cours%s.
+La remplacer par une nouvelle ? La sauvegarde sera effacée." % day, 16, UiTheme.WARN)
+		l.custom_minimum_size.x = 460
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(l)
+	box.add_child(UiTheme.label("Choisissez la difficulté :", 16))
+	for id in Difficulty.IDS:
+		var b := add_button(Difficulty.display_name(id), confirm_new_campaign.bind(id))
+		b.name = "Difficulte_" + id
+		var h := UiTheme.label(Difficulty.hint(id), 13, UiTheme.DIM)
+		h.custom_minimum_size.x = 460
+		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(h)
+		if id == Difficulty.NORMAL and not CampaignState.has_save():
+			focus_later(b)
+	var back := add_button("Retour", back_to_main)
+	if CampaignState.has_save():
+		focus_later(back)
 
 
 # ---------------------------------------------------------------- Options
@@ -156,6 +166,16 @@ func build_options() -> void:
 	sp.item_selected.connect(set_speed)
 	grid.add_child(sp)
 	grid.add_child(UiTheme.label("(touche %s en bataille)" % GameOptions.key_label("speed"), 13, UiTheme.DIM))
+
+	grid.add_child(UiTheme.label("Difficulté (escarmouche)"))
+	var df := OptionButton.new()
+	df.name = "Difficulte"
+	for id in Difficulty.IDS:
+		df.add_item(Difficulty.display_name(id))
+	df.selected = maxi(Difficulty.IDS.find(GameOptions.difficulty), 0)
+	df.item_selected.connect(set_difficulty)
+	grid.add_child(df)
+	grid.add_child(UiTheme.label("(la campagne a la sienne)", 13, UiTheme.DIM))
 
 	box.add_child(HSeparator.new())
 	box.add_child(UiTheme.label("Touches de bataille", 18, UiTheme.GOLD))
@@ -233,6 +253,11 @@ func set_speed(i: int) -> void:
 	GameOptions.save_options()
 
 
+func set_difficulty(i: int) -> void:
+	GameOptions.difficulty = Difficulty.IDS[i]
+	GameOptions.save_options()
+
+
 func start_rebind(id: String) -> void:
 	waiting_action = id
 	notice = ""
@@ -291,15 +316,13 @@ func continue_campaign() -> void:
 
 
 func new_campaign() -> void:
-	if CampaignState.has_save():
-		page = "confirm_new"
-		refresh()
-		return
-	confirm_new_campaign()
+	page = "new_campaign"
+	notice = ""
+	refresh()
 
 
-func confirm_new_campaign() -> void:
-	CampaignState.current = CampaignState.new_game()
+func confirm_new_campaign(level := Difficulty.NORMAL) -> void:
+	CampaignState.current = CampaignState.new_game(0, level)
 	CampaignState.current.save()
 	page = "main"
 	go(CAMPAIGN_SCENE)

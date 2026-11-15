@@ -83,6 +83,7 @@ var shake := 0.0 ## Intensité de la secousse de caméra (0 à 1), décroît ave
 var shake_enabled := true ## Désactivée sans fenêtre (tests)
 var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
 var game_speed := 1.0 ## Vitesse de la simulation (options, touche V)
+var difficulty := "" ## Difficulté imposée (tests) ; vide = celle de la campagne ou des options
 
 
 # ---------------------------------------------------------------- Mise en place
@@ -98,6 +99,10 @@ func _ready() -> void:
 		rng.seed = int(campaign.pending["seed"])
 	else:
 		rng.randomize()
+	if difficulty == "":
+		difficulty = campaign.difficulty if campaign != null else GameOptions.difficulty
+	difficulty = Difficulty.sanitize(difficulty)
+	ai.configure(difficulty)
 	shake_enabled = DisplayServer.get_name() != "headless"
 	generate_world()
 	if campaign != null:
@@ -403,11 +408,15 @@ func add_regiment(team: int, type: String, at: Vector2, facing: Vector2, men := 
 	r.stats = UnitTypes.STATS[type]
 	r.dest = at
 	r.facing = facing
-	r.max_morale = r.stats["morale"]
-	r.morale = r.max_morale
 	var count: int = r.stats["count"]
 	if men > 0:
 		count = mini(men, count)
+	if team == ENEMY:
+		count = Difficulty.enemy_men(difficulty, count)
+		r.morale_mult = Difficulty.value(difficulty, "enemy_morale")
+		r.damage_mult = Difficulty.value(difficulty, "enemy_damage")
+	r.max_morale = r.stats["morale"] * r.morale_mult
+	r.morale = r.max_morale
 	for i in count:
 		var s := Soldier.new()
 		s.regiment = r

@@ -42,6 +42,7 @@ var max_dust := 0 ## Plus grand nombre de particules de poussière vu pendant la
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	OS.add_logger(counter)
 	var seed_value := 12345
 	for a in OS.get_cmdline_user_args():
