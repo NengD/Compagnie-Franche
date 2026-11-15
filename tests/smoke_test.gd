@@ -4,6 +4,8 @@ extends SceneTree
 ## Lancer :  godot --headless --path . -s tests/smoke_test.gd
 ## Options (après « -- ») :  --seed=N   graine du terrain et des jets de dés (défaut 12345)
 ##                           --max=S    durée simulée maximale en secondes (défaut 600)
+##                           --terrain=T  terrain imposé : plain, forest, hills, river, village, siege
+##                                        (défaut : plain ; « random » = tiré au sort comme en escarmouche)
 ## Code de sortie : 0 si tout va bien, 1 sinon.
 
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -35,6 +37,7 @@ var max_time := 600.0
 var player := TestPlayer.new("tactical") ## Joueur simulé (voir tests/test_player.gd)
 var frames := 0
 var finished := false
+var terrain_kind := "plain"
 
 
 func _initialize() -> void:
@@ -45,6 +48,11 @@ func _initialize() -> void:
 			seed_value = int(a.trim_prefix("--seed="))
 		elif a.begins_with("--max="):
 			max_time = float(a.trim_prefix("--max="))
+		elif a.begins_with("--terrain="):
+			terrain_kind = a.trim_prefix("--terrain=")
+	if terrain_kind != "random" and not terrain_kind in Terrain.KINDS:
+		_finish(["terrain inconnu : %s (choix : %s)" % [terrain_kind, ", ".join(Terrain.KINDS)]])
+		return
 
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	if scene == null:
@@ -52,8 +60,9 @@ func _initialize() -> void:
 		return
 	battle = scene.instantiate()
 	battle.set("seed_override", seed_value)
+	battle.set("terrain_override", "" if terrain_kind == "random" else terrain_kind)
 	root.add_child(battle)
-	print("Smoke test : graine %d, durée simulée max %d s" % [seed_value, int(max_time)])
+	print("Smoke test : graine %d, terrain %s, durée simulée max %d s" % [seed_value, terrain_kind, int(max_time)])
 
 
 func _process(_delta: float) -> bool:
@@ -62,6 +71,8 @@ func _process(_delta: float) -> bool:
 	frames += 1
 	if frames == 1:
 		# _ready() de la bataille a maintenant été appelé : on teste le déploiement, puis on lance.
+		# Les ordres se testent sur terrain neutre ; le terrain est vérifié à part.
+		battle.terrain.active = false
 		var line_fails := _test_line_orders()
 		if not line_fails.is_empty() or not counter.errors.is_empty():
 			line_fails.append("échec pendant le test des lignes de front")
@@ -84,6 +95,13 @@ func _process(_delta: float) -> bool:
 		if not asset_fails.is_empty():
 			_finish(asset_fails)
 			return true
+		battle.terrain.active = true
+		var terrain_fails := _test_terrain()
+		if not terrain_fails.is_empty() or not counter.errors.is_empty():
+			terrain_fails.append("échec pendant le test du terrain")
+			_finish(terrain_fails)
+			return true
+		print("Terrain (%s) : OK" % battle.terrain.kind)
 		battle.start_battle()
 		return false
 	for i in STEPS_PER_FRAME:
@@ -243,8 +261,10 @@ func _test_formations() -> Array[String]:
 	# Le carré est plus lent : on mesure un déplacement de 6 s en ligne puis en carré
 	var dist := []
 	var home := r.dest
+	var lane := _clear_lane(Vector2.UP, 420.0) # Trajet sans forêt (le bois ralentit)
 	for f in [Regiment.Formation.LINE, Regiment.Formation.SQUARE]:
 		r.formation = f
+		_teleport(r, lane, Vector2.UP)
 		var start := r.center
 		r.dest = start + Vector2(0, -400)
 		for i in 120:
@@ -354,9 +374,200 @@ func _test_running() -> Array[String]:
 	return fails
 
 
+## Vérifs ciblées du terrain : table des contrats, puis selon le terrain forcé : eau et gués,
+## relief, maisons à contourner, palissade qui bloque et brèches qui laissent passer.
+func _test_terrain() -> Array[String]:
+	var fails: Array[String] = []
+	var t: Terrain = battle.terrain
+	if terrain_kind != "random" and t.kind != terrain_kind:
+		fails.append("terrain : %s demandé, %s obtenu" % [terrain_kind, t.kind])
+	# Table des contrats de campagne
+	var towns := CampaignState.TOWNS
+	var expect := {["Valombre", 1]: "forest", ["Brévannes", 2]: "river", ["Saint-Aubin", 1]: "village",
+		["Montfaucon", 2]: "hills", ["Hautemure", 3]: "siege", ["Castelroux", 3]: "siege", ["Castelroux", 1]: "hills"}
+	for k in expect:
+		var idx := -1
+		for i in towns.size():
+			if towns[i]["name"] == k[0]:
+				idx = i
+		if Terrain.for_contract(idx, k[1], towns) != expect[k]:
+			fails.append("terrain : %s (difficulté %d) devrait donner %s" % [k[0], k[1], expect[k]])
+	match t.kind:
+		"river":
+			fails.append_array(_test_river(t))
+		"hills":
+			fails.append_array(_test_hills(t))
+		"village":
+			fails.append_array(_test_village(t))
+		"siege":
+			fails.append_array(_test_siege(t))
+	return fails
+
+
+## Soldat isolé (hors de la liste de la bataille) d'un régiment du joueur du type voulu.
+func _lone_soldier(type: String, at: Vector2) -> Soldier:
+	var s := Soldier.new()
+	for r in battle.player_regiments():
+		if r.type == type:
+			s.regiment = r
+			break
+	if s.regiment == null:
+		s.regiment = battle.player_regiments()[0]
+	s.pos = at
+	return s
+
+
+## Fait marcher s vers goal pendant duration secondes ; appelle check(pos) à chaque pas.
+func _walk(s: Soldier, goal: Vector2, duration: float, check: Callable = Callable()) -> void:
+	var speed: float = s.regiment.stats["speed"]
+	var rad: float = s.regiment.stats["radius"]
+	for i in int(duration / STEP):
+		battle.move_towards(s, goal, speed, STEP)
+		s.pos = battle.terrain.push_out(s.pos, rad)
+		if check.is_valid():
+			check.call(s.pos)
+
+
+func _test_river(t: Terrain) -> Array[String]:
+	var fails: Array[String] = []
+	if t.fords.size() < 2 or t.fords.size() > 3:
+		fails.append("rivière : %d gués au lieu de 2 ou 3" % t.fords.size())
+		return fails
+	# Point d'eau profonde loin des gués
+	var deep_x := 0.0
+	for x in range(200, 3000, 40):
+		var ok := true
+		for f in t.fords:
+			if absf(x - f) < Terrain.FORD_HALF + 120.0:
+				ok = false
+		if ok:
+			deep_x = x
+			break
+	var dist := {}
+	for where in ["terre", "eau", "gué"]:
+		var x: float = deep_x if where != "gué" else t.fords[0]
+		var y: float = battle.road_y(x) - (Terrain.RIVER_HALF - 4.0 if where != "terre" else 260.0)
+		var s := _lone_soldier("spear", Vector2(x, y))
+		var start := s.pos
+		_walk(s, start + Vector2(0, 400), 1.0)
+		dist[where] = s.pos.distance_to(start)
+	print("Rivière : 1 s de marche — terre %.0f px, eau %.0f px, gué %.0f px" % [dist["terre"], dist["eau"], dist["gué"]])
+	if not (dist["eau"] < dist["terre"] * 0.5):
+		fails.append("rivière : le soldat n'est pas ralenti dans l'eau")
+	if not (dist["gué"] > dist["terre"] * 0.9):
+		fails.append("rivière : le gué devrait se traverser à vitesse normale")
+	if t.has_road() or battle.on_road(Vector2(deep_x, battle.road_y(deep_x)), 18.0):
+		fails.append("rivière : la route devrait être remplacée par la rivière")
+	return fails
+
+
+func _test_hills(t: Terrain) -> Array[String]:
+	var fails: Array[String] = []
+	var top := Vector2.ZERO
+	var best := 0.0
+	for y in range(400, 1600, 20):
+		for x in range(100, 3100, 20):
+			var h := t.height(Vector2(x, y))
+			if h > best:
+				best = h
+				top = Vector2(x, y)
+	var foot := top + Vector2(0, 600)
+	print("Collines : sommet %.2f en %s, pied %.2f, portée x%.2f, dégâts d'en haut x%.2f" % [
+		best, str(top), t.height(foot), t.range_factor(top), t.height_damage(top, foot)])
+	if best < 0.6:
+		fails.append("collines : aucun sommet assez haut (%.2f)" % best)
+	if t.range_factor(top) < 1.15 or t.range_factor(top) <= t.range_factor(foot):
+		fails.append("collines : les archers en hauteur ne tirent pas plus loin")
+	if t.height_damage(top, foot) <= 1.1 or t.height_damage(foot, top) != 1.0:
+		fails.append("collines : frapper d'en haut devrait faire plus de dégâts (et seulement d'en haut)")
+	# Montée plus lente que la descente : on cherche le versant le plus raide autour du sommet
+	var up := 1.0
+	var down := 1.0
+	for d in range(40, 400, 20):
+		for k in 8:
+			var dir := Vector2.from_angle(k * TAU / 8.0)
+			var p := top + dir * d
+			var f := t.speed_factor(p, -dir, "spear")
+			if f < up:
+				up = f
+				down = t.speed_factor(p, dir, "spear")
+	if not (up < 0.85 and down >= 0.999):
+		fails.append("collines : la montée devrait ralentir (montée x%.2f, descente x%.2f)" % [up, down])
+	return fails
+
+
+func _test_village(t: Terrain) -> Array[String]:
+	var fails: Array[String] = []
+	if t.houses.size() < 4:
+		fails.append("village : seulement %d maisons" % t.houses.size())
+		return fails
+	var h: Rect2 = t.houses[0]
+	var s := _lone_soldier("men_at_arms", h.get_center() + Vector2(0, h.size.y * 0.5 + 40.0))
+	var goal := h.get_center() - Vector2(0, h.size.y * 0.5 + 40.0)
+	var inside := [false]
+	_walk(s, goal, 20.0, func(p: Vector2) -> void:
+		for o in t.houses:
+			if o.has_point(p):
+				inside[0] = true)
+	print("Village : %d maisons, contournement d'une maison → %.0f px du but" % [t.houses.size(), s.pos.distance_to(goal)])
+	if inside[0]:
+		fails.append("village : un soldat est entré dans une maison")
+	if s.pos.distance_to(goal) > 6.0:
+		fails.append("village : le soldat n'a pas contourné la maison (%.0f px du but)" % s.pos.distance_to(goal))
+	return fails
+
+
+func _test_siege(t: Terrain) -> Array[String]:
+	var fails: Array[String] = []
+	if t.walls.size() != 3 or t.breaches.size() != 2:
+		fails.append("palissade : %d tronçons et %d brèches" % [t.walls.size(), t.breaches.size()])
+		return fails
+	var wy := Terrain.WALL_Y
+	var x := (t.breaches[0] + t.breaches[1]) * 0.5 # Au milieu du mur, loin des brèches
+	var start := Vector2(x, wy - 60.0)
+	var goal := Vector2(x, wy + 60.0)
+	if not t.wall_blocks(start, goal) or t.wall_blocks(Vector2(t.breaches[0], wy - 60), Vector2(t.breaches[0], wy + 60)):
+		fails.append("palissade : wall_blocks incorrect")
+	# Bloqué par le mur : en 3 s il n'a pas traversé
+	var s := _lone_soldier("men_at_arms", start)
+	var crossings: Array[float] = []
+	var last := [s.pos.y - wy]
+	var watch := func(p: Vector2) -> void:
+		var d := p.y - wy
+		if d * last[0] < 0.0 or (d >= 0.0 and last[0] < 0.0):
+			crossings.append(p.x)
+		last[0] = d
+	_walk(s, goal, 3.0, watch)
+	if s.pos.y > wy:
+		fails.append("palissade : le soldat a traversé le mur directement")
+	# Puis il passe par une brèche et arrive au but
+	_walk(s, goal, 90.0, watch)
+	print("Palissade : brèches en x = %d et %d, traversée en x = %s, %.0f px du but" % [
+		int(t.breaches[0]), int(t.breaches[1]), str(crossings), s.pos.distance_to(goal)])
+	if s.pos.distance_to(goal) > 6.0:
+		fails.append("palissade : le soldat n'a pas atteint le but par une brèche (%.0f px)" % s.pos.distance_to(goal))
+	for cx in crossings:
+		var in_breach := false
+		for b in t.breaches:
+			if absf(cx - b) < Terrain.BREACH_HALF:
+				in_breach = true
+		if not in_breach:
+			fails.append("palissade : traversée hors brèche en x = %.0f" % cx)
+	if crossings.is_empty():
+		fails.append("palissade : aucune traversée détectée")
+	# Les défenseurs derrière les pieux sont abrités des flèches venues d'en face
+	if not t.wall_shelters(Vector2(x, wy - 300), Vector2(x, wy + 30)) or t.wall_shelters(Vector2(x, wy + 300), Vector2(x, wy + 30)):
+		fails.append("palissade : abri contre les flèches incorrect")
+	# Un ennemi derrière la palissade n'est pas un adversaire de mêlée accessible
+	var foe := _lone_soldier("spear", Vector2(x, wy + 12))
+	if not t.wall_blocks(Vector2(x, wy - 12), foe.pos):
+		fails.append("palissade : la mêlée à travers le mur devrait être impossible")
+	return fails
+
+
 ## Point de départ d'un trajet sans forêt de la longueur voulue dans la zone de déploiement.
 func _clear_lane(dir: Vector2, length: float) -> Vector2:
-	for y in range(1500, 1950, 50):
+	for y in range(1500 if dir.y >= 0.0 else 1950, 1950 if dir.y >= 0.0 else 1500, 50 if dir.y >= 0.0 else -50):
 		for x in range(200, 2800, 100):
 			var start := Vector2(x, y)
 			var ok := true

@@ -1,6 +1,8 @@
 extends SceneTree
 ## Banc d'essai d'équilibrage (sans fenêtre) : joue de nombreuses batailles par stratégie.
 ##   godot --headless --path . -s tests/balance.gd -- --seeds=12 --strategies=idle,naive,tactical
+##   --terrain=T : terrain imposé (plain, forest, hills, river, village, siege) ; « all » = chacun tour à tour ;
+##                 sans option, tiré au sort comme en escarmouche.
 ## Affiche le taux de victoire, la durée et les pertes moyennes.
 
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -13,6 +15,8 @@ var first_seed := 1
 var strategies: PackedStringArray = ["idle", "naive", "tactical"]
 var trace := false ## --trace : journal des mêlées et des déroutes
 var mirror := false ## --mirror : armées identiques (diagnostic)
+var terrains: PackedStringArray = [""] ## "" = terrain au hasard
+var terrain := ""
 
 
 func _initialize() -> void:
@@ -27,11 +31,25 @@ func _initialize() -> void:
 			trace = true
 		elif a == "--mirror":
 			mirror = true
+		elif a.begins_with("--terrain="):
+			var t := a.trim_prefix("--terrain=")
+			terrains = PackedStringArray(Terrain.KINDS) if t == "all" else t.split(",")
 	scene = load("res://scenes/main.tscn")
 
 
 func _process(_delta: float) -> bool:
 	var t0 := Time.get_ticks_msec()
+	for tk in terrains:
+		terrain = tk
+		if terrains.size() > 1 or tk != "":
+			print("--- terrain : %s" % (tk if tk != "" else "au hasard"))
+		run_strategies()
+	print("(%.1f s de calcul)" % ((Time.get_ticks_msec() - t0) / 1000.0))
+	quit(0)
+	return true
+
+
+func run_strategies() -> void:
 	for strat in strategies:
 		var wins := 0
 		var times: Array[float] = []
@@ -54,14 +72,12 @@ func _process(_delta: float) -> bool:
 		print("%-9s victoires %2d/%d  non finies %d  durée moy %5.0f s (min %4.0f, médiane %4.0f, max %4.0f)  survivants joueur %4.0f%%  ennemi %4.0f%%" % [
 			strat, wins, n_seeds, unfinished, mean, times[0], times[times.size() / 2], times[-1],
 			100.0 * surv[0] / n_seeds, 100.0 * surv[1] / n_seeds])
-	print("(%.1f s de calcul)" % ((Time.get_ticks_msec() - t0) / 1000.0))
-	quit(0)
-	return true
 
 
 func play(strat: String, seed_value: int) -> Dictionary:
 	var b := scene.instantiate()
 	b.set("seed_override", seed_value)
+	b.set("terrain_override", terrain)
 	root.add_child(b)
 	var player := TestPlayer.new(strat)
 	if mirror:

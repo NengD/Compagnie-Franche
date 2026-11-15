@@ -52,6 +52,7 @@ func _draw() -> void:
 	text(Vector2(bar.end.x + 10, 21), str(e), 14, Color(1, 0.6, 0.55))
 	var weather := "Pluie" if battle.raining else "Temps clair"
 	text(Vector2(vs.x - 160, 21), weather + "  [T]", 13, Color(0.85, 0.85, 0.85))
+	text(Vector2(vs.x - 330, 21), "Terrain : " + battle.terrain.display_name(), 13, Color(0.85, 0.85, 0.85))
 
 	# Cartes des régiments du joueur
 	var list: Array = battle.player_regiments()

@@ -56,13 +56,33 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
 - **Formations** (touche F) : la **ligne** (par défaut) ; la **colonne** (3 de front) avance 15 % plus vite ; le **carré** creux est lent (x0,55) mais n'a ni flanc ni dos : il annule les bonus de flanc et de dos.
 - **Tir ami** : les flèches touchent ce qu'elles trouvent… évitez de tirer dans une mêlée.
 
+## Terrains
+Le terrain est affiché en haut de l'écran et annoncé au début de la bataille.
+- **Rase campagne** et **bois** : route, bosquets ou forêts épaisses (embuscades).
+- **Collines** (courbes de niveau, sol éclairci) : des archers au sommet tirent jusqu'à 35 % plus loin ;
+  frapper un ennemi situé plus bas fait jusqu'à +50 % de dégâts ; monter une pente ralentit (jusqu'à -45 %).
+- **Rivière** (remplace la route) : on la traverse à 35 % de la vitesse, sauf aux **2 ou 3 gués**
+  (bandes claires de galets) où l'on passe à vitesse normale.
+- **Village** : une dizaine de maisons bloquent le passage ; les soldats les contournent.
+- **Palissade** (défense) : une ligne de pieux barre le champ devant votre zone de déploiement, avec
+  **2 brèches**. Personne ne franchit les pieux : les régiments des deux camps passent par les brèches et
+  on ne se bat pas à travers le mur. Les flèches passent, mais la moitié s'arrête dans les pieux pour les
+  soldats postés juste derrière (moins de 80 px). Votre infanterie est déployée de part et d'autre de chaque
+  brèche pour prendre en tenaille ce qui la franchit ; l'assaillant amène en échange un régiment d'archers
+  de renfort.
+- **Choix** : en escarmouche, au hasard. En campagne, d'après la ville du contrat : Valombre bois,
+  Saint-Aubin village, Montfaucon et Castelroux collines, Brévannes et Pontrieux rivière, Hautemure rase
+  campagne ; les contrats de difficulté 3 à **Hautemure** et **Castelroux** sont des défenses de palissade.
+  Table modifiable dans `scripts/terrain.gd` (`TOWN_TERRAINS`, `SIEGE_TOWNS`).
+
 ## Structure
 ```
 scenes/campaign.tscn    Carte de campagne (scène de départ)
 scenes/main.tscn        Bataille (un seul nœud, tout est construit par le code)
 scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, contrats
 scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats
-scripts/battle.gd       Terrain, simulation, ordres, caméra, rendu pixel art
+scripts/battle.gd       Forêts et route, simulation, ordres, caméra, rendu pixel art
+scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques des unités (à modifier pour équilibrer)
@@ -74,6 +94,7 @@ assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, deux batailles de contrat, carte)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
+tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
@@ -81,15 +102,24 @@ tests/test_player.gd    Joueurs simulés utilisés par les tests
 ## Tests
 ```
 godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, code de sortie 1 si échec
+godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur un terrain imposé
+                                                      # (plain, forest, hills, river, village, siege, random)
 godot --headless --path . -s tests/campaign_test.gd   # campagne : solde, recrutement, pertes reportées, sauvegarde
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
+godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
+godot --path . -s tests/terrain_shots.gd              # captures/terrain_*.png
 ```
 
 ## Équilibrage
 Réglages dans `scripts/unit_types.gd` (statistiques, moral, charge) et `scripts/enemy_ai.gd`.
 Objectif : une bataille dure 2 à 4 minutes ; l'ennemi a plus d'infanterie (8 régiments contre 8,
 mais 5 d'infanterie contre 4) et une seule cavalerie, le joueur doit donc manœuvrer pour gagner.
+
+Banc d'essai par terrain (10 à 20 graines, victoires du joueur « tactique » / « naïf ») : état de départ
+4/10 et 4/10 ; rase campagne 2/10 et 2/10 ; bois 4/10 et 4/10 ; collines 6/10 et 3/10 ; rivière 3/10 et 2/10 ;
+village 6/10 et 3/10 ; palissade 11/20 et 10/20. Toutes les batailles se terminent (aucune bloquée).
+Les écarts restent dans le bruit d'une série de 10 batailles.
 
 ## Pistes pour continuer
 - Expérience des régiments, événements sur les routes.
