@@ -21,7 +21,7 @@ func _ready() -> void:
 	show_help = false
 	messages.clear()
 	build_steps()
-	add_message("Tutoriel : suivez les consignes en haut à droite. Échap : menu principal.")
+	add_message("Tutoriel : suivez les consignes en haut à droite. Échap : menu pause.")
 	var layer := CanvasLayer.new()
 	layer.layer = 2
 	add_child(layer)
@@ -163,7 +163,7 @@ func _process(delta: float) -> void:
 ## Espace ne lance la bataille qu'à l'étape prévue (l'ennemi attend jusque-là).
 func _unhandled_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
-	if k != null and k.pressed and not k.echo and k.keycode == KEY_SPACE and state == State.DEPLOY:
+	if k != null and k.pressed and not k.echo and k.keycode == KEY_SPACE and state == State.DEPLOY and not menu_open():
 		var at := steps.map(func(s): return s["id"]).find("start")
 		if step < at:
 			add_message("Pas encore ! Terminez d'abord l'étape « %s »." % steps[step]["title"])

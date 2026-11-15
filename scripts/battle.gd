@@ -83,6 +83,7 @@ var shake := 0.0 ## Intensité de la secousse de caméra (0 à 1), décroît ave
 var shake_enabled := true ## Désactivée sans fenêtre (tests)
 var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
 var game_speed := 1.0 ## Vitesse de la simulation (options, touche V)
+var pause_menu: PauseMenu = null ## Menu pause (Échap), créé à la première ouverture
 
 
 # ---------------------------------------------------------------- Mise en place
@@ -432,6 +433,11 @@ func start_battle() -> void:
 # ---------------------------------------------------------------- Boucle
 
 func _process(delta: float) -> void:
+	if menu_open():
+		# Menu pause : rien ne bouge, ni la simulation ni la caméra
+		queue_redraw()
+		hud.queue_redraw()
+		return
 	update_camera(delta)
 	if not paused:
 		# Vitesse x1,5 / x2 (options, touche V) et ralenti de fin : plusieurs pas d'au plus 0,05 s
@@ -595,6 +601,13 @@ func update_regiment(r: Regiment, dt: float) -> void:
 	if r.routing:
 		return
 
+	if state == State.DEPLOY:
+		# Déploiement : on se place, on n'attaque personne (et les archers ne tirent pas)
+		r.target = null
+		r.fire_target = null
+		r.holding = false
+		return
+
 	r.think -= dt
 	if r.stats["ranged"]:
 		update_archers(r, dt)
@@ -740,7 +753,9 @@ func update_soldier(s: Soldier, dt: float) -> void:
 
 	if s.foe != null and not s.foe.alive:
 		s.foe = null
-	if s.retarget <= 0.0:
+	if state == State.DEPLOY:
+		s.foe = null # Déploiement : aucun coup, même au contact de l'ennemi
+	elif s.retarget <= 0.0:
 		s.retarget = 0.25 + rng.randf() * 0.15
 		var radius := 24.0
 		if r.target != null and not r.stats["ranged"]:
@@ -772,7 +787,7 @@ func update_soldier(s: Soldier, dt: float) -> void:
 			kick_dust(s, dt)
 		else:
 			s.momentum = maxf(s.momentum - dt, 0.0)
-		if r.stats["ranged"] and r.fire_target != null and s.cooldown <= 0.0 and d < 12.0:
+		if r.stats["ranged"] and r.fire_target != null and s.cooldown <= 0.0 and d < 12.0 and state != State.DEPLOY:
 			fire_arrow(s, r.fire_target)
 			s.cooldown = float(r.stats["reload"]) * rng.randf_range(0.8, 1.25)
 	separate(s)
@@ -1046,7 +1061,7 @@ func request_retreat() -> void:
 ## Retraite ordonnée : la bataille est perdue, mais seuls les hommes au contact de l'ennemi
 ## risquent d'être rattrapés (un sur deux) ; tous les autres rejoignent la compagnie.
 func order_retreat() -> void:
-	if state != State.BATTLE:
+	if state != State.BATTLE and state != State.DEPLOY: # Possible dès le déploiement (menu pause)
 		return
 	retreated = true
 	retreat_caught = 0
@@ -1098,7 +1113,33 @@ func add_message(text: String) -> void:
 
 # ---------------------------------------------------------------- Commandes
 
+func menu_open() -> bool:
+	return pause_menu != null and pause_menu.is_open()
+
+
+## Échap pendant le déploiement ou la bataille : ouvre le menu pause (la simulation s'arrête).
+func open_pause_menu() -> void:
+	dragging = false
+	line_dragging = false
+	panning = false
+	if pause_menu == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 10 # Au-dessus du HUD et du panneau du tutoriel
+		add_child(layer)
+		pause_menu = PauseMenu.new()
+		pause_menu.battle = self
+		layer.add_child(pause_menu)
+	pause_menu.open()
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if menu_open():
+		# Menu pause ouvert : seul Échap compte (retour ou fermeture), le reste est ignoré
+		var ek := event as InputEventKey
+		if ek != null and ek.pressed and not ek.echo and ek.keycode == KEY_ESCAPE:
+			pause_menu.on_escape()
+		get_viewport().set_input_as_handled()
+		return
 	var mb := event as InputEventMouseButton
 	if mb != null:
 		var wp := event_world_pos(mb)
@@ -1191,8 +1232,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				else:
 					get_tree().reload_current_scene()
 		KEY_ESCAPE:
-			# Escarmouche : retour au menu principal (un contrat se joue jusqu'au bout)
-			if campaign == null:
+			if state == State.DEPLOY or state == State.BATTLE:
+				open_pause_menu()
+			elif campaign == null:
+				# Écran de fin d'escarmouche : retour au menu principal (en contrat : Entrée)
 				get_tree().change_scene_to_file("res://scenes/menu.tscn")
 	# Touches 1 à 9 (position physique, fonctionne en AZERTY)
 	var idx: int = int(k.physical_keycode) - int(KEY_1)
@@ -1395,10 +1438,14 @@ func issue_order(wp: Vector2, run := false) -> void:
 	var sel := selected_regiments()
 	if sel.is_empty():
 		return
-	set_running(sel, run)
 	var enemy: Regiment = null
 	if state == State.BATTLE:
 		enemy = regiment_at(wp, ENEMY)
+	elif state == State.DEPLOY and regiment_at(wp, ENEMY) != null:
+		add_message("Pas d'attaque pendant le déploiement : appuyez d'abord sur Espace pour lancer la bataille.")
+		markers.append([wp, Color(1, 0.3, 0.2), 0.6])
+		return
+	set_running(sel, run)
 	if enemy != null:
 		for r in sel:
 			r.target = enemy
@@ -1428,7 +1475,7 @@ func issue_order(wp: Vector2, run := false) -> void:
 	for i in sel.size():
 		var r: Regiment = sel[i]
 		var w: float = widths[i]
-		r.dest = (wp + right * (x + w * 0.5)).clamp(Vector2(20, 20), WORLD_SIZE - Vector2(20, 20))
+		r.dest = order_dest(r, (wp + right * (x + w * 0.5)).clamp(Vector2(20, 20), WORLD_SIZE - Vector2(20, 20)), facing)
 		r.facing = facing
 		r.target = null
 		r.holding = false
@@ -1486,13 +1533,47 @@ func issue_line_order(a: Vector2, b: Vector2, run := false) -> void:
 	set_running(sel, run)
 	for e in layout:
 		var r: Regiment = e["reg"]
-		r.dest = e["dest"]
-		r.facing = e["facing"]
 		r.cols_override = e["cols"]
 		r.formation = Regiment.Formation.LINE
+		r.dest = order_dest(r, e["dest"], e["facing"], e["cols"])
+		r.facing = e["facing"]
 		r.target = null
 		r.holding = false
 	markers.append([(a + b) * 0.5, Color(1, 1, 1), 0.6])
+
+
+## Limite haute de la zone de déploiement. En siège, on peut se poster juste derrière la palissade.
+func deploy_top() -> float:
+	if terrain.kind == "siege":
+		return minf(DEPLOY_Y, Terrain.WALL_Y + 40.0)
+	return DEPLOY_Y
+
+
+## Demi-étendue (en x et en y) de la formation de r posée face à facing.
+## cols > 0 : largeur de front imposée (ligne tracée) ; sinon celle de la formation actuelle.
+func formation_extent(r: Regiment, facing: Vector2, cols := 0) -> Vector2:
+	var n := maxi(r.alive_n, 1)
+	var sp: float = r.stats["spacing"]
+	var c := r.columns(n)
+	var rows := r.depth_rows(n)
+	if cols > 0:
+		c = clampi(cols, 1, n)
+		rows = ceili(float(n) / float(c))
+	var hw := (c - 1) * 0.5 * sp + float(r.stats["radius"])
+	var hd := (rows - 1) * 0.5 * sp + float(r.stats["radius"])
+	var right := Vector2(-facing.y, facing.x)
+	return Vector2(absf(right.x) * hw + absf(facing.x) * hd, absf(right.y) * hw + absf(facing.y) * hd)
+
+
+## Destination d'un ordre du joueur : pendant le déploiement, toute la formation doit tenir
+## dans la zone bleue (sous deploy_top()), en tenant compte de sa largeur et de sa profondeur.
+func order_dest(r: Regiment, dest: Vector2, facing: Vector2, cols := 0) -> Vector2:
+	if state != State.DEPLOY or r.team != PLAYER:
+		return dest
+	var ext := formation_extent(r, facing, cols)
+	var lo := Vector2(ext.x + 4.0, deploy_top() + ext.y + 2.0)
+	var hi := WORLD_SIZE - ext - Vector2(4, 4)
+	return Vector2(clampf(dest.x, lo.x, maxf(lo.x, hi.x)), clampf(dest.y, lo.y, maxf(lo.y, hi.y)))
 
 
 # ---------------------------------------------------------------- Caméra
@@ -1553,8 +1634,9 @@ func _draw() -> void:
 		draw_river_glints()
 
 	if state == State.DEPLOY:
-		draw_rect(Rect2(0, DEPLOY_Y, WORLD_SIZE.x, WORLD_SIZE.y - DEPLOY_Y), Color(0.3, 0.5, 1.0, 0.08))
-		draw_line(Vector2(0, DEPLOY_Y), Vector2(WORLD_SIZE.x, DEPLOY_Y), Color(0.6, 0.75, 1.0, 0.4), 2.0)
+		var top := deploy_top()
+		draw_rect(Rect2(0, top, WORLD_SIZE.x, WORLD_SIZE.y - top), Color(0.3, 0.5, 1.0, 0.08))
+		draw_line(Vector2(0, top), Vector2(WORLD_SIZE.x, top), Color(0.6, 0.75, 1.0, 0.4), 2.0)
 
 	for c in corpses:
 		draw_corpse(c)
@@ -1639,9 +1721,9 @@ func draw_line_preview() -> void:
 	draw_line(line_start, line_now, Color(1, 1, 1, 0.35), lw)
 	for e in line_layout(selected_regiments(), line_start, line_now):
 		var r: Regiment = e["reg"]
-		var at: Vector2 = e["dest"]
 		var face: Vector2 = e["facing"]
 		var cols: int = e["cols"]
+		var at: Vector2 = order_dest(r, e["dest"], face, cols)
 		var n := r.alive_n
 		for i in n:
 			var p := r.formation_slot(i, n, cols, at, face)
