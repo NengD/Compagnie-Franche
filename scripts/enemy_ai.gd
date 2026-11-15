@@ -21,12 +21,26 @@ var melee_started := false ## La cavalerie peut quitter la réserve
 var deployed := {} ## id de régiment → true une fois passé en ligne près de l'ennemi
 var team := 1 ## Camp contrôlé (1 = ennemi ; 0 sert aux tests « IA contre IA »)
 
+## Réglages de difficulté (voir difficulty.gd ; valeurs du mode normal par défaut)
+var think_every := 0.8 ## Intervalle entre deux réflexions, en secondes
+var advance_time := 12.0 ## Délai avant de marcher sur l'ennemi
+var cavalry_wait := CAVALRY_WAIT ## Délai avant que la cavalerie ne quitte la réserve
+var use_square := true ## Les piquiers forment le carré contre une charge
+
+
+## Applique un niveau de difficulté (« easy », « normal », « hard »).
+func configure(difficulty: String) -> void:
+	think_every = Difficulty.value(difficulty, "ai_think")
+	advance_time = Difficulty.value(difficulty, "ai_advance")
+	cavalry_wait = Difficulty.value(difficulty, "ai_cavalry_wait")
+	use_square = bool(Difficulty.level(difficulty)["ai_square"])
+
 
 func think(b, dt: float) -> void:
 	timer -= dt
 	if timer > 0.0:
 		return
-	timer = 0.8
+	timer = think_every
 
 	var mine: Array[Regiment] = []
 	var theirs: Array[Regiment] = []
@@ -41,7 +55,7 @@ func think(b, dt: float) -> void:
 		return
 
 	if not advance:
-		if b.battle_time > 12.0:
+		if b.battle_time > advance_time:
 			advance = true
 		for r in mine:
 			if r.center.distance_to(nearest(r, theirs).center) < 520.0:
@@ -55,7 +69,7 @@ func think(b, dt: float) -> void:
 			sum += advance_depth(r.center)
 			n += 1
 	line_depth = sum / n if n > 0 else 0.0
-	if b.battle_time > CAVALRY_WAIT:
+	if b.battle_time > cavalry_wait:
 		melee_started = true
 
 	for r in mine:
@@ -147,7 +161,7 @@ func think_cavalry(r: Regiment, theirs: Array[Regiment]) -> void:
 	if (r.center - prey.center).dot(side) < 0.0:
 		side = -side
 	var flank_pt: Vector2 = prey.center - prey.facing * 140.0 + side * 120.0
-	r.flank_time += 0.8
+	r.flank_time += think_every
 	if r.center.distance_to(flank_pt) > 90.0 and r.flank_time < 9.0:
 		r.dest = flank_pt.clamp(Vector2(40, 40), Vector2(3160, 1960))
 		r.facing = (prey.center - flank_pt).normalized()
@@ -170,7 +184,7 @@ func think_infantry(r: Regiment, theirs: Array[Regiment]) -> void:
 	var near := nearest(r, theirs)
 	var d := r.center.distance_to(near.center)
 	# Piquiers chargés par de la cavalerie : carré, on l'attend sur place
-	if r.type == "spear" and not r.engaged:
+	if r.type == "spear" and not r.engaged and use_square:
 		var charger: Regiment = null
 		for o in theirs:
 			if o.type != "cavalry":

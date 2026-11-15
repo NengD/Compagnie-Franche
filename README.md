@@ -9,25 +9,43 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 3. Appuyez sur **F5** (ou le bouton ▶). Le jeu s'ouvre sur le **menu principal**.
 
 ## Menu principal
-- **Continuer la campagne** (si une sauvegarde existe) / **Nouvelle campagne** (demande confirmation
-  si une campagne est en cours : elle serait effacée). Si la campagne sauvegardée est **terminée**, le
-  premier bouton devient **Bilan de la campagne** (écran de fin) et « Nouvelle campagne » ne demande rien.
+- **Continuer la campagne** (si une sauvegarde existe) / **Nouvelle campagne** : choix de la **difficulté**
+  (facile, normal, difficile), avec un avertissement si une campagne est en cours (elle serait effacée).
+  Si la campagne sauvegardée est **terminée**, le premier bouton devient **Bilan de la campagne** (écran de fin)
+  et « Nouvelle campagne » n'avertit de rien.
 - **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
   changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
   sur les archers, gagner. Échap : menu pause (Menu principal pour quitter).
-- **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu).
+- **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu), à la
+  difficulté des Options (rappelée sous le bouton et dans la barre du haut en bataille).
 - **Menu pause** (Échap en bataille : contrat, escarmouche ou tutoriel) : la bataille s'arrête.
   Reprendre (ou Échap), Aide (toutes les commandes), Options (volumes, vitesse, plein écran),
   **Abandonner la bataille** (en contrat : retraite ordonnée, après confirmation ; ailleurs : retour au
   menu) et **Menu principal** (en contrat, après un avertissement : compte comme une retraite).
 - **Options** : volumes général / musique / effets, plein écran, vitesse du jeu (x1, x1,5, x2 ; touche V
-  en bataille), **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
+  en bataille), **difficulté de l'escarmouche**, **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
   si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, chiffres,
   flèches et caméra ZQSD sont réservés ; bouton « Touches par défaut »). Les touches sont enregistrées
   par lettre, donc correctes en AZERTY comme en QWERTY.
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
 - La carte de campagne revient au menu par le bouton « Menu principal » ou Échap.
+
+## Difficulté
+Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1) :
+
+| | Facile | Normal | Difficile |
+|---|---|---|---|
+| Effectifs ennemis | x0,8 | x1 | x1 |
+| Moral ennemi | x0,8 | x1 | x1,15 |
+| Dégâts ennemis | x0,9 | x1 | x1,1 |
+| IA : réflexion / marche / cavalerie | 1,6 s / 25 s / 40 s | 0,8 s / 12 s / 20 s | 0,5 s / 8 s / 15 s |
+| IA : carré des piquiers contre les charges | non | oui | oui |
+| Recrues / solde (campagne) | x0,8 | x1 | x1,2 |
+| Primes des contrats | x1,25 | x1 | x0,85 |
+
+L'escarmouche prend la difficulté des Options ; la campagne garde celle choisie à sa création
+(enregistrée dans la sauvegarde, version 3 ; les sauvegardes plus anciennes sont relues en « normal »).
 
 ## Campagne
 Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disputent trois factions :
@@ -160,7 +178,8 @@ scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, 
 scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats, objectif
 scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
-scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, vitesse, touches
+scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, vitesse, difficulté, touches
+scripts/difficulty.gd   Niveaux de difficulté (Difficulty) : multiplicateurs ennemis, IA, économie
 scripts/ui_theme.gd     Thème des menus
 scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, étapes validées par les actions
 scripts/battle.gd       Forêts et route, simulation, ordres, caméra, rendu pixel art
@@ -182,6 +201,7 @@ tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, d
 tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
+tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)
@@ -199,11 +219,13 @@ godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, nive
 godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
+godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # captures/bilan_campagne.png, bilan_escarmouche.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
+godot --headless --path . -s tests/balance.gd -- --seeds=20 --difficulty=all # idem, par difficulté
 godot --path . -s tests/terrain_shots.gd              # captures/terrain_*.png
 ```
 

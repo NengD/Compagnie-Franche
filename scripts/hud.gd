@@ -41,6 +41,7 @@ func _draw() -> void:
 	# Barre du haut : rapport de forces
 	draw_rect(Rect2(0, 0, vs.x, 30), Color(0.05, 0.04, 0.03, 0.75))
 	text(Vector2(12, 21), "COMPAGNIE FRANCHE", 15, Color(1, 0.86, 0.5))
+	text(Vector2(200, 21), Difficulty.display_name(battle.difficulty), 13, Color(0.85, 0.85, 0.85))
 	var p: int = battle.team_strength(0)
 	var e: int = battle.team_strength(1)
 	var total := float(maxi(p + e, 1))

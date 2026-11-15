@@ -1,6 +1,7 @@
 class_name GameOptions
 extends RefCounted
-## Options du joueur : volumes, plein écran, vitesse du jeu et touches de bataille.
+## Options du joueur : volumes, plein écran, vitesse du jeu, difficulté de l'escarmouche
+## et touches de bataille.
 ## Sauvegardées dans user://options.cfg (ConfigFile) et appliquées au démarrage
 ## (ensure_loaded() est appelé par le menu, la carte et la bataille).
 ##
@@ -52,6 +53,7 @@ static var music_volume := 0.8
 static var sfx_volume := 1.0
 static var fullscreen := false
 static var speed := 1.0 ## Vitesse de la simulation en bataille
+static var difficulty := Difficulty.NORMAL ## Difficulté de l'escarmouche (la campagne a la sienne)
 static var binds := {} ## id d'action -> keycode
 
 
@@ -69,6 +71,7 @@ static func reset_all() -> void:
 	sfx_volume = 1.0
 	fullscreen = false
 	speed = 1.0
+	difficulty = Difficulty.NORMAL
 	reset_keys()
 
 
@@ -90,6 +93,7 @@ static func load_options() -> void:
 	fullscreen = bool(cfg.get_value("affichage", "plein_ecran", fullscreen))
 	var sp := float(cfg.get_value("jeu", "vitesse", speed))
 	speed = sp if sp in SPEEDS else 1.0
+	difficulty = Difficulty.sanitize(str(cfg.get_value("jeu", "difficulte", difficulty)))
 	for a in ACTIONS:
 		var id: String = a["id"]
 		binds[id] = int(cfg.get_value("touches", id, binds[id]))
@@ -109,6 +113,7 @@ static func save_options() -> bool:
 	cfg.set_value("audio", "effets", sfx_volume)
 	cfg.set_value("affichage", "plein_ecran", fullscreen)
 	cfg.set_value("jeu", "vitesse", speed)
+	cfg.set_value("jeu", "difficulte", difficulty)
 	for id in binds:
 		cfg.set_value("touches", id, binds[id])
 	return cfg.save(path) == OK

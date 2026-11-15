@@ -119,6 +119,7 @@ var defeats := 0
 var fame := 0 ## Renommée : fait grimper la difficulté (et la prime) des contrats proposés
 var reputation: Array[int] = [0, 0, 0] ## Réputation auprès de chaque faction (REP_MIN à REP_MAX)
 var log_lines: Array[String] = [] ## Derniers évènements, du plus récent au plus ancien
+var difficulty := Difficulty.NORMAL ## Niveau choisi à la création (voir difficulty.gd)
 var rng := RandomNumberGenerator.new()
 ## Fin de campagne : "" (en cours), "victory" (bataille décisive gagnée) ou "ruin" (game over)
 var ended := ""
@@ -131,8 +132,9 @@ var gold_earned := 0 ## Primes, butin et escortes
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
-static func new_game(seed_value := 0) -> CampaignState:
+static func new_game(seed_value := 0, level := Difficulty.NORMAL) -> CampaignState:
 	var c := CampaignState.new()
+	c.difficulty = Difficulty.sanitize(level)
 	if seed_value != 0:
 		c.rng.seed = seed_value
 	else:
@@ -141,7 +143,7 @@ static func new_game(seed_value := 0) -> CampaignState:
 		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
-	c.add_log("Jour 1 : la compagnie se forme à %s. Trouvez un contrat !" % TOWNS[0]["name"])
+	c.add_log("Jour 1 : la compagnie se forme à %s (difficulté : %s). Trouvez un contrat !" % [TOWNS[0]["name"], Difficulty.display_name(c.difficulty).to_lower()])
 	c.add_log("Objectif : %s" % objective_text())
 	return c
 
@@ -174,9 +176,9 @@ static func type_count(type: String, n: int) -> String:
 # ---------------------------------------------------------------- Sauvegarde
 
 static var save_path := "user://campagne.json" ## Les tests utilisent un autre fichier
-## Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée) et 2 restent lisibles.
-const SAVE_VERSION := 3
+## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
+## Les versions 1 (sans expérience, réputation ni renommée), 2 et 3 restent lisibles (difficulté : normal).
+const SAVE_VERSION := 4
 
 
 ## Données à sauvegarder (types simples uniquement, pour JSON).
@@ -188,6 +190,7 @@ func to_dict() -> Dictionary:
 		cs.append(d)
 	return {
 		"version": SAVE_VERSION,
+		"difficulty": difficulty,
 		"day": day, "gold": gold, "location": location,
 		"victories": victories, "defeats": defeats,
 		"fame": fame, "reputation": reputation.duplicate(),
@@ -206,6 +209,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	if version < 1 or version > SAVE_VERSION:
 		return null
 	var c := CampaignState.new()
+	c.difficulty = Difficulty.sanitize(str(d.get("difficulty", Difficulty.NORMAL))) # Versions 1 et 2 : normal
 	c.day = int(d.get("day", 1))
 	c.gold = float(d.get("gold", 0.0))
 	c.location = int(d.get("location", 0))
@@ -337,9 +341,9 @@ func reputation_label(f: int) -> String:
 ## Prime réellement payée : la prime de base modulée par la réputation auprès de la faction.
 func contract_reward(contract: Dictionary) -> int:
 	var f := int(contract.get("faction", -1))
-	var base := int(contract["reward"])
+	var base := int(contract["reward"]) * Difficulty.value(difficulty, "reward")
 	if f < 0:
-		return base
+		return int(round(base / 10.0)) * 10
 	var mult := clampf(1.0 + reputation[f] * REP_REWARD, 0.5, 1.5)
 	return int(round(base * mult / 10.0)) * 10
 
@@ -366,7 +370,7 @@ func daily_wage() -> float:
 	var w := 0.0
 	for r in company:
 		w += float(WAGE[r["type"]]) * int(r["men"])
-	return w
+	return w * Difficulty.value(difficulty, "wage")
 
 
 func is_destroyed() -> bool:
@@ -481,7 +485,7 @@ static func rank_name(k: int) -> String:
 func recruit_cost(type: String, men: int, town := -1) -> int:
 	if town < 0:
 		town = location
-	return int(ceil(int(RECRUIT_COST[type]) * men * float(TOWNS[town]["price"])))
+	return int(ceil(int(RECRUIT_COST[type]) * men * float(TOWNS[town]["price"]) * Difficulty.value(difficulty, "recruit")))
 
 
 static func type_name(type: String) -> String:

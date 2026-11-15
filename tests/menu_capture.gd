@@ -8,6 +8,7 @@ var frame := 0
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	GameOptions.path = "user://capture_options.cfg" # Ne touche pas aux options du joueur
 	GameOptions.loaded = false
 	_clean()

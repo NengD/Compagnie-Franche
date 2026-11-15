@@ -8,6 +8,7 @@ var frame := 0
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	battle = scene.instantiate()
 	battle.set("seed_override", 12345)

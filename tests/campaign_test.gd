@@ -35,6 +35,7 @@ var waiting := true ## Le _ready de la scène ajoutée n'a pas encore été appe
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	OS.add_logger(counter)
 	CampaignState.save_path = "user://test_campagne.json"
 	CampaignState.delete_save()
@@ -931,6 +932,8 @@ func _test_end_scenes() -> void:
 		menu.continue_campaign()
 		check(menu.last_scene == menu.END_SCENE, "%s : le bilan ne mène pas à l'écran de fin" % ending)
 		menu.new_campaign()
+		check(menu.page == "new_campaign" and menu.last_scene == menu.END_SCENE, "%s : pas de choix de difficulté" % ending)
+		menu.confirm_new_campaign()
 		check(menu.last_scene == menu.CAMPAIGN_SCENE and menu.page == "main" and not CampaignState.current.is_over(), "%s : nouvelle campagne après la fin" % ending)
 		root.remove_child(menu)
 		menu.free()

@@ -1,10 +1,10 @@
 extends SceneTree
 ## Test headless du menu, des options et du tutoriel :
 ##   godot --headless --path . -s tests/menu_test.gd
-## - options sauvegardées puis rechargées (volumes, plein écran, vitesse, touches) ;
+## - options sauvegardées puis rechargées (volumes, plein écran, vitesse, difficulté, touches) ;
 ## - rebind d'une touche : l'action part avec la nouvelle touche, plus avec l'ancienne ;
 ##   conflit (échange), touches réservées, retour aux valeurs par défaut ;
-## - menu principal qui s'instancie sans erreur, pages Options et confirmation ;
+## - menu principal qui s'instancie sans erreur, pages Options et nouvelle campagne (difficulté) ;
 ## - tutoriel parcouru étape par étape en simulant les clics et les touches du joueur.
 ## N'utilise pas les vrais fichiers du joueur (options et campagne de test dans user://).
 ## Code de sortie : 0 si tout va bien, 1 sinon.
@@ -41,6 +41,7 @@ func check(ok: bool, msg: String) -> void:
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	OS.add_logger(counter)
 	GameOptions.path = OPTIONS_TEST
 	GameOptions.loaded = false
@@ -106,6 +107,7 @@ func _test_options() -> void:
 	GameOptions.sfx_volume = 0.0
 	GameOptions.fullscreen = true
 	GameOptions.speed = 1.5
+	GameOptions.difficulty = "hard"
 	check(GameOptions.bind_key("halt", KEY_J).contains("J"), "rebind halte sur J")
 	check(GameOptions.save_options(), "écriture de options.cfg")
 
@@ -118,6 +120,7 @@ func _test_options() -> void:
 	check(is_equal_approx(GameOptions.sfx_volume, 0.0), "volume effets rechargé")
 	check(GameOptions.fullscreen, "plein écran rechargé")
 	check(is_equal_approx(GameOptions.speed, 1.5), "vitesse rechargée")
+	check(GameOptions.difficulty == "hard", "difficulté d'escarmouche rechargée")
 	check(GameOptions.key_for("halt") == KEY_J, "touche de halte rechargée (J)")
 
 	# Application aux bus
@@ -190,14 +193,20 @@ func _test_menu(m: Node) -> void:
 	var labels := _buttons(m)
 	for want in ["Continuer la campagne", "Nouvelle campagne", "Tutoriel", "Escarmouche", "Options", "Quitter"]:
 		check(want in labels, "bouton « %s » présent" % want)
-	# Sans sauvegarde : « Nouvelle campagne » lance directement la carte
+	# « Nouvelle campagne » : choix de la difficulté, puis la carte
 	m.new_campaign()
+	check(m.page == "new_campaign" and m.last_scene == "", "nouvelle campagne → choix de la difficulté")
+	var choice := _buttons(m)
+	for want in ["Facile", "Normal", "Difficile", "Retour"]:
+		check(want in choice, "bouton de difficulté « %s »" % want)
+	m.confirm_new_campaign("hard")
 	check(m.last_scene == m.CAMPAIGN_SCENE, "nouvelle campagne → carte")
 	check(CampaignState.has_save(), "nouvelle campagne sauvegardée")
-	# Avec sauvegarde : confirmation demandée
+	check(CampaignState.current.difficulty == "hard" and CampaignState.load_game().difficulty == "hard", "difficulté de la campagne choisie au menu et sauvegardée")
+	# Avec sauvegarde : même page, avec l'avertissement
 	m.last_scene = ""
 	m.new_campaign()
-	check(m.page == "confirm_new" and m.last_scene == "", "confirmation si une sauvegarde existe")
+	check(m.page == "new_campaign" and m.last_scene == "", "avertissement si une sauvegarde existe")
 	m.back_to_main()
 	m.continue_campaign()
 	check(m.last_scene == m.CAMPAIGN_SCENE and CampaignState.current != null, "continuer la campagne")
@@ -222,6 +231,9 @@ func _test_menu(m: Node) -> void:
 	check(GameOptions.key_for("rain") == KEY_T, "touches par défaut depuis le menu")
 	m.set_volume("music", 0.5)
 	check(is_equal_approx(GameOptions.music_volume, 0.5), "curseur de musique")
+	m.set_difficulty(0)
+	cfg.load(OPTIONS_TEST)
+	check(GameOptions.difficulty == "easy" and str(cfg.get_value("jeu", "difficulte", "")) == "easy", "difficulté d'escarmouche choisie dans les Options")
 	m.back_to_main()
 	GameOptions.reset_all()
 	GameOptions.save_options()

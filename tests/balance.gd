@@ -3,6 +3,7 @@ extends SceneTree
 ##   godot --headless --path . -s tests/balance.gd -- --seeds=12 --strategies=idle,naive,tactical
 ##   --terrain=T : terrain imposé (plain, forest, hills, river, village, siege) ; « all » = chacun tour à tour ;
 ##                 sans option, tiré au sort comme en escarmouche.
+##   --difficulty=D : easy, normal (défaut) ou hard ; « all » = chacune tour à tour.
 ## Affiche le taux de victoire, la durée et les pertes moyennes.
 
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -17,9 +18,12 @@ var trace := false ## --trace : journal des mêlées et des déroutes
 var mirror := false ## --mirror : armées identiques (diagnostic)
 var terrains: PackedStringArray = [""] ## "" = terrain au hasard
 var terrain := ""
+var difficulties: PackedStringArray = ["normal"]
+var difficulty := "normal"
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--seeds="):
 			n_seeds = int(a.trim_prefix("--seeds="))
@@ -34,16 +38,22 @@ func _initialize() -> void:
 		elif a.begins_with("--terrain="):
 			var t := a.trim_prefix("--terrain=")
 			terrains = PackedStringArray(Terrain.KINDS) if t == "all" else t.split(",")
+		elif a.begins_with("--difficulty="):
+			var d := a.trim_prefix("--difficulty=")
+			difficulties = PackedStringArray(Difficulty.IDS) if d == "all" else d.split(",")
 	scene = load("res://scenes/main.tscn")
 
 
 func _process(_delta: float) -> bool:
 	var t0 := Time.get_ticks_msec()
-	for tk in terrains:
-		terrain = tk
-		if terrains.size() > 1 or tk != "":
-			print("--- terrain : %s" % (tk if tk != "" else "au hasard"))
-		run_strategies()
+	for dk in difficulties:
+		difficulty = dk
+		print("=== difficulté : %s" % Difficulty.display_name(dk))
+		for tk in terrains:
+			terrain = tk
+			if terrains.size() > 1 or tk != "":
+				print("--- terrain : %s" % (tk if tk != "" else "au hasard"))
+			run_strategies()
 	print("(%.1f s de calcul)" % ((Time.get_ticks_msec() - t0) / 1000.0))
 	quit(0)
 	return true
@@ -78,6 +88,7 @@ func play(strat: String, seed_value: int) -> Dictionary:
 	var b := scene.instantiate()
 	b.set("seed_override", seed_value)
 	b.set("terrain_override", terrain)
+	b.set("difficulty", difficulty)
 	root.add_child(b)
 	var player := TestPlayer.new(strat)
 	if mirror:
