@@ -50,6 +50,7 @@ func _initialize() -> void:
 	CampaignState.save_path = SAVE_TEST
 	CampaignState.current = null
 	CampaignState.event_chance = 0.0
+	CampaignState.delete_file(SAVE_TEST) # Avec sa copie de secours (.bak)
 	for p in [OPTIONS_TEST, SAVE_TEST]:
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
@@ -389,6 +390,7 @@ func _test_contract_main_menu() -> void:
 
 
 func _finish() -> void:
+	CampaignState.delete_file(SAVE_TEST) # Avec sa copie de secours (.bak)
 	for p in [OPTIONS_TEST, SAVE_TEST]:
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))

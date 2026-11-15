@@ -142,7 +142,8 @@ func to_menu() -> void:
 
 func new_campaign() -> void:
 	var level := CampaignState.current.difficulty if CampaignState.current != null else Difficulty.NORMAL
-	CampaignState.current = CampaignState.new_game(0, level) # Même difficulté qu'avant
+	var lenient := CampaignState.current.lenient if CampaignState.current != null else false
+	CampaignState.current = CampaignState.new_game(0, level, lenient) # Mêmes réglages qu'avant
 	CampaignState.current.save()
 	go(CAMPAIGN_SCENE)
 

@@ -27,6 +27,7 @@ func _initialize() -> void:
 	CampaignState.save_path = SAVE_TEST
 	CampaignState.current = null
 	CampaignState.event_chance = 0.0
+	CampaignState.delete_file(SAVE_TEST) # Avec sa copie de secours (.bak)
 	for p in [OPTIONS_TEST, SAVE_TEST]:
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
@@ -42,6 +43,7 @@ func _process(_delta: float) -> bool:
 	_test_campaign_battle()
 	GameOptions.reset_all()
 	CampaignState.current = null
+	CampaignState.delete_file(SAVE_TEST) # Avec sa copie de secours (.bak)
 	for p in [OPTIONS_TEST, SAVE_TEST]:
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
