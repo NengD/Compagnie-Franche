@@ -26,10 +26,11 @@ const XP_VICTORY := 25.0 ## Avoir vaincu
 const XP_KILLS := 60.0 ## Avoir tué autant d'ennemis que le régiment compte d'hommes au complet
 
 ## Factions qui se partagent les villes. « rival » : faction lésée quand on sert celle-ci.
+## « capital » : ville où la faction convoque la compagnie pour la bataille décisive.
 const FACTIONS := [
-	{"name": "Comté de Valfrène", "short": "le Comté", "rival": 1, "color": Color(0.92, 0.76, 0.3)},
-	{"name": "Baronnie de Montfaucon", "short": "la Baronnie", "rival": 0, "color": Color(0.62, 0.25, 0.55)},
-	{"name": "Ligue des villes", "short": "la Ligue", "rival": 1, "color": Color(0.3, 0.62, 0.38)},
+	{"name": "Comté de Valfrène", "short": "le Comté", "rival": 1, "capital": 1, "color": Color(0.92, 0.76, 0.3)},
+	{"name": "Baronnie de Montfaucon", "short": "la Baronnie", "rival": 0, "capital": 2, "color": Color(0.62, 0.25, 0.55)},
+	{"name": "Ligue des villes", "short": "la Ligue", "rival": 1, "capital": 6, "color": Color(0.3, 0.62, 0.38)},
 ]
 const REP_MIN := -100
 const REP_MAX := 100
@@ -44,6 +45,13 @@ const PILLAGE_RETREAT := 0.1 ## ... après une retraite (les bagages sont en par
 const FAME_LOSS := 10
 const FAME_RETREAT := 5
 const FAME_STEP := 25 ## Renommée nécessaire pour chaque niveau de difficulté des contrats
+const FAME_REWARD := 0.002 ## Prime : +0,2 % par point de renommée (une compagnie célèbre se paie cher)
+
+## Objectif de la campagne : à FINAL_FAME de renommée, la faction la plus amie convoque la
+## compagnie pour la bataille qui décidera de la guerre du comté. La gagner termine la campagne.
+const FINAL_FAME := 150
+## Game over : la compagnie n'a plus un homme et ne peut plus lever de régiment (ruinée).
+const ENDINGS := ["", "victory", "ruin"]
 
 ## Villes de la carte (positions en pixels d'écran), faction, prix des recrues (x RECRUIT_COST)
 ## et types de troupes qu'on peut y lever.
@@ -58,27 +66,47 @@ const TOWNS := [
 ]
 const ROADS := [[0, 1], [0, 3], [1, 2], [1, 3], [1, 4], [2, 4], [3, 6], [4, 6], [4, 5], [5, 6]]
 
-## Modèles de contrats : composition de l'ennemi, effectifs (part du plein) et prime.
+## Modèles de contrats, du niveau 1 au niveau MAX_LEVEL : composition de l'ennemi, effectifs
+## (part du plein), prime de base et expérience des régiments ennemis (« ranks » : chance d'être
+## aguerri, chance d'être vétéran). « {rival} » : la faction rivale de celle de la ville.
 const CONTRACT_KINDS := [
 	{
-		"difficulty": 1, "foe": "brigands", "reward": 260, "fill": [0.6, 0.85],
+		"difficulty": 1, "foe": "brigands", "reward": 260, "fill": [0.6, 0.85], "ranks": [0.0, 0.0],
 		"army": ["spear", "spear", "men_at_arms", "archer"],
 		"titles": ["Brigands sur la route de %s", "Des coupe-jarrets près de %s"],
 		"text": "Une bande de brigands rançonne les marchands. Le bourg paie pour qu'on l'en débarrasse.",
 	},
 	{
-		"difficulty": 2, "foe": "routiers", "reward": 450, "fill": [0.75, 1.0],
+		"difficulty": 2, "foe": "routiers", "reward": 450, "fill": [0.75, 1.0], "ranks": [0.4, 0.0],
 		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "archer", "cavalry"],
 		"titles": ["Routiers aux portes de %s", "Une compagnie rivale menace %s"],
 		"text": "Des routiers sans contrat pillent la campagne. Ils sont aguerris et ont quelques cavaliers.",
 	},
 	{
-		"difficulty": 3, "foe": "ost du baron", "reward": 720, "fill": [0.9, 1.0],
+		"difficulty": 3, "foe": "ost du baron", "reward": 720, "fill": [0.9, 1.0], "ranks": [0.7, 0.3],
 		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "archer", "cavalry"],
 		"titles": ["La querelle du baron de %s", "Défendre %s contre l'ost du baron"],
 		"text": "Un baron voisin lève son ost. La ville engage des lances pour lui tenir tête en rase campagne.",
 	},
+	{
+		"difficulty": 4, "foe": "routiers de la Grande Compagnie", "reward": 1000, "fill": [0.9, 1.0], "ranks": [0.45, 0.55],
+		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "archer", "cavalry", "cavalry"],
+		"titles": ["La Grande Compagnie marche sur %s", "Chevauchée de routiers autour de %s"],
+		"text": "Plusieurs bandes se sont unies sous un même capitaine. Nombreuse et aguerrie, la Grande Compagnie rançonne des provinces entières.",
+	},
+	{
+		"difficulty": 5, "foe": "armées de {rival}", "reward": 1350, "fill": [0.95, 1.0], "ranks": [0.2, 0.8],
+		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "men_at_arms", "archer", "archer", "cavalry", "cavalry"],
+		"titles": ["L'ost de {rival} menace %s", "Bataille rangée devant %s"],
+		"text": "{Rival} lève son ost et marche sur la ville. Ses chevaliers sont des vétérans de toutes les guerres.",
+	},
 ]
+const MAX_LEVEL := 5 ## Niveau de contrat le plus élevé (atteint à FAME_STEP * 4 de renommée)
+## Bataille décisive (objectif de la campagne) : la plus grande armée du jeu, presque toute vétérane.
+const FINAL_CONTRACT := {
+	"difficulty": 5, "reward": 2500, "fill": [0.95, 1.0], "ranks": [0.1, 0.9],
+	"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "men_at_arms", "archer", "archer", "archer", "cavalry", "cavalry"],
+}
 
 var day := 1
 var gold := float(START_GOLD)
@@ -92,6 +120,14 @@ var fame := 0 ## Renommée : fait grimper la difficulté (et la prime) des contr
 var reputation: Array[int] = [0, 0, 0] ## Réputation auprès de chaque faction (REP_MIN à REP_MAX)
 var log_lines: Array[String] = [] ## Derniers évènements, du plus récent au plus ancien
 var rng := RandomNumberGenerator.new()
+## Fin de campagne : "" (en cours), "victory" (bataille décisive gagnée) ou "ruin" (game over)
+var ended := ""
+var end_day := 0 ## Jour où la campagne s'est terminée
+var end_note := "" ## Phrase qui raconte la fin (écran de fin)
+## Bilan : cumuls depuis le début de la campagne
+var men_lost := 0
+var enemies_killed := 0
+var gold_earned := 0 ## Primes, butin et escortes
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
@@ -106,7 +142,13 @@ static func new_game(seed_value := 0) -> CampaignState:
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
 	c.add_log("Jour 1 : la compagnie se forme à %s. Trouvez un contrat !" % TOWNS[0]["name"])
+	c.add_log("Objectif : %s" % objective_text())
 	return c
+
+
+## But de la campagne, annoncé dès le premier jour.
+static func objective_text() -> String:
+	return "faire de la compagnie la plus célèbre du comté. À %d de renommée, la faction qui vous estime le plus vous appellera pour la bataille qui décidera de la guerre : gagnez-la." % FINAL_FAME
 
 
 func add_log(s: String) -> void:
@@ -115,10 +157,26 @@ func add_log(s: String) -> void:
 		log_lines.pop_back()
 
 
+## « 1 homme », « 3 hommes » (0 et 1 au singulier, comme en français).
+static func plural(n: int, one: String, many: String) -> String:
+	return "%d %s" % [n, one if absi(n) <= 1 else many]
+
+
+## Nom d'un type d'unité au singulier.
+const TYPE_SINGULAR := {"spear": "piquier", "men_at_arms": "homme d'armes", "archer": "archer", "cavalry": "cavalier"}
+
+
+## « 1 archer », « 2 hommes d'armes » (en minuscules).
+static func type_count(type: String, n: int) -> String:
+	return plural(n, str(TYPE_SINGULAR.get(type, type)), type_name(type).to_lower())
+
+
 # ---------------------------------------------------------------- Sauvegarde
 
 static var save_path := "user://campagne.json" ## Les tests utilisent un autre fichier
-const SAVE_VERSION := 2 ## Version 1 (sans expérience, réputation ni renommée) encore lisible
+## Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
+## Les versions 1 (sans expérience, réputation ni renommée) et 2 restent lisibles.
+const SAVE_VERSION := 3
 
 
 ## Données à sauvegarder (types simples uniquement, pour JSON).
@@ -137,6 +195,8 @@ func to_dict() -> Dictionary:
 		"contracts": cs,
 		"log": log_lines.duplicate(),
 		"rng_seed": str(rng.seed), "rng_state": str(rng.state),
+		"ended": ended, "end_day": end_day, "end_note": end_note,
+		"men_lost": men_lost, "enemies_killed": enemies_killed, "gold_earned": gold_earned,
 	}
 
 
@@ -181,14 +241,25 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		c.contracts.append({
 			"town": town, "faction": clampi(int(k.get("faction", TOWNS[town]["faction"])), -1, FACTIONS.size() - 1),
 			"title": str(k.get("title", "")), "text": str(k.get("text", "")),
-			"foe": str(k.get("foe", "ennemis")), "difficulty": clampi(int(k.get("difficulty", 1)), 1, 3),
+			"foe": str(k.get("foe", "ennemis")), "difficulty": clampi(int(k.get("difficulty", 1)), 1, MAX_LEVEL),
 			"enemy": enemy, "reward": int(k.get("reward", 0)), "expires": int(k.get("expires", 0)),
 			"seed": str(k.get("seed", "1")).to_int(),
 		})
+		if bool(k.get("final", false)):
+			c.contracts[-1]["final"] = true
 	for s in d.get("log", []):
 		c.log_lines.append(str(s))
 	c.rng.seed = str(d.get("rng_seed", "1")).to_int()
 	c.rng.state = str(d.get("rng_state", "1")).to_int()
+	# Version 2 et avant : campagne en cours, bilan à zéro
+	c.ended = str(d.get("ended", ""))
+	if not c.ended in ENDINGS:
+		return null
+	c.end_day = int(d.get("end_day", 0))
+	c.end_note = str(d.get("end_note", ""))
+	c.men_lost = maxi(0, int(d.get("men_lost", 0)))
+	c.enemies_killed = maxi(0, int(d.get("enemies_killed", 0)))
+	c.gold_earned = maxi(0, int(d.get("gold_earned", 0)))
 	return c
 
 
@@ -302,6 +373,36 @@ func is_destroyed() -> bool:
 	return company.is_empty()
 
 
+## Peut-on lever au moins un régiment complet dans la ville actuelle ?
+func can_recruit_here() -> bool:
+	if closed_message(location) != "":
+		return false
+	for t in TOWNS[location]["recruits"]:
+		if gold >= recruit_cost(t, int(UnitTypes.STATS[t]["count"])):
+			return true
+	return false
+
+
+## Game over : plus un homme, et pas de quoi (ou pas le droit de) lever un régiment ici.
+## Sans troupes, la compagnie ne peut plus marcher vers une autre ville.
+func is_ruined() -> bool:
+	return is_destroyed() and not can_recruit_here()
+
+
+func is_over() -> bool:
+	return ended != ""
+
+
+## Vérifie si la compagnie est ruinée (après une bataille, une marche ou une épidémie).
+func check_ruin() -> void:
+	if ended != "" or not is_ruined():
+		return
+	ended = "ruin"
+	end_day = day
+	end_note = "Sans un homme sous sa bannière ni de quoi en payer, la compagnie se disperse à %s." % TOWNS[location]["name"]
+	add_log("Jour %d : la compagnie est dissoute." % day)
+
+
 ## Lever un nouveau régiment complet dans la ville actuelle. Renvoie un message d'erreur ou "".
 func recruit(type: String) -> String:
 	var closed := closed_message(location)
@@ -317,7 +418,7 @@ func recruit(type: String) -> String:
 		return "Pas assez d'or (%d écus)." % cost
 	gold -= cost
 	company.append({"type": type, "men": men, "xp": 0.0})
-	add_log("Jour %d : %d %s rejoignent la compagnie (-%d écus)." % [day, men, type_name(type).to_lower(), cost])
+	add_log("Jour %d : %s rejoignent la compagnie (-%d écus)." % [day, type_count(type, men), cost])
 	return ""
 
 
@@ -338,7 +439,7 @@ func refill(index: int) -> String:
 		return "Pas assez d'or (%d écus)." % cost
 	gold -= cost
 	add_men(r, missing, 0.0)
-	add_log("Jour %d : %d recrues complètent les %s (-%d écus)." % [day, missing, type_name(type).to_lower(), cost])
+	add_log("Jour %d : %s %s les %s (-%d écus)." % [day, plural(missing, "recrue", "recrues"), "complète" if missing <= 1 else "complètent", type_name(type).to_lower(), cost])
 	return ""
 
 
@@ -411,6 +512,8 @@ func travel_days(to: int) -> int:
 func travel(to: int) -> String:
 	if not to in neighbours(location):
 		return "Aucune route directe vers %s." % TOWNS[to]["name"]
+	if is_over():
+		return "La campagne est terminée."
 	if is_destroyed():
 		return "Vous n'avez plus de troupes."
 	travel_events.clear()
@@ -432,8 +535,9 @@ func travel(to: int) -> String:
 		if kind == "storm":
 			days += 1
 	location = to
-	add_log("Jour %d : arrivée à %s après %d jour%s de marche." % [day, TOWNS[to]["name"], done, "s" if done > 1 else ""])
+	add_log("Jour %d : arrivée à %s après %s de marche." % [day, TOWNS[to]["name"], plural(done, "jour", "jours")])
 	refresh_contracts(to)
+	check_ruin()
 	return ""
 
 
@@ -467,6 +571,7 @@ func road_event(kind: String, to: int) -> void:
 		"merchant":
 			var pay := rng.randi_range(4, 9) * 10
 			gold += pay
+			gold_earned += pay
 			msg = "un marchand paie %d écus pour être escorté jusqu'à %s." % [pay, where]
 		"plague":
 			var lost := 0
@@ -477,7 +582,8 @@ func road_event(kind: String, to: int) -> void:
 				r["men"] = int(r["men"]) - n
 				lost += n
 			company = company.filter(func(r): return int(r["men"]) > 0)
-			msg = "une épidémie frappe le camp, %d hommes en meurent." % lost
+			men_lost += lost
+			msg = "une épidémie frappe le camp, %s." % ("un homme en meurt" if lost == 1 else "%d hommes en meurent" % lost)
 		"deserters":
 			var best := -1
 			for i in company.size():
@@ -488,7 +594,7 @@ func road_event(kind: String, to: int) -> void:
 			else:
 				var n := mini(rng.randi_range(3, 8), refill_missing(best))
 				add_men(company[best], n, DESERTER_XP)
-				msg = "%d déserteurs rejoignent vos %s." % [n, type_name(company[best]["type"]).to_lower()]
+				msg = "%s vos %s." % [plural(n, "déserteur rejoint", "déserteurs rejoignent"), type_name(company[best]["type"]).to_lower()]
 		"storm":
 			msg = "des intempéries noient la route, un jour de marche est perdu."
 		_:
@@ -531,7 +637,8 @@ func pass_day() -> void:
 			r["men"] = int(r["men"]) - n
 			lost += n
 		company = company.filter(func(r): return int(r["men"]) > 0)
-		add_log("Jour %d : solde impayée, %d hommes désertent !" % [day, lost])
+		men_lost += lost
+		add_log("Jour %d : solde impayée, %s !" % [day, plural(lost, "homme déserte", "hommes désertent")])
 	contracts = contracts.filter(func(c): return int(c["expires"]) >= day)
 	# Les rancunes s'apaisent lentement
 	if day % 2 == 0:
@@ -541,6 +648,7 @@ func pass_day() -> void:
 	for i in TOWNS.size():
 		if rng.randf() < 0.15:
 			refresh_contracts(i)
+	offer_final()
 
 
 # ---------------------------------------------------------------- Contrats
@@ -554,37 +662,65 @@ func contracts_at(town: int) -> Array[Dictionary]:
 
 
 ## Chaque ville propose un ou deux contrats ; la difficulté grimpe avec la renommée.
+## (Le contrat final ne compte pas : il s'ajoute aux contrats ordinaires de sa ville.)
 func refresh_contracts(town: int) -> void:
-	var have := contracts_at(town).size()
+	var have := contracts_at(town).filter(func(c): return not c.get("final", false)).size()
 	var want := 1 + (1 if rng.randf() < 0.5 else 0)
 	for i in maxi(0, want - have):
 		contracts.append(make_contract(town))
 
 
-func make_contract(town: int) -> Dictionary:
+## Niveau le plus élevé des contrats proposés : un de plus tous les FAME_STEP de renommée.
+func max_level() -> int:
 	@warning_ignore("integer_division")
-	var max_d := clampi(1 + fame / FAME_STEP, 1, 3)
-	var d := rng.randi_range(maxi(1, max_d - 1), max_d)
-	var kind: Dictionary = CONTRACT_KINDS[d - 1]
+	return clampi(1 + fame / FAME_STEP, 1, MAX_LEVEL)
+
+
+## Tire le rang d'un régiment ennemi : ranks = [chance d'être aguerri, chance d'être vétéran].
+func roll_rank(ranks: Array) -> int:
+	var x := rng.randf()
+	if x < float(ranks[1]):
+		return 2
+	if x < float(ranks[1]) + float(ranks[0]):
+		return 1
+	return 0
+
+
+## Armée ennemie d'un modèle de contrat (régiments entamés selon « fill », rangs selon « ranks »).
+func roll_army(kind: Dictionary) -> Array[Dictionary]:
 	var fill: Array = kind["fill"]
 	var enemy: Array[Dictionary] = []
 	for t in kind["army"]:
 		var full: int = UnitTypes.STATS[t]["count"]
-		# Les ennemis des contrats difficiles sont aguerris, voire vétérans
-		var rank := 0
-		if d == 2 and rng.randf() < 0.4:
-			rank = 1
-		elif d == 3:
-			rank = 2 if rng.randf() < 0.3 else 1
-		enemy.append({"type": t, "men": maxi(3, int(round(full * rng.randf_range(fill[0], fill[1])))), "rank": rank})
+		var men := maxi(3, int(round(full * rng.randf_range(fill[0], fill[1]))))
+		enemy.append({"type": t, "men": men, "rank": roll_rank(kind["ranks"])})
+	return enemy
+
+
+## Prime de base tirée autour de celle du modèle, et qui croît avec la renommée.
+func roll_reward(base: int) -> int:
+	return int(round(base * rng.randf_range(0.9, 1.15) * (1.0 + fame * FAME_REWARD) / 10.0)) * 10
+
+
+static func cap_first(s: String) -> String:
+	return s if s == "" else s[0].to_upper() + s.substr(1)
+
+
+func make_contract(town: int) -> Dictionary:
+	var top := max_level()
+	var d := rng.randi_range(maxi(1, top - 1), top)
+	var kind: Dictionary = CONTRACT_KINDS[d - 1]
+	var enemy := roll_army(kind)
 	var titles: Array = kind["titles"]
-	var reward := int(round(int(kind["reward"]) * rng.randf_range(0.9, 1.15) / 10.0)) * 10
+	var reward := roll_reward(int(kind["reward"]))
+	var rival := str(FACTIONS[int(FACTIONS[town_faction(town)]["rival"])]["short"])
+	var title := str(titles[rng.randi() % titles.size()]).replace("{rival}", rival) % TOWNS[town]["name"]
 	return {
 		"town": town,
 		"faction": town_faction(town),
-		"title": str(titles[rng.randi() % titles.size()]) % TOWNS[town]["name"],
-		"text": kind["text"],
-		"foe": kind["foe"],
+		"title": title,
+		"text": str(kind["text"]).replace("{Rival}", cap_first(rival)).replace("{rival}", rival),
+		"foe": str(kind["foe"]).replace("{rival}", rival),
 		"difficulty": d,
 		"enemy": enemy,
 		"reward": reward,
@@ -593,7 +729,79 @@ func make_contract(town: int) -> Dictionary:
 	}
 
 
-## Résumé lisible d'une armée : « 2 piquiers, 1 archers... » (en régiments et en hommes).
+# ---------------------------------------------------------------- Objectif : la bataille décisive
+
+## Faction qui convoquerait la compagnie : la mieux disposée parmi celles qui ne lui ferment pas
+## leurs portes (le Comté en cas d'égalité). -1 si toutes sont hostiles.
+func final_patron() -> int:
+	var best := -1
+	for f in FACTIONS.size():
+		if not faction_closed(f) and (best < 0 or reputation[f] > reputation[best]):
+			best = f
+	return best
+
+
+## Le contrat final proposé ({} s'il n'y en a pas).
+func final_contract() -> Dictionary:
+	for c in contracts:
+		if c.get("final", false):
+			return c
+	return {}
+
+
+## Progression vers l'objectif, de 0 à 1.
+func objective_progress() -> float:
+	return clampf(float(fame) / FINAL_FAME, 0.0, 1.0)
+
+
+## Ligne courte qui résume l'objectif et sa progression (carte et panneau).
+func objective_status() -> String:
+	var k := final_contract()
+	if not k.is_empty():
+		return "Bataille décisive à %s : %s vous attend !" % [TOWNS[int(k["town"])]["name"], FACTIONS[int(k["faction"])]["short"]]
+	if fame >= FINAL_FAME:
+		return "Renommée atteinte, mais aucune faction ne veut plus de vous : regagnez leur confiance."
+	return "Renommée %d / %d pour être appelé à la bataille décisive." % [fame, FINAL_FAME]
+
+
+## À FINAL_FAME de renommée, la faction la plus amie propose la bataille décisive dans sa capitale.
+## Ce contrat n'expire pas ; si la faction devient hostile, une autre le reprend.
+func offer_final() -> void:
+	if ended != "":
+		return
+	var cur := final_contract()
+	if not cur.is_empty():
+		if not faction_closed(int(cur["faction"])):
+			return
+		contracts.erase(cur)
+	if fame < FINAL_FAME:
+		return
+	var f := final_patron()
+	if f < 0:
+		return
+	var k := make_final(f)
+	contracts.append(k)
+	add_log("Jour %d : %s vous convoque à %s pour la bataille qui décidera de la guerre !" % [day, cap_first(str(FACTIONS[f]["short"])), TOWNS[int(k["town"])]["name"]])
+
+
+func make_final(f: int) -> Dictionary:
+	var town := int(FACTIONS[f]["capital"])
+	var foe_f := int(FACTIONS[f]["rival"])
+	var foe := str(FACTIONS[foe_f]["short"])
+	return {
+		"town": town, "faction": f, "final": true,
+		"title": "La bataille décisive : %s contre %s" % [cap_first(str(FACTIONS[f]["short"])), foe],
+		"text": "%s jette toutes ses forces contre %s. Cette bataille décidera de la guerre, et la compagnie qui la gagnera sera la plus célèbre du comté." % [cap_first(foe), FACTIONS[f]["short"]],
+		"foe": "armées de %s" % foe,
+		"difficulty": int(FINAL_CONTRACT["difficulty"]),
+		"enemy": roll_army(FINAL_CONTRACT),
+		"reward": roll_reward(int(FINAL_CONTRACT["reward"])),
+		"expires": 1 << 30,
+		"seed": rng.randi_range(1, 1 << 30),
+	}
+
+
+## Résumé lisible d'une armée : « 2 piquiers, 1 archer... » (en régiments et en hommes).
 static func army_summary(list: Array) -> String:
 	var counts := {}
 	var men := 0
@@ -605,15 +813,15 @@ static func army_summary(list: Array) -> String:
 	var parts: Array[String] = []
 	for t in ["spear", "men_at_arms", "archer", "cavalry"]:
 		if counts.has(t):
-			parts.append("%d %s" % [counts[t], type_name(t).to_lower()])
-	var s := "%s — %d hommes" % [", ".join(parts), men]
+			parts.append(type_count(t, int(counts[t])))
+	var s := "%s — %s" % [", ".join(parts), plural(men, "homme", "hommes")]
 	if ranks[1] + ranks[2] > 0:
 		var exp: Array[String] = []
 		if ranks[1] > 0:
-			exp.append("%d aguerris" % ranks[1])
+			exp.append(plural(ranks[1], "aguerri", "aguerris"))
 		if ranks[2] > 0:
-			exp.append("%d vétérans" % ranks[2])
-		s += " (régiments %s)" % ", ".join(exp)
+			exp.append(plural(ranks[2], "vétéran", "vétérans"))
+		s += " (%s %s)" % ["régiment" if ranks[1] + ranks[2] == 1 else "régiments", ", ".join(exp)]
 	return s
 
 
@@ -621,6 +829,8 @@ static func army_summary(list: Array) -> String:
 func accept(contract: Dictionary) -> String:
 	if int(contract["town"]) != location:
 		return "Ce contrat se signe à %s." % TOWNS[contract["town"]]["name"]
+	if is_over():
+		return "La campagne est terminée."
 	if is_destroyed():
 		return "Vous n'avez plus de troupes."
 	var closed := closed_message(location)
@@ -671,6 +881,9 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		if after > 0 and rank_of(r) > rank0:
 			promoted.append("les %s (%d) deviennent %s" % [type_name(r["type"]).to_lower(), i + 1, rank_name(rank_of(r))])
 	company = company.filter(func(r): return int(r["men"]) > 0)
+	men_lost += lost
+	enemies_killed += killed
+	var losses := "Pertes : %s" % plural(lost, "homme", "hommes")
 	var report: String
 	var f := int(pending.get("faction", -1))
 	var rep_note := ""
@@ -679,11 +892,18 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		var reward := contract_reward(pending)
 		var loot := killed * LOOT_PER_KILL
 		gold += reward + loot
+		gold_earned += reward + loot
 		fame += 5 + 5 * int(pending.get("difficulty", 1))
+		var healed_s := plural(healed, "blessé relevé", "blessés relevés")
 		if pending.get("ambush", false):
-			report = "Embuscade repoussée ! Butin %d écus. Pertes : %d hommes (%d blessés relevés)." % [loot, lost, healed]
+			report = "Embuscade repoussée ! Butin %d écus. %s (%s)." % [loot, losses, healed_s]
 		else:
-			report = "Victoire contre les %s ! Prime %d écus, butin %d écus. Pertes : %d hommes (%d blessés relevés)." % [pending["foe"], reward, loot, lost, healed]
+			report = "Victoire contre les %s ! Prime %d écus, butin %d écus. %s (%s)." % [pending["foe"], reward, loot, losses, healed_s]
+		if pending.get("final", false):
+			ended = "victory"
+			end_day = day
+			end_note = "Au jour %d, la victoire de %s décide de la guerre. %s triomphe, et votre compagnie est la plus célèbre du comté." % [day, TOWNS[int(pending["town"])]["name"], cap_first(str(FACTIONS[f]["short"]))]
+			report += " La guerre est gagnée : la compagnie entre dans la légende !"
 		if f >= 0:
 			var rival := int(FACTIONS[f]["rival"])
 			change_reputation(f, REP_WIN)
@@ -696,9 +916,9 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		gold -= pillage
 		fame = maxi(0, fame - (FAME_RETREAT if retreat else FAME_LOSS))
 		if retreat:
-			report = "Retraite face aux %s. Pertes : %d hommes. Bagages abandonnés : -%d écus." % [pending["foe"], lost, pillage]
+			report = "Retraite face aux %s. %s. Bagages abandonnés : -%d écus." % [pending["foe"], losses, pillage]
 		else:
-			report = "Défaite face aux %s... Pertes : %d hommes. L'ennemi pille vos bagages : -%d écus." % [pending["foe"], lost, pillage]
+			report = "Défaite face aux %s... %s. L'ennemi pille vos bagages : -%d écus." % [pending["foe"], losses, pillage]
 		if f >= 0:
 			var loss := REP_RETREAT if retreat else REP_LOSS
 			change_reputation(f, loss)
@@ -709,5 +929,9 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	contracts.erase(pending)
 	pending = {}
 	add_log("Jour %d : %s" % [day, report])
-	pass_day() # La bataille et ses suites prennent la journée
+	if ended == "":
+		pass_day() # La bataille et ses suites prennent la journée
+		check_ruin()
+		if ended == "ruin":
+			report += " La compagnie est anéantie et ruinée : la campagne est perdue."
 	return report

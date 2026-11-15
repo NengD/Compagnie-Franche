@@ -6,6 +6,7 @@ extends Control
 const CAMPAIGN_SCENE := "res://scenes/campaign.tscn"
 const BATTLE_SCENE := "res://scenes/main.tscn"
 const TUTORIAL_SCENE := "res://scenes/tutorial.tscn"
+const END_SCENE := "res://scenes/end.tscn"
 const PIX := 4 ## Taille d'un « pixel » du fond
 const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "men_at_arms", "archer", "cavalry", "spear"]
 
@@ -89,9 +90,16 @@ func add_button(s: String, cb: Callable, enabled := true, parent: Control = null
 	return b
 
 
+## La campagne sauvegardée est-elle terminée ? (on propose alors d'en revoir le bilan)
+func saved_campaign_over() -> bool:
+	var saved := CampaignState.load_game() if CampaignState.has_save() else null
+	return saved != null and saved.is_over()
+
+
 func build_main() -> void:
 	var has_save := CampaignState.has_save()
-	var b := add_button("Continuer la campagne", continue_campaign, has_save)
+	var over := has_save and saved_campaign_over()
+	var b := add_button("Bilan de la campagne" if over else "Continuer la campagne", continue_campaign, has_save)
 	b.custom_minimum_size.x = 300
 	if has_save:
 		focus_later(b)
@@ -287,11 +295,11 @@ func continue_campaign() -> void:
 		refresh()
 		return
 	CampaignState.current = loaded
-	go(CAMPAIGN_SCENE)
+	go(END_SCENE if loaded.is_over() else CAMPAIGN_SCENE)
 
 
 func new_campaign() -> void:
-	if CampaignState.has_save():
+	if CampaignState.has_save() and not saved_campaign_over():
 		page = "confirm_new"
 		refresh()
 		return
