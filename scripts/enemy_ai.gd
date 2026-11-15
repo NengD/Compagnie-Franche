@@ -7,11 +7,18 @@ extends RefCounted
 var timer := 0.0
 var advance := false
 const LINE_SLACK := 120.0 ## Avance maximale d'un régiment d'infanterie sur le reste de la ligne
-const COLUMN_DIST := 700.0 ## Au-delà, l'infanterie marche en colonne
-const SQUARE_DIST := 260.0 ## Une cavalerie qui charge plus près que ça : les piquiers forment le carré
+const COLUMN_DIST := 700.0 ## En deçà, l'infanterie en colonne se déploie en ligne
+const COLUMN_HYSTERESIS := 150.0 ## Il faut être à COLUMN_DIST + ça pour repasser en colonne (pas d'oscillation)
+const SQUARE_DIST := 400.0 ## Une cavalerie qui charge plus près que ça : les piquiers forment le carré
+const REDEPLOY_DIST := 1200.0 ## Un régiment déjà déployé ne repasse en colonne qu'au-delà
+const CAVALRY_WAIT := 20.0 ## La cavalerie reste en réserve ce délai (en s) avant de contourner
 const RUSH_DIST := 220.0 ## Les hommes d'armes courent sur les derniers mètres
+const CHARGE_RUN_DIST := 800.0 ## La cavalerie ne galope que sur la fin de la charge
 
 var line_depth := 0.0
+var charged := {} ## id de cavalerie → cible déjà chargée au galop (une seule course par cible)
+var melee_started := false ## La cavalerie peut quitter la réserve
+var deployed := {} ## id de régiment → true une fois passé en ligne près de l'ennemi
 var team := 1 ## Camp contrôlé (1 = ennemi ; 0 sert aux tests « IA contre IA »)
 
 
@@ -48,11 +55,13 @@ func think(b, dt: float) -> void:
 			sum += advance_depth(r.center)
 			n += 1
 	line_depth = sum / n if n > 0 else 0.0
+	if b.battle_time > CAVALRY_WAIT:
+		melee_started = true
 
 	for r in mine:
 		match r.type:
 			"archer":
-				think_archer(b, r, theirs)
+				think_archer(b, r, mine, theirs)
 			"cavalry":
 				think_cavalry(r, theirs)
 			_:
@@ -64,7 +73,7 @@ func advance_depth(p: Vector2) -> float:
 	return p.y if team == 1 else -p.y
 
 
-func think_archer(b, r: Regiment, theirs: Array[Regiment]) -> void:
+func think_archer(b, r: Regiment, mine: Array[Regiment], theirs: Array[Regiment]) -> void:
 	var range_px: float = r.stats["range"]
 	if b.raining:
 		range_px *= 0.75
@@ -79,12 +88,23 @@ func think_archer(b, r: Regiment, theirs: Array[Regiment]) -> void:
 			td = d
 			threat = o
 	if threat != null and not r.engaged:
+		# Repli vers l'infanterie amie (s'il n'y en a plus, ou si on est acculé au bord, on tient)
+		var cover: Regiment = null
+		for o in mine:
+			if not o.stats["ranged"] and o.type != "cavalry" and (cover == null or r.center.distance_to(o.center) < r.center.distance_to(cover.center)):
+				cover = o
 		var away := (r.center - threat.center).normalized()
-		r.target = null
-		r.holding = false
-		r.running = r.stamina > 0.3 # Repli au pas de course
-		r.dest = (r.center + away * 140.0).clamp(Vector2(40, 40), Vector2(3160, 1960))
-		r.facing = -away
+		if cover != null:
+			away = (away + (cover.center - r.center).normalized()).normalized()
+		var to := (r.center + away * 140.0).clamp(Vector2(40, 40), Vector2(3160, 1960))
+		if cover != null and to.distance_to(r.center) > 70.0:
+			r.target = null
+			r.holding = false
+			r.running = r.stamina > 0.3 # Repli au pas de course
+			r.dest = to
+			r.facing = -away
+			return
+		r.target = threat # Plus d'abri : tir à bout portant
 		return
 	if r.target != null and not r.target.is_dead() and not r.target.hidden:
 		return
@@ -105,7 +125,14 @@ func think_archer(b, r: Regiment, theirs: Array[Regiment]) -> void:
 func think_cavalry(r: Regiment, theirs: Array[Regiment]) -> void:
 	if not advance:
 		return
+	if not melee_started:
+		# En réserve derrière la ligne, sauf si une cavalerie ennemie vient la chercher
+		var raider := nearest_of_type(r, theirs, "cavalry")
+		if raider != null and r.center.distance_to(raider.center) < 300.0:
+			r.target = raider
+		return
 	if r.target != null and not r.target.is_dead() and not r.target.routing:
+		try_charge(r)
 		return
 	# Proies préférées : archers, puis tout sauf les piquiers
 	var prey: Regiment = nearest_of_type(r, theirs, "archer")
@@ -127,7 +154,16 @@ func think_cavalry(r: Regiment, theirs: Array[Regiment]) -> void:
 	else:
 		r.flank_time = 0.0
 		r.target = prey
-		r.running = r.stamina > 0.5 # Charge au galop
+		try_charge(r)
+
+
+## Charge au galop sur les derniers mètres, une seule fois par cible (pour ne pas épuiser les chevaux).
+func try_charge(r: Regiment) -> void:
+	if r.engaged or r.running or r.stamina <= 0.5 or charged.get(r.id) == r.target:
+		return
+	if r.center.distance_to(r.target.center) < CHARGE_RUN_DIST:
+		r.running = true
+		charged[r.id] = r.target
 
 
 func think_infantry(r: Regiment, theirs: Array[Regiment]) -> void:
@@ -137,7 +173,10 @@ func think_infantry(r: Regiment, theirs: Array[Regiment]) -> void:
 	if r.type == "spear" and not r.engaged:
 		var charger: Regiment = null
 		for o in theirs:
-			if o.type == "cavalry" and o.target == r and r.center.distance_to(o.center) < SQUARE_DIST:
+			if o.type != "cavalry":
+				continue
+			var cd := r.center.distance_to(o.center)
+			if o.target == r and cd < SQUARE_DIST:
 				charger = o
 		if charger != null:
 			if r.formation != Regiment.Formation.SQUARE:
@@ -146,8 +185,16 @@ func think_infantry(r: Regiment, theirs: Array[Regiment]) -> void:
 				r.dest = r.center
 			return
 	# Colonne pour marcher de loin, ligne pour combattre
+	# (hystérésis : on ne repasse en colonne que nettement plus loin, pour ne pas osciller)
 	if not r.engaged:
-		r.formation = Regiment.Formation.COLUMN if d > COLUMN_DIST and r.target == null else Regiment.Formation.LINE
+		var column_dist := REDEPLOY_DIST if deployed.has(r.id) else COLUMN_DIST + COLUMN_HYSTERESIS
+		if r.target != null or d < COLUMN_DIST:
+			r.formation = Regiment.Formation.LINE
+			deployed[r.id] = true
+		elif d > column_dist and r.formation == Regiment.Formation.LINE and not r.holding:
+			r.formation = Regiment.Formation.COLUMN
+		elif r.formation == Regiment.Formation.SQUARE:
+			r.formation = Regiment.Formation.LINE
 	if r.target != null and not r.target.is_dead() and not r.target.hidden:
 		if r.type == "men_at_arms" and not r.engaged and r.center.distance_to(r.target.center) < RUSH_DIST and r.stamina > 0.6:
 			r.running = true
