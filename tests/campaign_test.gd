@@ -37,8 +37,11 @@ var waiting := true ## Le _ready de la scène ajoutée n'a pas encore été appe
 func _initialize() -> void:
 	AudioServer.set_bus_mute(0, true) # Aucun son pendant les tests
 	OS.add_logger(counter)
-	CampaignState.save_path = "user://test_campagne.json"
-	CampaignState.delete_save()
+	# Emplacements de test (user://test_campagne_1.json...), jamais ceux du joueur
+	CampaignState.slot_prefix = "user://test_campagne"
+	for i in range(1, CampaignState.SLOT_COUNT + 1):
+		CampaignState.delete_slot(i)
+	CampaignState.use_slot(1)
 	CampaignState.event_chance = 0.0 # Pas d'évènement de route imprévu, sauf dans _test_events
 	_test_rules()
 	_test_veterans()
@@ -413,7 +416,8 @@ func _test_save() -> void:
 	# Une seconde sauvegarde remplace bien la première
 	l.gold = 12.0
 	check(l.save() and int(CampaignState.load_game().gold) == 12, "sauvegarde : écrasement impossible")
-	# Fichiers abîmés : refusés sans planter
+	# Fichiers abîmés (sans copie de secours, voir save_test.gd) : refusés sans planter
+	DirAccess.remove_absolute(CampaignState.save_path + ".bak")
 	var f := FileAccess.open(CampaignState.save_path, FileAccess.WRITE)
 	f.store_string("{pas du json")
 	f.close()
@@ -704,6 +708,8 @@ func _test_map() -> bool:
 	root.remove_child(map)
 	map.free()
 	_test_end_scenes()
+	for i in range(1, CampaignState.SLOT_COUNT + 1):
+		CampaignState.delete_slot(i)
 	_finish([])
 	return true
 

@@ -10,7 +10,8 @@ extends SceneTree
 ## Code de sortie : 0 si tout va bien, 1 sinon.
 
 const OPTIONS_TEST := "user://test_options.cfg"
-const SAVE_TEST := "user://test_menu_campagne.json"
+const SAVE_TEST := "user://test_menu_campagne.json" ## Ancien fichier unique (nettoyé)
+const SLOT_TEST := "user://test_menu_campagne" ## Emplacements de test : <base>_1.json...
 const STEP := 0.05
 
 
@@ -45,7 +46,10 @@ func _initialize() -> void:
 	OS.add_logger(counter)
 	GameOptions.path = OPTIONS_TEST
 	GameOptions.loaded = false
-	CampaignState.save_path = SAVE_TEST
+	CampaignState.slot_prefix = SLOT_TEST
+	for i in range(1, CampaignState.SLOT_COUNT + 1):
+		CampaignState.delete_slot(i)
+	CampaignState.use_slot(1)
 	CampaignState.current = null
 	for p in [OPTIONS_TEST, SAVE_TEST]:
 		if FileAccess.file_exists(p):
@@ -384,6 +388,8 @@ func _finish() -> void:
 	for p in [OPTIONS_TEST, SAVE_TEST]:
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+	for i in range(1, CampaignState.SLOT_COUNT + 1):
+		CampaignState.delete_slot(i)
 	for e in counter.errors:
 		fails.append("erreur moteur : " + e)
 	if fails.is_empty():

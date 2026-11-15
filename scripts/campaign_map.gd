@@ -27,6 +27,7 @@ var box: VBoxContainer
 var confirm_new := false ## Premier clic sur « Nouvelle campagne » : demande confirmation
 var auto_launch := true ## Lancer la scène de bataille après une embuscade (désactivé par les tests)
 var ambushed := false ## Une embuscade attend : la bataille va commencer
+var resuming := false ## Une bataille sauvegardée (contrat ou embuscade) reprend dès l'ouverture
 var end_requested := false ## Campagne terminée : l'écran de fin a été demandé
 
 const END_SCENE := "res://scenes/end.tscn"
@@ -48,16 +49,28 @@ func _ready() -> void:
 	GameOptions.ensure_loaded()
 	if CampaignState.current == null:
 		# Au lancement du jeu : reprend la campagne sauvegardée s'il y en a une
+		CampaignState.migrate_legacy()
 		var loaded := CampaignState.load_game()
 		if loaded != null:
 			CampaignState.current = loaded
 			notice = "Campagne reprise au jour %d." % loaded.day
+			if CampaignState.loaded_from_backup:
+				notice += " Sauvegarde abîmée : copie de secours relue."
 		else:
 			if CampaignState.has_save():
 				notice = "Sauvegarde illisible : nouvelle campagne."
 			CampaignState.current = CampaignState.new_game()
 	state = CampaignState.current
-	state.pending = {} # Sécurité : on n'est pas en bataille sur la carte
+	if state.in_battle():
+		if state.lenient or state.is_over():
+			state.pending = {} # Mode indulgent : on revient à l'état d'avant la bataille
+		else:
+			# Bataille interrompue (jeu fermé, embuscade pendant la marche) : elle reprend
+			resuming = true
+			ambushed = true
+			notice = "La bataille interrompue reprend : %s." % str(state.pending.get("title", ""))
+			if auto_launch:
+				get_tree().change_scene_to_file.call_deferred("res://scenes/main.tscn")
 	state.save()
 	font = ThemeDB.fallback_font
 	if state.is_over():
@@ -221,6 +234,7 @@ func do_refill(i: int) -> void:
 func do_accept(c: Dictionary) -> void:
 	notice = state.accept(c)
 	if notice == "":
+		state.save() # Contrat en cours sauvegardé (sauf mode indulgent) : fermer le jeu ne l'annule pas
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
 	else:
 		refresh_ui()
@@ -246,7 +260,7 @@ func do_new_campaign() -> void:
 		refresh_ui()
 		return
 	confirm_new = false
-	CampaignState.current = CampaignState.new_game(0, state.difficulty) # Même difficulté qu’avant
+	CampaignState.current = CampaignState.new_game(0, state.difficulty, state.lenient) # Mêmes réglages qu’avant
 	state = CampaignState.current
 	state.save()
 	end_requested = false

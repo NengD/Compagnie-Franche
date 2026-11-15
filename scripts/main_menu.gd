@@ -12,8 +12,10 @@ const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée
-var page := "main" ## "main", "new_campaign" (choix de la difficulté) ou "options"
+var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté) ou "options"
 var notice := ""
+var target_slot := 1 ## Emplacement visé par « nouvelle campagne » ou « supprimer »
+var lenient_choice := false ## Case « Mode indulgent » de la nouvelle campagne
 var waiting_action := "" ## Action dont on attend la nouvelle touche ("" = aucune)
 var font: Font
 var sprites := SpriteBank.new()
@@ -26,6 +28,8 @@ var theme_ui: Theme
 
 func _ready() -> void:
 	GameOptions.ensure_loaded()
+	if CampaignState.migrate_legacy():
+		notice = "Ancienne sauvegarde déplacée dans l'emplacement 1."
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	font = ThemeDB.fallback_font
 	theme_ui = UiTheme.make(17)
@@ -74,6 +78,10 @@ func refresh() -> void:
 			build_options()
 		"new_campaign":
 			build_new_campaign()
+		"slots":
+			build_slots()
+		"confirm_delete":
+			build_confirm_delete()
 		_:
 			build_main()
 	# Le panneau se recentre sur son nouveau contenu
@@ -109,56 +117,121 @@ func add_button(s: String, cb: Callable, enabled := true, parent: Control = null
 	return b
 
 
-## La campagne sauvegardée est-elle terminée ? (on propose alors d'en revoir le bilan)
-func saved_campaign_over() -> bool:
-	var saved := CampaignState.load_game() if CampaignState.has_save() else null
-	return saved != null and saved.is_over()
+## Emplacement que « Continuer la campagne » reprend : celui joué en dernier (0 si aucun).
+func continue_slot() -> int:
+	return CampaignState.latest_slot()
 
 
 func build_main() -> void:
-	var has_save := CampaignState.has_save()
-	var over := has_save and saved_campaign_over()
-	var b := add_button("Bilan de la campagne" if over else "Continuer la campagne", continue_campaign, has_save)
+	var last := continue_slot()
+	var saved := CampaignState.load_slot(last) if last > 0 else null
+	var over := saved != null and saved.is_over()
+	var b := add_button("Bilan de la campagne" if over else "Continuer la campagne", continue_campaign, saved != null)
 	b.custom_minimum_size.x = 300
-	if has_save:
+	if saved != null:
+		b.tooltip_text = "Emplacement %d : %s" % [last, saved.summary()]
 		focus_later(b)
 	var nb := add_button("Nouvelle campagne", new_campaign)
-	if not has_save:
+	if saved == null:
 		focus_later(nb)
+	add_button("Emplacements de campagne", open_slots)
 	add_button("Tutoriel", start_tutorial)
 	add_button("Escarmouche", start_skirmish)
 	box.add_child(UiTheme.label("Escarmouche en difficulté %s (Options)" % Difficulty.display_name(GameOptions.difficulty).to_lower(), 13, UiTheme.DIM))
 	add_button("Options", open_options)
 	add_button("Quitter", quit_game)
+	add_notice(300)
+
+
+func add_notice(width: float) -> void:
 	if notice != "":
 		var l := UiTheme.label(notice, 14, UiTheme.WARN)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.custom_minimum_size.x = 300
+		l.custom_minimum_size.x = width
 		box.add_child(l)
 
 
-## Nouvelle campagne : choix de la difficulté (et avertissement si une campagne est en cours).
-func build_new_campaign() -> void:
-	box.add_child(UiTheme.label("Nouvelle campagne", 22, UiTheme.GOLD))
-	var saved := CampaignState.load_game() if CampaignState.has_save() else null
-	var running := CampaignState.has_save() and not saved_campaign_over()
-	if running:
-		var day := ""
+func add_wrapped(s: String, size: int, col: Color, width := 460.0) -> Label:
+	var l := UiTheme.label(s, size, col)
+	l.custom_minimum_size.x = width
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(l)
+	return l
+
+
+## Emplacements : pour chacun, son résumé (jour, or, hommes, difficulté, état) et ses actions.
+func build_slots() -> void:
+	box.add_child(UiTheme.label("Emplacements de campagne", 22, UiTheme.GOLD))
+	var first: Button = null
+	for i in range(1, CampaignState.SLOT_COUNT + 1):
+		box.add_child(HSeparator.new())
+		var used := CampaignState.slot_used(i)
+		var saved := CampaignState.load_slot(i) if used else null
+		box.add_child(UiTheme.label("Emplacement %d" % i, 18, UiTheme.TEXT))
 		if saved != null:
-			day = " (jour %d, %d écus, %d hommes)" % [saved.day, int(saved.gold), saved.total_men()]
-		var l := UiTheme.label("Une campagne est en cours%s.
-La remplacer par une nouvelle ? La sauvegarde sera effacée." % day, 16, UiTheme.WARN)
-		l.custom_minimum_size.x = 460
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		box.add_child(l)
+			add_wrapped(saved.summary(), 15, UiTheme.TEXT)
+			add_wrapped(saved.status_text(), 13, UiTheme.WARN if saved.is_over() else UiTheme.DIM)
+		elif used:
+			add_wrapped("Sauvegarde illisible.", 14, UiTheme.WARN)
+		else:
+			add_wrapped("Vide.", 14, UiTheme.DIM)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		box.add_child(row)
+		if saved != null:
+			var c := add_button("Bilan" if saved.is_over() else "Continuer", continue_campaign.bind(i), true, row)
+			c.name = "Continuer_%d" % i
+			if first == null:
+				first = c
+		var n := add_button("Nouvelle campagne", new_campaign.bind(i), true, row)
+		n.name = "Nouvelle_%d" % i
+		if first == null:
+			first = n
+		if used:
+			var d := add_button("Supprimer", ask_delete.bind(i), true, row)
+			d.name = "Supprimer_%d" % i
+	box.add_child(HSeparator.new())
+	add_notice(460)
+	var back := add_button("Retour", back_to_main)
+	focus_later(first if first != null else back)
+
+
+## Confirmation avant d'effacer un emplacement.
+func build_confirm_delete() -> void:
+	box.add_child(UiTheme.label("Supprimer l'emplacement %d ?" % target_slot, 22, UiTheme.GOLD))
+	var saved := CampaignState.load_slot(target_slot)
+	if saved != null:
+		add_wrapped("%s\n%s" % [saved.summary(), saved.status_text()], 15, UiTheme.TEXT)
+	add_wrapped("La campagne et sa copie de secours seront effacées. Impossible de revenir en arrière.", 15, UiTheme.WARN)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	box.add_child(row)
+	var yes := add_button("Supprimer", confirm_delete, true, row)
+	yes.name = "Confirmer_suppression"
+	var no := add_button("Annuler", open_slots, true, row)
+	focus_later(no)
+
+
+## Nouvelle campagne : choix de la difficulté et du mode indulgent (avertissement si
+## l'emplacement choisi contient déjà une campagne en cours).
+func build_new_campaign() -> void:
+	box.add_child(UiTheme.label("Nouvelle campagne (emplacement %d)" % target_slot, 22, UiTheme.GOLD))
+	var saved := CampaignState.load_slot(target_slot) if CampaignState.slot_used(target_slot) else null
+	var running := saved != null and not saved.is_over()
+	if running:
+		add_wrapped("Une campagne est en cours sur cet emplacement (%s).\nLa remplacer par une nouvelle ? Sa sauvegarde sera effacée." % saved.summary(), 16, UiTheme.WARN)
+	var ind := CheckButton.new()
+	ind.name = "Indulgent"
+	ind.text = "Mode indulgent"
+	ind.button_pressed = lenient_choice
+	ind.toggled.connect(func(on: bool) -> void: lenient_choice = on)
+	box.add_child(ind)
+	add_wrapped("Fermer le jeu pendant une bataille de contrat revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée. Sans ce mode, la bataille reprend au lancement suivant.", 13, UiTheme.DIM)
 	box.add_child(UiTheme.label("Choisissez la difficulté :", 16))
 	for id in Difficulty.IDS:
 		var b := add_button(Difficulty.display_name(id), confirm_new_campaign.bind(id))
 		b.name = "Difficulte_" + id
-		var h := UiTheme.label(Difficulty.hint(id), 13, UiTheme.DIM)
-		h.custom_minimum_size.x = 460
-		h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		box.add_child(h)
+		add_wrapped(Difficulty.hint(id), 13, UiTheme.DIM)
 		if id == Difficulty.NORMAL and not running:
 			focus_later(b)
 	var back := add_button("Retour", back_to_main)
@@ -309,7 +382,10 @@ func _input(event: InputEvent) -> void:
 			capture_key(k)
 		elif k.keycode == KEY_ESCAPE and page != "main":
 			get_viewport().set_input_as_handled()
-			back_to_main()
+			if page == "confirm_delete":
+				open_slots()
+			else:
+				back_to_main()
 		return
 	# Un clic ailleurs pendant l'attente : on laisse le bouton cliqué agir normalement
 
@@ -333,27 +409,66 @@ func go(path: String) -> void:
 		get_tree().change_scene_to_file(path)
 
 
-func continue_campaign() -> void:
-	var loaded := CampaignState.load_game()
-	if loaded == null:
-		notice = "Sauvegarde illisible."
+## Continue une campagne : l'emplacement donné, sinon celui joué en dernier.
+## Une bataille sauvegardée en cours reprend aussitôt (la carte relance la bataille).
+func continue_campaign(i := 0) -> void:
+	if i <= 0:
+		i = continue_slot()
+	if i <= 0:
+		notice = "Aucune campagne sauvegardée."
 		refresh()
 		return
+	var loaded := CampaignState.load_slot(i)
+	if loaded == null:
+		notice = "Sauvegarde illisible (emplacement %d)." % i
+		refresh()
+		return
+	CampaignState.use_slot(i)
 	CampaignState.current = loaded
 	go(END_SCENE if loaded.is_over() else CAMPAIGN_SCENE)
 
 
-func new_campaign() -> void:
+## Nouvelle campagne sur un emplacement (par défaut : le premier libre, sinon le dernier joué).
+func new_campaign(i := 0) -> void:
+	if i <= 0:
+		i = CampaignState.free_slot()
+	if i <= 0:
+		i = maxi(continue_slot(), 1)
+	target_slot = i
+	lenient_choice = false
 	page = "new_campaign"
 	notice = ""
 	refresh()
 
 
 func confirm_new_campaign(level := Difficulty.NORMAL) -> void:
-	CampaignState.current = CampaignState.new_game(0, level)
+	CampaignState.use_slot(target_slot)
+	CampaignState.delete_save() # L'ancienne campagne et sa copie de secours disparaissent
+	CampaignState.current = CampaignState.new_game(0, level, lenient_choice)
 	CampaignState.current.save()
 	page = "main"
 	go(CAMPAIGN_SCENE)
+
+
+func open_slots() -> void:
+	page = "slots"
+	notice = ""
+	refresh()
+
+
+func ask_delete(i: int) -> void:
+	target_slot = i
+	page = "confirm_delete"
+	refresh()
+
+
+func confirm_delete() -> void:
+	CampaignState.delete_slot(target_slot)
+	if CampaignState.slot == target_slot:
+		CampaignState.current = null
+	notice = "Emplacement %d supprimé." % target_slot
+	page = "slots"
+	refresh()
 
 
 func start_tutorial() -> void:

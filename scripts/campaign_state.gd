@@ -132,9 +132,11 @@ var gold_earned := 0 ## Primes, butin et escortes
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
-static func new_game(seed_value := 0, level := Difficulty.NORMAL) -> CampaignState:
+## lenient_mode : mode indulgent (la bataille en cours n'est pas sauvegardée, voir « lenient »).
+static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode := false) -> CampaignState:
 	var c := CampaignState.new()
 	c.difficulty = Difficulty.sanitize(level)
+	c.lenient = lenient_mode
 	if seed_value != 0:
 		c.rng.seed = seed_value
 	else:
@@ -175,22 +177,70 @@ static func type_count(type: String, n: int) -> String:
 
 # ---------------------------------------------------------------- Sauvegarde
 
-static var save_path := "user://campagne.json" ## Les tests utilisent un autre fichier
+## Emplacements de sauvegarde : SLOT_COUNT fichiers <base>_1.json, <base>_2.json...
+## Chaque écriture garde la version précédente dans <fichier>.bak (relue si le fichier est abîmé).
+const SLOT_COUNT := 3
+## Base des noms d'emplacement ("" : user://campagne, ou user://test_emplacement quand un script
+## de test tourne, pour ne jamais toucher aux sauvegardes du joueur).
+static var slot_prefix := ""
+static var slot := 1 ## Emplacement utilisé par la campagne en cours
+static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
+static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée), 2 et 3 restent lisibles (difficulté : normal).
-const SAVE_VERSION := 4
+## Les versions 1 (sans expérience, réputation ni renommée), 2, 3 et 4 restent lisibles
+## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours).
+const SAVE_VERSION := 5
+
+## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
+## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
+var lenient := false
+var saved_at := 0.0 ## Heure de la dernière sauvegarde (secondes Unix), pour « Continuer »
+
+
+static func slot_base() -> String:
+	if slot_prefix != "":
+		return slot_prefix
+	return "user://test_emplacement" if GameOptions.is_test_run() else "user://campagne"
+
+
+static func slot_path(i: int) -> String:
+	return "%s_%d.json" % [slot_base(), i]
+
+
+## Ancien fichier unique (versions 4 et avant) : devient l'emplacement 1.
+static func legacy_path() -> String:
+	return slot_base() + ".json"
+
+
+## Choisit l'emplacement utilisé par les sauvegardes suivantes.
+static func use_slot(i: int) -> void:
+	slot = clampi(i, 1, SLOT_COUNT)
+	save_path = slot_path(slot)
+
+
+## Migration : l'ancien campagne.json devient l'emplacement 1 (s'il est libre). Renvoie vrai si déplacé.
+static func migrate_legacy() -> bool:
+	var old := legacy_path()
+	var first := slot_path(1)
+	if not FileAccess.file_exists(old) or FileAccess.file_exists(first) or FileAccess.file_exists(first + ".bak"):
+		return false
+	var err := DirAccess.rename_absolute(old, first)
+	if err != OK:
+		push_warning("Migration de la sauvegarde impossible : %s" % error_string(err))
+		return false
+	return true
 
 
 ## Données à sauvegarder (types simples uniquement, pour JSON).
 func to_dict() -> Dictionary:
 	var cs: Array = []
 	for c in contracts:
-		var d := c.duplicate(true)
-		d["seed"] = str(c["seed"]) # Entier 64 bits : en texte pour ne pas perdre de précision
-		cs.append(d)
-	return {
+		cs.append(contract_to_dict(c))
+	var d := {
 		"version": SAVE_VERSION,
 		"difficulty": difficulty,
+		"lenient": lenient,
 		"day": day, "gold": gold, "location": location,
 		"victories": victories, "defeats": defeats,
 		"fame": fame, "reputation": reputation.duplicate(),
@@ -201,6 +251,47 @@ func to_dict() -> Dictionary:
 		"ended": ended, "end_day": end_day, "end_note": end_note,
 		"men_lost": men_lost, "enemies_killed": enemies_killed, "gold_earned": gold_earned,
 	}
+	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
+	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
+	if in_battle() and not lenient:
+		var idx := contracts.find(pending)
+		if idx >= 0:
+			d["pending_index"] = idx
+		else:
+			d["pending"] = contract_to_dict(pending)
+	return d
+
+
+static func contract_to_dict(c: Dictionary) -> Dictionary:
+	var d := c.duplicate(true)
+	d["seed"] = str(c.get("seed", 1)) # Entier 64 bits : en texte pour ne pas perdre de précision
+	return d
+
+
+## Relit un contrat (ou une embuscade) sauvegardé. Renvoie {} s'il est invalide.
+static func contract_from_dict(k: Variant) -> Dictionary:
+	if not k is Dictionary:
+		return {}
+	var town := int(k.get("town", -1))
+	if town < 0 or town >= TOWNS.size():
+		return {}
+	var enemy: Array[Dictionary] = []
+	for e in k.get("enemy", []):
+		if not e is Dictionary or not UnitTypes.STATS.has(str(e.get("type", ""))):
+			return {}
+		enemy.append({"type": str(e["type"]), "men": maxi(1, int(e.get("men", 1))), "rank": clampi(int(e.get("rank", 0)), 0, 2)})
+	var out := {
+		"town": town, "faction": clampi(int(k.get("faction", TOWNS[town]["faction"])), -1, FACTIONS.size() - 1),
+		"title": str(k.get("title", "")), "text": str(k.get("text", "")),
+		"foe": str(k.get("foe", "ennemis")), "difficulty": clampi(int(k.get("difficulty", 1)), 1, MAX_LEVEL),
+		"enemy": enemy, "reward": int(k.get("reward", 0)), "expires": int(k.get("expires", 0)),
+		"seed": str(k.get("seed", "1")).to_int(),
+	}
+	if bool(k.get("final", false)):
+		out["final"] = true
+	if bool(k.get("ambush", false)):
+		out["ambush"] = true
+	return out
 
 
 ## Reconstruit une campagne depuis to_dict(). Renvoie null si les données sont invalides.
@@ -210,6 +301,8 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		return null
 	var c := CampaignState.new()
 	c.difficulty = Difficulty.sanitize(str(d.get("difficulty", Difficulty.NORMAL))) # Versions 1 et 2 : normal
+	c.lenient = bool(d.get("lenient", false)) # Version 4 et avant : non indulgent
+	c.saved_at = float(d.get("saved_at", 0.0))
 	c.day = int(d.get("day", 1))
 	c.gold = float(d.get("gold", 0.0))
 	c.location = int(d.get("location", 0))
@@ -232,25 +325,22 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		if men > 0:
 			c.company.append({"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)})
 	for k in d.get("contracts", []):
-		if not k is Dictionary:
+		var contract := contract_from_dict(k)
+		if contract.is_empty():
 			return null
-		var town := int(k.get("town", -1))
-		if town < 0 or town >= TOWNS.size():
+		contract.erase("ambush") # Une embuscade n'est jamais dans la liste des contrats
+		c.contracts.append(contract)
+	# Version 5 : bataille en cours. Le contrat est repris dans la liste (même dictionnaire,
+	# pour que finish_battle le retire), l'embuscade est relue telle quelle.
+	if d.has("pending_index"):
+		var idx := int(d["pending_index"])
+		if idx < 0 or idx >= c.contracts.size():
 			return null
-		var enemy: Array[Dictionary] = []
-		for e in k.get("enemy", []):
-			if not e is Dictionary or not UnitTypes.STATS.has(str(e.get("type", ""))):
-				return null
-			enemy.append({"type": str(e["type"]), "men": maxi(1, int(e.get("men", 1))), "rank": clampi(int(e.get("rank", 0)), 0, 2)})
-		c.contracts.append({
-			"town": town, "faction": clampi(int(k.get("faction", TOWNS[town]["faction"])), -1, FACTIONS.size() - 1),
-			"title": str(k.get("title", "")), "text": str(k.get("text", "")),
-			"foe": str(k.get("foe", "ennemis")), "difficulty": clampi(int(k.get("difficulty", 1)), 1, MAX_LEVEL),
-			"enemy": enemy, "reward": int(k.get("reward", 0)), "expires": int(k.get("expires", 0)),
-			"seed": str(k.get("seed", "1")).to_int(),
-		})
-		if bool(k.get("final", false)):
-			c.contracts[-1]["final"] = true
+		c.pending = c.contracts[idx]
+	elif d.has("pending"):
+		c.pending = contract_from_dict(d["pending"])
+		if c.pending.is_empty():
+			return null
 	for s in d.get("log", []):
 		c.log_lines.append(str(s))
 	c.rng.seed = str(d.get("rng_seed", "1")).to_int()
@@ -267,16 +357,29 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	return c
 
 
-## Écrit la sauvegarde sans risque de la corrompre : fichier temporaire, puis remplacement.
+## Écrit la sauvegarde sans risque de la corrompre : fichier temporaire, l'ancienne version
+## devient la copie de secours (.bak), puis le temporaire remplace le fichier.
 func save() -> bool:
 	var path := save_path
 	var tmp := path + ".tmp"
+	var bak := path + ".bak"
+	saved_at = Time.get_unix_time_from_system()
+	var d := to_dict()
+	d["saved_at"] = saved_at
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		push_warning("Sauvegarde impossible : %s" % error_string(FileAccess.get_open_error()))
 		return false
-	f.store_string(JSON.stringify(to_dict(), "\t"))
+	f.store_string(JSON.stringify(d, "\t"))
 	f.close()
+	if FileAccess.file_exists(path):
+		# Seule une sauvegarde lisible devient la copie de secours (un fichier abîmé ne l'écrase pas)
+		if read_file(path) != null:
+			if FileAccess.file_exists(bak):
+				DirAccess.remove_absolute(bak)
+			var e := DirAccess.rename_absolute(path, bak)
+			if e != OK:
+				push_warning("Copie de secours impossible : %s" % error_string(e))
 	var err := DirAccess.rename_absolute(tmp, path)
 	if err != OK:
 		push_warning("Sauvegarde impossible : %s" % error_string(err))
@@ -285,25 +388,102 @@ func save() -> bool:
 
 
 static func has_save() -> bool:
-	return FileAccess.file_exists(save_path)
+	return FileAccess.file_exists(save_path) or FileAccess.file_exists(save_path + ".bak")
 
 
-## Charge une sauvegarde. Renvoie null si le fichier manque ou est illisible.
-static func load_game() -> CampaignState:
-	if not FileAccess.file_exists(save_path):
+## Lit un seul fichier de sauvegarde. Renvoie null s'il manque ou est illisible.
+static func read_file(path: String) -> CampaignState:
+	if not FileAccess.file_exists(path):
 		return null
 	var json := JSON.new()
-	if json.parse(FileAccess.get_file_as_string(save_path)) != OK:
-		push_warning("Sauvegarde illisible (ligne %d) : %s" % [json.get_error_line(), json.get_error_message()])
+	if json.parse(FileAccess.get_file_as_string(path)) != OK:
+		push_warning("Sauvegarde illisible (%s, ligne %d) : %s" % [path, json.get_error_line(), json.get_error_message()])
 		return null
 	if not json.data is Dictionary:
 		return null
 	return from_dict(json.data)
 
 
+## Charge un fichier de sauvegarde, ou sa copie de secours s'il est abîmé ou absent.
+static func load_from(path: String) -> CampaignState:
+	loaded_from_backup = false
+	var c := read_file(path)
+	if c == null and FileAccess.file_exists(path + ".bak"):
+		c = read_file(path + ".bak")
+		if c != null:
+			loaded_from_backup = true
+			push_warning("Sauvegarde abîmée : copie de secours relue (%s.bak)" % path)
+	return c
+
+
+## Charge l'emplacement en cours. Renvoie null si le fichier manque ou est illisible.
+static func load_game() -> CampaignState:
+	return load_from(save_path)
+
+
 static func delete_save() -> void:
-	if FileAccess.file_exists(save_path):
-		DirAccess.remove_absolute(save_path)
+	delete_file(save_path)
+
+
+static func delete_file(path: String) -> void:
+	for p in [path, path + ".bak", path + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(p)
+
+
+## Efface un emplacement (fichier et copie de secours).
+static func delete_slot(i: int) -> void:
+	delete_file(slot_path(i))
+
+
+static func slot_used(i: int) -> bool:
+	var p := slot_path(i)
+	return FileAccess.file_exists(p) or FileAccess.file_exists(p + ".bak")
+
+
+## Campagne d'un emplacement (null si vide ou illisible).
+static func load_slot(i: int) -> CampaignState:
+	return load_from(slot_path(i))
+
+
+## Emplacement sauvegardé le plus récemment (0 si aucun n'est lisible).
+static func latest_slot() -> int:
+	var best := 0
+	var best_t := -1.0
+	for i in range(1, SLOT_COUNT + 1):
+		var c := load_slot(i)
+		if c != null and c.saved_at > best_t:
+			best = i
+			best_t = c.saved_at
+	return best
+
+
+## Premier emplacement libre (0 si tous sont pris).
+static func free_slot() -> int:
+	for i in range(1, SLOT_COUNT + 1):
+		if not slot_used(i):
+			return i
+	return 0
+
+
+## Résumé d'une campagne pour le menu : jour, or, hommes, difficulté, état.
+func summary() -> String:
+	var s := "Jour %d · %d écus · %s · %s" % [day, int(gold), plural(total_men(), "homme", "hommes"), Difficulty.display_name(difficulty)]
+	if lenient:
+		s += " · indulgent"
+	return s
+
+
+## État d'une campagne pour le menu.
+func status_text() -> String:
+	match ended:
+		"victory":
+			return "Terminée : victoire au jour %d" % end_day
+		"ruin":
+			return "Terminée : compagnie ruinée au jour %d" % end_day
+	if in_battle():
+		return "Bataille en cours : %s" % str(pending.get("title", ""))
+	return "En cours, à %s" % TOWNS[location]["name"]
 
 
 # ---------------------------------------------------------------- Factions et réputation

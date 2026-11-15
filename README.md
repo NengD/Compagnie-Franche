@@ -9,10 +9,13 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 3. Appuyez sur **F5** (ou le bouton ▶). Le jeu s'ouvre sur le **menu principal**.
 
 ## Menu principal
-- **Continuer la campagne** (si une sauvegarde existe) / **Nouvelle campagne** : choix de la **difficulté**
-  (facile, normal, difficile), avec un avertissement si une campagne est en cours (elle serait effacée).
-  Si la campagne sauvegardée est **terminée**, le premier bouton devient **Bilan de la campagne** (écran de fin)
-  et « Nouvelle campagne » n'avertit de rien.
+- **Continuer la campagne** : reprend l'emplacement joué en dernier (si une sauvegarde existe).
+  **Nouvelle campagne** : choix de la **difficulté** (facile, normal, difficile) et du **mode indulgent**,
+  sur le premier emplacement libre, avec un avertissement si l'emplacement contient une campagne en cours.
+  Si la campagne sauvegardée est **terminée**, le premier bouton devient **Bilan de la campagne** (écran de fin).
+- **Emplacements de campagne** : 3 emplacements. Chacun affiche le jour, l'or, les hommes, la difficulté
+  (et « indulgent ») et son état (en cours, bataille en cours, terminée par une victoire ou la ruine), avec
+  **Continuer** (ou **Bilan**), **Nouvelle campagne** et **Supprimer** (avec confirmation).
 - **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
   changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
@@ -45,7 +48,7 @@ Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1
 | Primes des contrats | x1,25 | x1 | x0,85 |
 
 L'escarmouche prend la difficulté des Options ; la campagne garde celle choisie à sa création
-(enregistrée dans la sauvegarde, version 3 ; les sauvegardes plus anciennes sont relues en « normal »).
+(enregistrée dans la sauvegarde, version 4 ; les sauvegardes plus anciennes sont relues en « normal »).
 
 ## Campagne
 Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disputent trois factions :
@@ -101,14 +104,20 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   prime, butin ou pillage, solde du jour, or avant → après, réputation et renommée. En escarmouche et au
   tutoriel, le bilan est simplifié (sans or ni expérience). Entrée affiche le bilan tout de suite, puis continue.
 - **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap : menu pause).
-- **Sauvegarde automatique** après chaque marche, recrutement et bataille, reprise au lancement du jeu.
-  Fichier : `campagne.json` dans le dossier de données du jeu
-  (Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\`). « Nouvelle campagne » demande confirmation.
-  Format versionné (version 3 : fin de campagne, bilan, contrat final) ; les sauvegardes des versions 1 et 2
-  se relisent (bilan à zéro, campagne en cours).
-  Quitter par le menu pause compte comme une retraite ; fermer la fenêtre en pleine bataille
-  revient à l'état d'avant la bataille. Les sauvegardes de la version
-  précédente (sans expérience ni réputation) restent lisibles.
+- **Sauvegarde automatique** après chaque marche, recrutement, contrat accepté et bataille.
+  Fichiers : `campagne_1.json`, `campagne_2.json`, `campagne_3.json` dans le dossier de données du jeu
+  (Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\`). L'ancien fichier unique `campagne.json`
+  devient automatiquement l'emplacement 1 (au premier passage par le menu).
+  Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
+  Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
+  Format versionné (version 5 : emplacements, mode indulgent, bataille en cours) ; les versions 1 à 4
+  se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en cours).
+- **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
+  Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
+  même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
+  Quitter par le menu pause compte toujours comme une retraite.
+- **Mode indulgent** (option de la nouvelle campagne) : la bataille en cours n'est pas sauvegardée. Fermer
+  la fenêtre en pleine bataille revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
 
 ## Commandes
 Les touches marquées * se changent dans **Options**.
@@ -209,6 +218,8 @@ tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tut
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
+tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
+                        mode indulgent, versions, menu des emplacements)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
 tests/menu_capture.gd   Captures du menu, des options et du tutoriel (avec fenêtre ; option --out)
@@ -249,6 +260,7 @@ godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, t
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
+godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
@@ -313,6 +325,5 @@ durée médiane) :
 dépasser l'effectif plein d'un régiment.
 
 ## Pistes pour continuer
-- Plusieurs emplacements de sauvegarde.
 - Sièges plus complets (échelles, portes, assaut d'une ville).
 - Nouveaux types d'unités (arbalétriers, chevaliers démontés).
