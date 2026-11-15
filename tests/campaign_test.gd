@@ -46,6 +46,9 @@ func _initialize() -> void:
 	_test_economy()
 	_test_events()
 	_test_save()
+	_test_progression()
+	_test_plurals()
+	_test_endings()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
 	CampaignState.current = camp
@@ -181,8 +184,8 @@ func _test_veterans() -> void:
 	for i in 20:
 		var k := c.make_contract(0)
 		for e in k["enemy"]:
-			if int(k["difficulty"]) == 3:
-				check(int(e["rank"]) >= 1, "vétérans : ost du baron sans expérience")
+			if int(k["difficulty"]) >= 3:
+				check(int(e["rank"]) >= 1, "vétérans : contrat de niveau %d sans expérience" % int(k["difficulty"]))
 			if int(e["rank"]) > 0:
 				ranked += 1
 	check(ranked > 0, "vétérans : aucun ennemi aguerri")
@@ -567,6 +570,7 @@ func _run_battle() -> void:
 	phase = "map"
 	if camp.is_destroyed():
 		camp.company.append({"type": "spear", "men": 5}) # Pour pouvoir tester la marche
+	camp.ended = "" # (une compagnie anéantie et pillée a pu être déclarée ruinée)
 	camp.gold = 500.0
 	camp.save()
 	# Comme au lancement du jeu : aucune campagne en mémoire, la carte doit reprendre la sauvegarde
@@ -645,6 +649,7 @@ func _test_map() -> bool:
 	print("Carte : marche %s → %s puis retour avec embuscade, %d éléments dans le panneau" % [CampaignState.TOWNS[from]["name"], CampaignState.TOWNS[went]["name"], map.box.get_child_count()])
 	root.remove_child(map)
 	map.free()
+	_test_end_scenes()
 	_finish([])
 	return true
 
@@ -666,3 +671,225 @@ func _finish(extra: Array) -> void:
 			print("  - ", f)
 		print("TEST CAMPAGNE ÉCHOUÉ")
 		quit(1)
+
+
+# ---------------------------------------------------------------- Progression, pluriels, fin
+
+## Niveaux de contrat 1 à 5 : la difficulté suit la renommée sans s'arrêter au niveau 3.
+func _test_progression() -> void:
+	var c := CampaignState.new_game(21)
+	check(CampaignState.CONTRACT_KINDS.size() == CampaignState.MAX_LEVEL and CampaignState.MAX_LEVEL >= 5, "progression : moins de 5 niveaux")
+	var sizes: Array[float] = []
+	var men: Array[float] = []
+	var rewards: Array[float] = []
+	var vets: Array[float] = []
+	for level in range(1, CampaignState.MAX_LEVEL + 1):
+		c.fame = (level - 1) * CampaignState.FAME_STEP
+		check(c.max_level() == level, "progression : renommée %d → niveau %d au lieu de %d" % [c.fame, c.max_level(), level])
+		var n := 0
+		var regs := 0.0
+		var m := 0.0
+		var rw := 0.0
+		var v := 0.0
+		for i in 40:
+			var k := c.make_contract(3)
+			var d := int(k["difficulty"])
+			check(d == level or d == level - 1, "progression : niveau %d tiré à la renommée %d" % [d, c.fame])
+			check(k["enemy"].size() <= 11, "progression : armée démesurée (%d régiments)" % k["enemy"].size())
+			check(not "{" in str(k["title"]) + str(k["text"]) + str(k["foe"]), "progression : texte de contrat mal rempli : %s" % k["title"])
+			if d != level:
+				continue
+			n += 1
+			regs += k["enemy"].size()
+			rw += int(k["reward"])
+			for e in k["enemy"]:
+				m += int(e["men"])
+				if int(e["rank"]) == 2:
+					v += 1
+		check(n > 0, "progression : aucun contrat de niveau %d" % level)
+		sizes.append(regs / maxf(n, 1))
+		men.append(m / maxf(n, 1))
+		rewards.append(rw / maxf(n, 1))
+		vets.append(v / maxf(regs, 1))
+	for i in range(1, sizes.size()):
+		check(men[i] > men[i - 1], "progression : niveau %d pas plus nombreux (%d hommes contre %d)" % [i + 1, int(men[i]), int(men[i - 1])])
+		check(rewards[i] > rewards[i - 1], "progression : prime du niveau %d pas plus haute" % (i + 1))
+		check(vets[i] >= vets[i - 1], "progression : niveau %d moins vétéran" % (i + 1))
+	check(sizes[-1] > 8.0, "progression : le niveau 5 n'a pas plus de régiments que le niveau 3")
+	# Au-delà du niveau 5, la prime continue de croître avec la renommée
+	c.fame = 300
+	check(c.max_level() == CampaignState.MAX_LEVEL, "progression : niveau au-delà du maximum")
+	var r1 := 0
+	var r2 := 0
+	for i in 30:
+		c.fame = 125
+		r1 += c.roll_reward(1000)
+		c.fame = 300
+		r2 += c.roll_reward(1000)
+	check(r2 > r1, "progression : la prime ne suit plus la renommée")
+	# Les contrats de haut niveau gardent un terrain valide et s'affichent sur 5 étoiles
+	check(Terrain.for_contract(5, 5, CampaignState.TOWNS) == "siege", "progression : Hautemure niveau 5 n'est pas un siège")
+	var stars: String = load("res://scripts/campaign_map.gd").stars(4)
+	check(stars == "★★★★☆", "progression : étoiles « %s »" % stars)
+	print("Progression : hommes par niveau %s, primes %s" % [str(men.map(func(x): return int(x))), str(rewards.map(func(x): return int(x)))])
+
+
+## Pluriels : « 1 archer », « 2 archers », « 1 homme d'armes ».
+func _test_plurals() -> void:
+	var one := CampaignState.army_summary([{"type": "archer", "men": 1, "rank": 1}, {"type": "men_at_arms", "men": 5, "rank": 0}])
+	check(one == "1 homme d'armes, 1 archer — 6 hommes (régiment 1 aguerri)", "pluriels : « %s »" % one)
+	var many := CampaignState.army_summary([{"type": "cavalry", "men": 1, "rank": 2}, {"type": "cavalry", "men": 0, "rank": 2}])
+	check(many == "2 cavaliers — 1 homme (régiments 2 vétérans)", "pluriels : « %s »" % many)
+	check(CampaignState.type_count("spear", 1) == "1 piquier" and CampaignState.type_count("spear", 3) == "3 piquiers", "pluriels : piquiers")
+	check(CampaignState.plural(0, "homme", "hommes") == "0 homme", "pluriels : zéro")
+	# Une épidémie qui ne tue qu'un homme
+	var c := CampaignState.new_game(3)
+	c.company = [{"type": "spear", "men": 2, "xp": 0.0}]
+	c.road_event("plague", 1)
+	check("un homme en meurt" in c.log_lines[0], "pluriels : épidémie « %s »" % c.log_lines[0])
+	print("Pluriels : OK")
+
+
+## Fin de campagne : objectif annoncé, contrat final, victoire, ruine, sauvegarde de l'état.
+func _test_endings() -> void:
+	var c := CampaignState.new_game(31)
+	check(c.log_lines[0].begins_with("Objectif") and str(CampaignState.FINAL_FAME) in c.log_lines[0], "fin : objectif non annoncé au journal")
+	check(c.final_contract().is_empty() and "0 / %d" % CampaignState.FINAL_FAME in c.objective_status(), "fin : progression « %s »" % c.objective_status())
+	# Sous la renommée requise, pas de bataille décisive
+	c.fame = CampaignState.FINAL_FAME - 1
+	c.pass_day()
+	check(c.final_contract().is_empty(), "fin : contrat final proposé trop tôt")
+	# La Ligue nous estime le plus : elle nous convoque à sa capitale
+	c.fame = CampaignState.FINAL_FAME
+	c.reputation = [10, 0, 30]
+	c.pass_day()
+	var k := c.final_contract()
+	check(not k.is_empty() and int(k["faction"]) == 2 and int(k["town"]) == int(CampaignState.FACTIONS[2]["capital"]), "fin : contrat final mal attribué %s" % str(k.get("title", "")))
+	if k.is_empty():
+		return
+	check(k["enemy"].size() >= CampaignState.CONTRACT_KINDS[-1]["army"].size() and "Pontrieux" in c.objective_status(), "fin : bataille décisive trop petite ou mal annoncée")
+	# Il n'expire pas et reste unique
+	for i in CampaignState.CONTRACT_DAYS + 2:
+		c.pass_day()
+	check(c.final_contract() == k and c.contracts.filter(func(x): return x.get("final", false)).size() == 1, "fin : contrat final expiré ou dupliqué")
+	# Sauvegarde : le contrat final et le bilan survivent à l'aller-retour, une version 2 se relit
+	c.men_lost = 40
+	c.enemies_killed = 120
+	var back := CampaignState.from_dict(JSON.parse_string(JSON.stringify(c.to_dict())))
+	check(back != null and not back.final_contract().is_empty() and back.men_lost == 40 and back.enemies_killed == 120, "fin : contrat final ou bilan perdu à la sauvegarde")
+	var v2 := c.to_dict()
+	v2["version"] = 2
+	for key in ["ended", "end_day", "end_note", "men_lost", "enemies_killed", "gold_earned"]:
+		v2.erase(key)
+	var old := CampaignState.from_dict(JSON.parse_string(JSON.stringify(v2)))
+	check(old != null and old.ended == "" and old.men_lost == 0, "fin : sauvegarde version 2 mal relue")
+	var bad := c.to_dict()
+	bad["ended"] = "peut-être"
+	check(CampaignState.from_dict(bad) == null, "fin : état de fin inconnu accepté")
+	# Gagner la bataille décisive termine la campagne
+	c.location = int(k["town"])
+	check(c.accept(k) == "", "fin : contrat final refusé")
+	var surv := []
+	for r in c.battle_army():
+		surv.append(int(r["men"]))
+	var day := c.day
+	var report := c.finish_battle(true, surv, [])
+	check(c.ended == "victory" and c.is_over() and c.end_day == day and c.end_note != "" and "légende" in report, "fin : victoire finale non enregistrée (%s)" % c.ended)
+	c.refresh_contracts(c.location)
+	check(c.accept(c.contracts_at(c.location)[0]) != "", "fin : contrat accepté après la fin")
+	check(c.travel(c.neighbours(c.location)[0]) != "" and c.day == day, "fin : marche après la fin")
+	c.offer_final()
+	check(c.final_contract().is_empty(), "fin : nouveau contrat final après la victoire")
+	check(c.save(), "fin : sauvegarde impossible")
+	var l := CampaignState.load_game()
+	check(l != null and l.ended == "victory" and l.end_note == c.end_note, "fin : état « terminée » non sauvegardé")
+	# Compagnie anéantie mais encore riche : on peut recruter, ce n'est pas la fin
+	var r := CampaignState.new_game(32)
+	r.gold = 2000.0
+	r.accept(r.contracts_at(0)[0])
+	var zero := []
+	zero.resize(r.battle_army().size())
+	zero.fill(0)
+	r.finish_battle(false, zero, [])
+	check(r.is_destroyed() and r.ended == "", "fin : ruine déclarée alors qu'il reste de quoi recruter (%d écus)" % int(r.gold))
+	check(r.recruit("spear") == "" and not r.is_destroyed(), "fin : recrutement impossible après la défaite")
+	r.company.clear()
+	r.gold = 50.0
+	r.check_ruin()
+	check(r.ended == "ruin" and r.is_ruined() and r.end_note != "", "fin : ruine non déclarée")
+	# Une défaite qui anéantit une compagnie sans le sou : game over dès le compte rendu
+	var g := CampaignState.new_game(33)
+	g.gold = 10.0
+	g.accept(g.contracts_at(0)[0])
+	zero.resize(g.battle_army().size())
+	zero.fill(0)
+	var rep := g.finish_battle(false, zero, [])
+	check(g.ended == "ruin" and "perdue" in rep, "fin : défaite ruineuse sans game over")
+	check(g.men_lost == 98, "fin : pertes du bilan %d" % g.men_lost)
+	CampaignState.delete_save()
+	print("Fin de campagne : OK")
+
+
+## Scènes de fin : carte → écran de fin, écran de victoire et de game over, menu.
+func _test_end_scenes() -> void:
+	for ending in ["victory", "ruin"]:
+		var c := CampaignState.new_game(40)
+		c.ended = ending
+		c.end_day = 57
+		c.end_note = "Fin du test."
+		c.victories = 9
+		c.men_lost = 77
+		if ending == "ruin":
+			c.company.clear()
+			c.gold = 0.0
+		c.save()
+		CampaignState.current = c
+		# La carte renvoie aussitôt vers l'écran de fin
+		var m: Node = (load("res://scenes/campaign.tscn") as PackedScene).instantiate()
+		m.auto_launch = false
+		root.add_child(m)
+		check(m.end_requested, "%s : la carte ne mène pas à l'écran de fin" % ending)
+		root.remove_child(m)
+		m.free()
+		# Écran de fin
+		var e: Node = (load("res://scenes/end.tscn") as PackedScene).instantiate()
+		e.change_scenes = false
+		root.add_child(e)
+		var texts: Array[String] = []
+		for lb in e.find_children("*", "Label", true, false):
+			texts.append((lb as Label).text)
+		var all := " | ".join(texts)
+		check(e.victory == (ending == "victory"), "%s : mauvais écran de fin" % ending)
+		check(("La guerre est gagnée !" if ending == "victory" else "La compagnie est dissoute") in all, "%s : titre absent (%s)" % [ending, all])
+		check("57 jours" in all and "77" in all and "9 victoires" in all and "Fin du test." in all, "%s : bilan incomplet (%s)" % [ending, all])
+		e.to_menu()
+		check(e.last_scene == e.MENU_SCENE, "%s : retour au menu" % ending)
+		root.remove_child(e)
+		e.free()
+		# Menu : la campagne finie propose son bilan, et une nouvelle campagne sans confirmation
+		CampaignState.current = null
+		var menu: Node = (load("res://scenes/menu.tscn") as PackedScene).instantiate()
+		menu.change_scenes = false
+		root.add_child(menu)
+		var buttons: Array[String] = []
+		for b in menu.find_children("*", "Button", true, false):
+			buttons.append((b as Button).text)
+		check("Bilan de la campagne" in buttons and not "Continuer la campagne" in buttons, "%s : le menu propose de continuer une campagne finie %s" % [ending, str(buttons)])
+		menu.continue_campaign()
+		check(menu.last_scene == menu.END_SCENE, "%s : le bilan ne mène pas à l'écran de fin" % ending)
+		menu.new_campaign()
+		check(menu.last_scene == menu.CAMPAIGN_SCENE and menu.page == "main" and not CampaignState.current.is_over(), "%s : nouvelle campagne après la fin" % ending)
+		root.remove_child(menu)
+		menu.free()
+	# L'écran de fin propose aussi une nouvelle campagne
+	var c2 := CampaignState.new_game(41)
+	c2.ended = "victory"
+	CampaignState.current = c2
+	var e2: Node = (load("res://scenes/end.tscn") as PackedScene).instantiate()
+	e2.change_scenes = false
+	root.add_child(e2)
+	e2.new_campaign()
+	check(e2.last_scene == e2.CAMPAIGN_SCENE and not CampaignState.current.is_over() and not CampaignState.load_game().is_over(), "écran de fin : nouvelle campagne")
+	root.remove_child(e2)
+	e2.free()
+	print("Écrans de fin : OK")

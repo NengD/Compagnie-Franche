@@ -10,7 +10,8 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 
 ## Menu principal
 - **Continuer la campagne** (si une sauvegarde existe) / **Nouvelle campagne** (demande confirmation
-  si une campagne est en cours : elle serait effacée).
+  si une campagne est en cours : elle serait effacée). Si la campagne sauvegardée est **terminée**, le
+  premier bouton devient **Bilan de la campagne** (écran de fin) et « Nouvelle campagne » ne demande rien.
 - **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
   changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
@@ -28,15 +29,30 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disputent trois factions :
 le **Comté de Valfrène** (Valombre, Saint-Aubin), la **Baronnie de Montfaucon** (Montfaucon, Castelroux,
 Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous chaque ville donne sa faction.
+- **Objectif** (annoncé au journal dès le jour 1, rappelé par l'encart en haut à gauche de la carte et dans
+  le panneau) : faire de la compagnie la plus célèbre du comté. À **150 de renommée**, la faction qui vous
+  estime le plus (parmi celles qui ne vous ferment pas leurs portes) vous convoque dans sa capitale
+  (Saint-Aubin, Montfaucon ou Pontrieux, drapeau doré) pour la **bataille décisive** contre sa rivale :
+  11 régiments presque tous vétérans. Ce contrat n'expire pas. Le gagner termine la campagne
+  (**écran de victoire** avec le bilan : jours, batailles, ennemis tués, pertes, or, vétérans). Le perdre
+  coûte de la renommée : il faudra la regagner pour être rappelé.
+- **Game over** : si la compagnie n'a plus un homme et ne peut plus lever un seul régiment complet dans la
+  ville où elle se trouve (pas assez d'or, ou faction hostile), elle est dissoute : écran de fin avec le
+  bilan, puis menu. Une compagnie anéantie mais encore riche peut recruter et repartir.
 - **Marcher** : cliquez sur une ville reliée par une route à la vôtre. Chaque jour de marche coûte la **solde**
   (par homme et par jour : piquier 0,3 écu, archer 0,35, homme d'armes 0,6, cavalier 1).
   Si les caisses sont vides, une partie des hommes **déserte** chaque jour.
 - **Recruter** : chaque ville lève certains types de troupes, à son prix (de -15 % à Brévannes à +25 %
   à Hautemure). On peut lever un régiment complet (8 régiments au plus) ou **compléter** un régiment entamé.
-- **Contrats** : les villes marquées d'un drapeau rouge proposent des contrats (brigands, routiers,
-  ost du baron). Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi
-  tué). Les contrats deviennent plus durs avec votre **renommée** (gagnée par les victoires, perdue par
-  les défaites) et expirent après 14 jours. Routiers et ost du baron alignent des régiments aguerris ou vétérans.
+- **Contrats** : les villes marquées d'un drapeau rouge proposent des contrats sur **5 niveaux** :
+  brigands (4 régiments), routiers (6), ost du baron (8), Grande Compagnie (9), ost de la faction rivale (10).
+  Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi tué).
+  Les contrats deviennent plus durs avec votre **renommée** (gagnée par les victoires : 5 + 5 x niveau,
+  perdue par les défaites) : un niveau de plus tous les 25 points, le niveau 5 à 100. Chaque ville propose le
+  niveau le plus haut ou celui d'en dessous. Plus le niveau est haut, plus l'ennemi est nombreux et aguerri
+  (niveau 3 : tous aguerris, 30 % de vétérans ; niveau 5 : 80 % de vétérans) et plus la prime est forte
+  (de 260 à 1350 écus, +0,2 % par point de renommée, même au-delà du niveau 5). Ils expirent après 14 jours.
+  Réglages : `CONTRACT_KINDS`, `FINAL_CONTRACT`, `FAME_STEP` et `FINAL_FAME` dans `scripts/campaign_state.gd`.
 - **Réputation** : un contrat gagné rapporte +10 auprès de la faction qui paie et -5 auprès de sa rivale
   (le Comté et la Baronnie se haïssent ; la Ligue est rivale de la Baronnie). La prime varie de x0,5 à x1,5
   selon la réputation. À -30, la faction vous ferme ses portes : ni contrat ni recrutement dans ses villes.
@@ -60,6 +76,8 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
 - **Sauvegarde automatique** après chaque marche, recrutement et bataille, reprise au lancement du jeu.
   Fichier : `campagne.json` dans le dossier de données du jeu
   (Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\`). « Nouvelle campagne » demande confirmation.
+  Format versionné (version 3 : fin de campagne, bilan, contrat final) ; les sauvegardes des versions 1 et 2
+  se relisent (bilan à zéro, campagne en cours).
   Quitter en pleine bataille revient à l'état d'avant la bataille. Les sauvegardes de la version
   précédente (sans expérience ni réputation) restent lisibles.
 
@@ -117,7 +135,7 @@ Le terrain est affiché en haut de l'écran et annoncé au début de la bataille
   de renfort.
 - **Choix** : en escarmouche, au hasard. En campagne, d'après la ville du contrat : Valombre bois,
   Saint-Aubin village, Montfaucon et Castelroux collines, Brévannes et Pontrieux rivière, Hautemure rase
-  campagne ; les contrats de difficulté 3 à **Hautemure** et **Castelroux** sont des défenses de palissade.
+  campagne ; les contrats de difficulté 3 et plus à **Hautemure** et **Castelroux** sont des défenses de palissade.
   Table modifiable dans `scripts/terrain.gd` (`TOWN_TERRAINS`, `SIEGE_TOWNS`).
 
 ## Structure
@@ -125,9 +143,11 @@ Le terrain est affiché en haut de l'écran et annoncé au début de la bataille
 scenes/menu.tscn        Menu principal (scène de départ)
 scenes/tutorial.tscn    Tutoriel (bataille guidée)
 scenes/campaign.tscn    Carte de campagne
+scenes/end.tscn         Écran de fin de campagne (victoire ou game over, bilan)
 scenes/main.tscn        Bataille (un seul nœud, tout est construit par le code)
 scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, contrats
-scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats
+scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats, objectif
+scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
 scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, vitesse, touches
 scripts/ui_theme.gd     Thème des menus
@@ -144,7 +164,8 @@ scripts/battle_audio.gd Sons de bataille et musique
 assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, défaite, économie, évènements,
-                        deux batailles de contrat, une retraite, carte et embuscade)
+                        niveaux 1 à 5, pluriels, objectif et fin (victoire, ruine), deux batailles de
+                        contrat, une retraite, carte et embuscade, écrans de fin et menu)
 tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
@@ -159,7 +180,7 @@ tests/test_player.gd    Joueurs simulés utilisés par les tests
 godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, code de sortie 1 si échec
 godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur un terrain imposé
                                                       # (plain, forest, hills, river, village, siege, random)
-godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, batailles, retraite, sauvegarde, carte
+godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, niveaux, fin, batailles, sauvegarde, carte
 godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
