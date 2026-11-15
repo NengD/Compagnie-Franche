@@ -106,6 +106,7 @@ func _test_options() -> void:
 	GameOptions.music_volume = 0.25
 	GameOptions.sfx_volume = 0.0
 	GameOptions.fullscreen = true
+	GameOptions.ui_scale = 1.25
 	GameOptions.speed = 1.5
 	GameOptions.difficulty = "hard"
 	check(GameOptions.bind_key("halt", KEY_J).contains("J"), "rebind halte sur J")
@@ -119,6 +120,20 @@ func _test_options() -> void:
 	check(is_equal_approx(GameOptions.music_volume, 0.25), "volume musique rechargé")
 	check(is_equal_approx(GameOptions.sfx_volume, 0.0), "volume effets rechargé")
 	check(GameOptions.fullscreen, "plein écran rechargé")
+	check(is_equal_approx(GameOptions.ui_scale, 1.25), "taille de l'interface rechargée")
+	GameOptions.apply_display()
+	check(is_equal_approx(root.content_scale_factor, 1.25), "taille de l'interface appliquée à la fenêtre")
+	GameOptions.set_ui_scale(1.33) # Valeur hors liste : retour à 100 %
+	check(is_equal_approx(GameOptions.ui_scale, 1.0) and is_equal_approx(root.content_scale_factor, 1.0), "taille de l'interface hors liste refusée")
+	check(GameOptions.ui_scale_label(1.25) == "125 %", "nom de la taille de l'interface")
+	check(GameOptions.reserved_reason(KEY_F11, KEY_F11) != "", "F11 réservée (plein écran)")
+	var alt_enter := InputEventKey.new()
+	alt_enter.keycode = KEY_ENTER
+	alt_enter.alt_pressed = true
+	var enter := InputEventKey.new()
+	enter.keycode = KEY_ENTER
+	check(DisplayShortcuts.is_toggle_event(alt_enter) and not DisplayShortcuts.is_toggle_event(enter), "Alt+Entrée bascule le plein écran, Entrée seule non")
+	check(root.get_node_or_null("DisplayKeys") != null, "raccourcis d'affichage chargés en autoload")
 	check(is_equal_approx(GameOptions.speed, 1.5), "vitesse rechargée")
 	check(GameOptions.difficulty == "hard", "difficulté d'escarmouche rechargée")
 	check(GameOptions.key_for("halt") == KEY_J, "touche de halte rechargée (J)")
@@ -217,6 +232,7 @@ func _test_menu(m: Node) -> void:
 	# Options : écran « appuyez sur une touche »
 	m.open_options()
 	check(m.page == "options", "page Options")
+	check(m.find_child("TailleInterface", true, false) != null, "option « taille de l'interface » dans la page Options")
 	m.start_rebind("rain")
 	check(m.waiting_action == "rain", "attente d'une touche")
 	m.capture_key(key_event(KEY_K))

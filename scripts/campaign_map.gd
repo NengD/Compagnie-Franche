@@ -2,8 +2,14 @@ extends Node2D
 ## Carte de campagne : des villes reliées par des routes, la compagnie marche de l'une à l'autre.
 ## Clic sur une ville voisine : y marcher (chaque jour de marche coûte la solde).
 ## Panneau de droite : or, troupes, recrutement et contrats de la ville où l'on se trouve.
+## Affichage : la carte (coordonnées fixes MAP_SIZE) est mise à l'échelle et centrée dans la
+## place laissée par le panneau, dont la largeur suit celle de la vue (voir layout()).
 
 const MAP_SIZE := Vector2(880, 720)
+const PANEL_SHARE := 0.3125 ## Part de la largeur de la vue prise par le panneau (400 px en 1280)
+const PANEL_MIN := 340.0
+const PANEL_MAX := 480.0
+const MAP_BG := Color(0.09, 0.07, 0.05) ## Autour de la carte quand le format ne colle pas
 const PIX := 4 ## Taille d'un « pixel » du fond de carte
 const DAY_ANIM := 0.4 ## Durée de l'animation d'un jour de marche, en secondes
 const TOWN_RADIUS := 24.0
@@ -24,6 +30,8 @@ var walk_t := 0.0
 var walk_dur := 1.0
 var notice := "" ## Message d'information ou de refus affiché dans le panneau
 var box: VBoxContainer
+var panel: PanelContainer
+var map_scale := 1.0 ## Échelle de la carte à l'écran
 var confirm_new := false ## Premier clic sur « Nouvelle campagne » : demande confirmation
 var auto_launch := true ## Lancer la scène de bataille après une embuscade (désactivé par les tests)
 var ambushed := false ## Une embuscade attend : la bataille va commencer
@@ -65,7 +73,27 @@ func _ready() -> void:
 		show_end()
 	build_land()
 	build_ui()
+	layout()
+	get_viewport().size_changed.connect(layout)
 	refresh_ui()
+
+
+## Largeur du panneau pour une vue donnée.
+static func panel_width(vs: Vector2) -> float:
+	return clampf(roundf(vs.x * PANEL_SHARE), PANEL_MIN, minf(PANEL_MAX, vs.x * 0.6))
+
+
+## Panneau à droite sur toute la hauteur ; carte agrandie ou réduite au mieux à sa gauche.
+func layout() -> void:
+	var vs := get_viewport_rect().size
+	var pw := panel_width(vs)
+	if panel != null:
+		panel.offset_left = -pw
+	var area := Vector2(maxf(vs.x - pw, 1.0), vs.y)
+	map_scale = minf(area.x / MAP_SIZE.x, area.y / MAP_SIZE.y)
+	scale = Vector2(map_scale, map_scale)
+	position = ((area - MAP_SIZE * map_scale) * 0.5).round()
+	queue_redraw()
 
 
 func _process(delta: float) -> void:
@@ -167,6 +195,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if k != null and k.pressed and not k.echo and k.keycode == KEY_ESCAPE:
 		back_to_menu()
 		return
+	event = make_input_local(event) # Position de la souris en coordonnées de la carte
 	var mm := event as InputEventMouseMotion
 	if mm != null:
 		hover = town_at(mm.position)
@@ -264,9 +293,10 @@ func cancel_new_campaign() -> void:
 func build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
-	var panel := PanelContainer.new()
-	panel.position = Vector2(MAP_SIZE.x, 0)
-	panel.size = Vector2(1280.0 - MAP_SIZE.x, MAP_SIZE.y)
+	panel = PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	panel.offset_left = -400.0
+	panel.offset_right = 0.0
 	panel.theme = make_theme()
 	layer.add_child(panel)
 	var scroll := ScrollContainer.new()
@@ -317,7 +347,8 @@ func add_label(s: String, size := 13, col := Color(0.92, 0.88, 0.78)) -> Label:
 	var l := Label.new()
 	l.text = s
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 360
+	l.custom_minimum_size.x = 0 # Prend la largeur du panneau (qui suit celle de la fenêtre)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", col)
 	box.add_child(l)
@@ -329,6 +360,8 @@ func add_button(s: String, cb: Callable, enabled := true, parent: Control = null
 	b.text = s
 	b.disabled = not enabled
 	b.focus_mode = Control.FOCUS_NONE
+	if parent == null:
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART # Panneau étroit : le texte passe à la ligne
 	b.pressed.connect(cb)
 	(parent if parent != null else box).add_child(b)
 	return b
@@ -473,6 +506,9 @@ func price_text(town: int) -> String:
 # ---------------------------------------------------------------- Rendu
 
 func _draw() -> void:
+	# Fond sombre sur toute la vue, derrière la carte (coordonnées locales, donc à l'échelle)
+	var vs := get_viewport_rect().size
+	draw_rect(Rect2(-position / map_scale, vs / map_scale), MAP_BG)
 	draw_texture_rect(land_tex, Rect2(Vector2.ZERO, MAP_SIZE), false)
 	var near := state.neighbours(state.location)
 

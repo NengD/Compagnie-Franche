@@ -20,12 +20,15 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 - **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu), à la
   difficulté des Options (rappelée sous le bouton et dans la barre du haut en bataille).
 - **Menu pause** (Échap en bataille : contrat, escarmouche ou tutoriel) : la bataille s'arrête.
-  Reprendre (ou Échap), Aide (toutes les commandes), Options (volumes, vitesse, plein écran),
+  Reprendre (ou Échap), Aide (toutes les commandes), Options (volumes, vitesse, plein écran, taille de l'interface),
   **Abandonner la bataille** (en contrat : retraite ordonnée, après confirmation ; ailleurs : retour au
   menu) et **Menu principal** (en contrat, après un avertissement : compte comme une retraite).
-- **Options** : volumes général / musique / effets, plein écran, vitesse du jeu (x1, x1,5, x2 ; touche V
+- **Affichage** : toute fenêtre ou écran (16:9, 16:10, 21:9, petites fenêtres) ; la base 1280×720
+  s'agrandit selon la hauteur et les formats plus larges ou plus hauts montrent plus de surface.
+- **Options** : volumes général / musique / effets, plein écran (aussi **Alt+Entrée** ou **F11**, partout),
+  **taille de l'interface** (90 %, 100 %, 125 %, 150 %), vitesse du jeu (x1, x1,5, x2 ; touche V
   en bataille), **difficulté de l'escarmouche**, **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
-  si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, chiffres,
+  si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, F11, chiffres,
   flèches et caméra ZQSD sont réservés ; bouton « Touches par défaut »). Les touches sont enregistrées
   par lettre, donc correctes en AZERTY comme en QWERTY.
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
@@ -178,9 +181,10 @@ scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, 
 scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats, objectif
 scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
-scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, vitesse, difficulté, touches
+scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, taille de l'interface, vitesse, difficulté, touches
 scripts/difficulty.gd   Niveaux de difficulté (Difficulty) : multiplicateurs ennemis, IA, économie
-scripts/ui_theme.gd     Thème des menus
+scripts/ui_theme.gd     Thème des menus, placement des panneaux selon la taille de la vue
+scripts/display_keys.gd Autoload DisplayKeys : Alt+Entrée / F11 (plein écran) partout, taille minimale de fenêtre
 scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, étapes validées par les actions
 scripts/battle.gd       Forêts et route, simulation, ordres, caméra, rendu pixel art
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
@@ -206,6 +210,7 @@ tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)
 tests/report_capture.gd Captures du bilan (contrat avec promotions, escarmouche) dans captures/ (avec fenêtre)
+tests/resolution_capture.gd Captures multi-résolution (menu, carte, fin, bataille, pause) dans user:// (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
@@ -222,6 +227,7 @@ godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans co
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # captures/bilan_campagne.png, bilan_escarmouche.png
+godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
