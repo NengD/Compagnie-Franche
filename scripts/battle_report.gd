@@ -9,14 +9,14 @@ const COLS := {"name": 232, "men": 118, "dead": 62, "fled": 72, "healed": 70, "k
 const GOOD := Color(0.6, 0.9, 0.5)
 const BAD := Color(1, 0.5, 0.4)
 
-var battle ## battle.gd
+var battle: Battle ## Bataille terminée (battle.gd ou tutorial.gd)
 var report: Dictionary = {}
 var panel: PanelContainer
 var buttons: Array[Button] = []
 
 
 ## Construit le panneau. rep : bilan de battle.build_end_report().
-func setup(rep: Dictionary, b) -> void:
+func setup(rep: Dictionary, b: Battle) -> void:
 	report = rep
 	battle = b
 	set_anchors_preset(Control.PRESET_FULL_RECT)

@@ -1,4 +1,4 @@
-extends "res://scripts/battle.gd"
+extends Battle
 ## Tutoriel : petite bataille guidée. Les étapes s'affichent en haut à droite et ne se valident
 ## que lorsque le joueur fait vraiment l'action demandée (on observe l'état de la bataille).
 ## L'ennemi attend sans bouger que la bataille soit lancée (étape « Espace »).

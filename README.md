@@ -182,11 +182,17 @@ scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écr
 scripts/difficulty.gd   Niveaux de difficulté (Difficulty) : multiplicateurs ennemis, IA, économie
 scripts/ui_theme.gd     Thème des menus
 scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, étapes validées par les actions
-scripts/battle.gd       Forêts et route, simulation, ordres, caméra, rendu pixel art
+scripts/battle.gd       Nœud de la bataille (classe Battle) : assemble simulation, rendu, ordres, caméra,
+                        HUD, son, menu pause ; temps (pause, vitesse, ralenti), campagne et bilan
+scripts/battle_sim.gd   Simulation sans rendu (BattleSim) : monde, armées, déplacements, mêlée, moral,
+                        flèches, endurance, retraite, fin ; prévient le reste par des signaux
+scripts/battle_renderer.gd  Rendu pixel art (BattleRenderer, nœud enfant) : sol, soldats, arbres, effets
+scripts/battle_orders.gd    Saisie et ordres du joueur (BattleOrders) : sélection, groupes, ligne de front
+scripts/battle_camera.gd    Caméra (BattleCamera) : défilement ZQSD, zoom, bornes, secousse
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/soldier.gd      Soldat individuel
-scripts/unit_types.gd   Statistiques des unités (à modifier pour équilibrer)
+scripts/unit_types.gd   Statistiques et capacités des unités (seule source lue par la simulation)
 scripts/enemy_ai.gd     IA ennemie
 scripts/hud.gd          Interface
 scripts/pause_menu.gd   Menu pause de la bataille (Échap)
@@ -209,6 +215,15 @@ tests/report_capture.gd Captures du bilan (contrat avec promotions, escarmouche)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
+
+Pour ajouter à la bataille :
+- une unité : une entrée dans `UnitTypes.STATS` (capacités `ranged`, `mounted`, `braces`, `armored`,
+  `forest_speed`), une ligne dans `UnitTypes.bonus()`, ses sprites ; la simulation ne teste jamais le
+  nom d'un type (l'IA et la campagne, si) ;
+- un objectif de contrat : dans `BattleSim.check_end()` ;
+- un effet visuel ou sonore : un signal de `BattleSim` branché dans `battle.gd`, ou une liste
+  d'effets dans `BattleRenderer` (comme les repères d'ordres) ;
+- un ordre : une touche dans `BattleOrders.handle_key()`.
 
 ## Tests
 ```

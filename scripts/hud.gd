@@ -2,7 +2,7 @@ class_name Hud
 extends Control
 ## Interface : forces en présence, cartes des régiments, messages, aide et pluie.
 
-var battle ## Référence vers le script de bataille (battle.gd)
+var battle: Battle ## Bataille affichée (battle.gd ou tutorial.gd)
 var font: Font
 var drops: Array[Vector2] = []
 
@@ -58,11 +58,11 @@ func _draw() -> void:
 		text(Vector2(vs.x - 440, 21), "Vitesse " + GameOptions.speed_label(battle.game_speed), 13, Color(1, 0.85, 0.45))
 
 	# Cartes des régiments du joueur
-	var list: Array = battle.player_regiments()
+	var list: Array[Regiment] = battle.player_regiments()
 	var cw := 128.0
 	var x0 := vs.x * 0.5 - list.size() * (cw + 6) * 0.5
 	for i in list.size():
-		var r = list[i]
+		var r := list[i]
 		var rect := Rect2(x0 + i * (cw + 6), vs.y - 86, cw, 78)
 		draw_rect(rect, Color(0.08, 0.07, 0.06, 0.82))
 		var border := Color(1, 0.9, 0.4) if r.selected else Color(0.45, 0.4, 0.3)
@@ -97,7 +97,7 @@ func _draw() -> void:
 			orders.append("tient [G]")
 		if r.stats["ranged"] and not r.fire_at_will:
 			orders.append("tir retenu [X]")
-		var group := battle.group_label(r) as String
+		var group := battle.group_label(r)
 		if group != "":
 			text(rect.position + Vector2(0, 72), group, 11, Color(0.75, 0.75, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, cw - 6)
 		if not orders.is_empty():
@@ -127,16 +127,16 @@ func _draw() -> void:
 	var title := ""
 	var sub := ""
 	match battle.state:
-		0:
+		Battle.State.DEPLOY:
 			title = "DÉPLOIEMENT"
 			sub = "Placez vos troupes dans la zone bleue, puis appuyez sur Espace"
-		2:
+		Battle.State.VICTORY:
 			title = "VICTOIRE"
 			sub = end_hint()
-		3:
+		Battle.State.DEFEAT:
 			title = "RETRAITE" if battle.retreated else "DÉFAITE"
 			sub = end_hint()
-	if battle.paused and battle.state == 1:
+	if battle.paused and battle.state == Battle.State.BATTLE:
 		title = "PAUSE"
 		sub = "Espace pour reprendre"
 	if report_shown:

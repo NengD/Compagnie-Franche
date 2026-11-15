@@ -23,7 +23,7 @@ func update(b) -> void:
 		if ai == null:
 			ai = EnemyAI.new()
 			ai.team = 0
-		ai.think(b, b.battle_time - ai_clock)
+		ai.think(b.sim, b.battle_time - ai_clock)
 		ai_clock = b.battle_time
 		return
 	if b.battle_time < next_order:
