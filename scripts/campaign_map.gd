@@ -25,6 +25,8 @@ var walk_dur := 1.0
 var notice := "" ## Message d'information ou de refus affiché dans le panneau
 var box: VBoxContainer
 var confirm_new := false ## Premier clic sur « Nouvelle campagne » : demande confirmation
+var auto_launch := true ## Lancer la scène de bataille après une embuscade (désactivé par les tests)
+var ambushed := false ## Une embuscade attend : la bataille va commencer
 
 
 ## Petit emplacement qui dessine les chevrons de rang d'un régiment dans le panneau.
@@ -65,8 +67,15 @@ func _process(delta: float) -> void:
 		if walk_t >= walk_dur:
 			walking = false
 			notice = state.travel(walk_to)
+			if notice == "" and not state.travel_events.is_empty():
+				notice = " ".join(state.travel_events)
 			state.save()
 			refresh_ui()
+			if state.in_battle():
+				# Embuscade : la bataille est forcée dès l'arrivée
+				ambushed = true
+				if auto_launch:
+					get_tree().change_scene_to_file("res://scenes/main.tscn")
 	queue_redraw()
 
 
@@ -158,7 +167,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Clic sur une ville : marche vers elle si une route y mène directement.
 func click_town(t: int) -> void:
-	if walking or t == state.location:
+	if walking or ambushed or t == state.location:
 		return
 	if state.is_destroyed():
 		notice = "Sans troupes, la compagnie ne peut plus marcher."
@@ -371,7 +380,7 @@ func refresh_ui() -> void:
 		add_label(str(c["text"]), 12, Color(0.8, 0.77, 0.7))
 		add_label("Ennemi : %s" % CampaignState.army_summary(c["enemy"]), 12)
 		add_label("Prime : %d écus   ·   difficulté %s   ·   jusqu'au jour %d" % [state.contract_reward(c), "★".repeat(int(c["difficulty"])) + "☆".repeat(3 - int(c["difficulty"])), int(c["expires"])], 12, GOLD_COL)
-		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not walking and closed == "")
+		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not walking and not ambushed and closed == "")
 
 	# Réputation
 	add_section("Réputation")
@@ -395,7 +404,7 @@ func refresh_ui() -> void:
 	elif not state.is_destroyed():
 		add_button("Nouvelle campagne", do_new_campaign)
 	add_label("Sauvegarde automatique après chaque marche, recrutement et bataille.", 11, Color(0.6, 0.58, 0.52))
-	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent.", 11, Color(0.6, 0.58, 0.52))
+	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent. En route : marchands, déserteurs, épidémies, intempéries… et brigands.", 11, Color(0.6, 0.58, 0.52))
 
 
 ## « normal », « +15 % », « -10 % » : prix des recrues d'une ville.

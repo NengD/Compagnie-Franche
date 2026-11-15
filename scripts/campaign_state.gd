@@ -111,7 +111,7 @@ static func new_game(seed_value := 0) -> CampaignState:
 
 func add_log(s: String) -> void:
 	log_lines.push_front(s)
-	if log_lines.size() > 6:
+	if log_lines.size() > 8:
 		log_lines.pop_back()
 
 
@@ -405,19 +405,112 @@ func travel_days(to: int) -> int:
 	return maxi(1, ceili(a.distance_to(b) / TRAVEL_PX_PER_DAY))
 
 
-## Marche vers une ville voisine : chaque jour coûte la solde. Renvoie un message d'erreur ou "".
+## Marche vers une ville voisine : chaque jour coûte la solde et peut amener un évènement de route.
+## Une embuscade laisse une bataille en attente (in_battle()) à livrer dès l'arrivée.
+## Renvoie un message d'erreur ou "" ; les évènements du voyage sont dans travel_events.
 func travel(to: int) -> String:
 	if not to in neighbours(location):
 		return "Aucune route directe vers %s." % TOWNS[to]["name"]
 	if is_destroyed():
 		return "Vous n'avez plus de troupes."
+	travel_events.clear()
 	var days := travel_days(to)
-	for i in days:
+	var done := 0
+	var happened := {} # Une embuscade et une journée d'intempéries au plus par voyage
+	while done < days:
 		pass_day()
+		done += 1
+		if is_destroyed():
+			break
+		if forced_event == "" and rng.randf() >= event_chance:
+			continue
+		var kind := forced_event if forced_event != "" else roll_event()
+		if happened.has(kind) and (kind == "ambush" or kind == "storm"):
+			continue
+		happened[kind] = true
+		road_event(kind, to)
+		if kind == "storm":
+			days += 1
 	location = to
-	add_log("Jour %d : arrivée à %s après %d jour%s de marche." % [day, TOWNS[to]["name"], days, "s" if days > 1 else ""])
+	add_log("Jour %d : arrivée à %s après %d jour%s de marche." % [day, TOWNS[to]["name"], done, "s" if done > 1 else ""])
 	refresh_contracts(to)
 	return ""
+
+
+# ---------------------------------------------------------------- Évènements de route
+
+static var event_chance := 0.12 ## Chance d'un évènement par jour de marche (les tests la mettent à 0)
+static var forced_event := "" ## Pour les tests : impose cet évènement chaque jour de marche
+const EVENT_WEIGHTS := {"ambush": 0.25, "merchant": 0.25, "plague": 0.15, "deserters": 0.2, "storm": 0.15}
+const PLAGUE_RATE := 0.08 ## Part des hommes emportés par une épidémie
+const DESERTER_XP := 60.0 ## Les déserteurs d'autres compagnies ont déjà vu le feu
+var travel_events: Array[String] = [] ## Évènements du dernier voyage (non sauvegardé)
+
+
+func roll_event() -> String:
+	var x := rng.randf()
+	for kind in EVENT_WEIGHTS:
+		x -= float(EVENT_WEIGHTS[kind])
+		if x < 0.0:
+			return kind
+	return "merchant"
+
+
+## Applique un évènement de route (pendant la marche vers to) et l'inscrit au journal.
+func road_event(kind: String, to: int) -> void:
+	var where: String = TOWNS[to]["name"]
+	var msg := ""
+	match kind:
+		"ambush":
+			pending = make_ambush(to)
+			msg = "des brigands vous tendent une embuscade sur la route de %s ! Il faut se battre." % where
+		"merchant":
+			var pay := rng.randi_range(4, 9) * 10
+			gold += pay
+			msg = "un marchand paie %d écus pour être escorté jusqu'à %s." % [pay, where]
+		"plague":
+			var lost := 0
+			for r in company:
+				var n := int(round(int(r["men"]) * PLAGUE_RATE))
+				if lost == 0 and n == 0 and int(r["men"]) > 1:
+					n = 1 # Au moins une victime
+				r["men"] = int(r["men"]) - n
+				lost += n
+			company = company.filter(func(r): return int(r["men"]) > 0)
+			msg = "une épidémie frappe le camp, %d hommes en meurent." % lost
+		"deserters":
+			var best := -1
+			for i in company.size():
+				if refill_missing(i) > 0 and (best < 0 or refill_missing(i) > refill_missing(best)):
+					best = i
+			if best < 0:
+				msg = "des déserteurs demandent à rejoindre la compagnie, mais elle est au complet."
+			else:
+				var n := mini(rng.randi_range(3, 8), refill_missing(best))
+				add_men(company[best], n, DESERTER_XP)
+				msg = "%d déserteurs rejoignent vos %s." % [n, type_name(company[best]["type"]).to_lower()]
+		"storm":
+			msg = "des intempéries noient la route, un jour de marche est perdu."
+		_:
+			return
+	travel_events.append(msg[0].to_upper() + msg.substr(1))
+	add_log("Jour %d : %s" % [day, msg])
+
+
+## Bataille forcée par une embuscade de brigands : ni prime ni faction, seulement le butin.
+func make_ambush(to: int) -> Dictionary:
+	var kind: Dictionary = CONTRACT_KINDS[0]
+	var enemy: Array[Dictionary] = []
+	for t in kind["army"]:
+		var full: int = UnitTypes.STATS[t]["count"]
+		enemy.append({"type": t, "men": maxi(3, int(round(full * rng.randf_range(0.5, 0.8)))), "rank": 0})
+	return {
+		"town": to, "faction": -1, "ambush": true,
+		"title": "Embuscade sur la route de %s" % TOWNS[to]["name"],
+		"text": "Des brigands surgissent des fourrés.",
+		"foe": "brigands", "difficulty": 1, "enemy": enemy, "reward": 0,
+		"expires": day, "seed": rng.randi_range(1, 1 << 30),
+	}
 
 
 ## Un jour passe : solde, désertions si les caisses sont vides, contrats qui expirent.
@@ -587,7 +680,10 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		var loot := killed * LOOT_PER_KILL
 		gold += reward + loot
 		fame += 5 + 5 * int(pending.get("difficulty", 1))
-		report = "Victoire contre les %s ! Prime %d écus, butin %d écus. Pertes : %d hommes (%d blessés relevés)." % [pending["foe"], reward, loot, lost, healed]
+		if pending.get("ambush", false):
+			report = "Embuscade repoussée ! Butin %d écus. Pertes : %d hommes (%d blessés relevés)." % [loot, lost, healed]
+		else:
+			report = "Victoire contre les %s ! Prime %d écus, butin %d écus. Pertes : %d hommes (%d blessés relevés)." % [pending["foe"], reward, loot, lost, healed]
 		if f >= 0:
 			var rival := int(FACTIONS[f]["rival"])
 			change_reputation(f, REP_WIN)

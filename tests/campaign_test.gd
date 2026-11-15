@@ -38,11 +38,13 @@ func _initialize() -> void:
 	OS.add_logger(counter)
 	CampaignState.save_path = "user://test_campagne.json"
 	CampaignState.delete_save()
+	CampaignState.event_chance = 0.0 # Pas d'évènement de route imprévu, sauf dans _test_events
 	_test_rules()
 	_test_veterans()
 	_test_reputation()
 	_test_defeat()
 	_test_economy()
+	_test_events()
 	_test_save()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
@@ -312,6 +314,62 @@ func _test_economy() -> void:
 	print("Économie : OK")
 
 
+## Évènements de route : chacun a son effet et s'inscrit au journal ; l'embuscade force une bataille.
+func _test_events() -> void:
+	var c := CampaignState.new_game(21)
+	var to: int = c.neighbours(0)[0]
+	var g0 := c.gold
+	c.road_event("merchant", to)
+	check(c.gold > g0 and c.log_lines[0].contains("marchand"), "évènement : marchand sans or")
+	var men0 := c.total_men()
+	c.road_event("plague", to)
+	check(c.total_men() < men0 and c.log_lines[0].contains("épidémie"), "évènement : épidémie sans pertes")
+	c.company[0]["men"] = 5
+	c.company[0]["xp"] = 0.0
+	c.road_event("deserters", to)
+	check(int(c.company[0]["men"]) > 5 and float(c.company[0]["xp"]) > 0.0 and c.log_lines[0].contains("déserteurs"), "évènement : déserteurs non reçus")
+	# Intempéries : un jour de marche perdu
+	CampaignState.forced_event = "storm"
+	var d0 := c.day
+	var days := c.travel_days(to)
+	c.travel(to)
+	check(c.day == d0 + days + 1 and c.location == to and not c.travel_events.is_empty(), "évènement : intempéries sans jour perdu (jour %d au lieu de %d)" % [c.day, d0 + days + 1])
+	# Embuscade : bataille en attente à l'arrivée, sans prime ni faction
+	CampaignState.forced_event = "ambush"
+	var back := 0
+	c.travel(back)
+	check(c.in_battle() and c.pending.get("ambush", false) and c.location == back, "évènement : l'embuscade ne force pas de bataille")
+	check(c.log_lines[1].contains("embuscade"), "évènement : embuscade absente du journal")
+	CampaignState.forced_event = ""
+	var rep0 := c.reputation.duplicate()
+	var surv := []
+	var kills := []
+	for r in c.battle_army():
+		surv.append(int(r["men"]))
+		kills.append(2)
+	var g1 := c.gold
+	var wage := c.daily_wage()
+	var report := c.finish_battle(true, surv, kills)
+	check(absf(c.gold - (g1 + 2 * kills.size() * CampaignState.LOOT_PER_KILL - wage)) < 0.01 and c.reputation == rep0 and report.contains("Embuscade"),
+		"évènement : embuscade mal soldée (%s)" % report)
+	# Tirage au hasard : un évènement par jour au plus
+	CampaignState.event_chance = 1.0
+	var kinds := {}
+	for i in 30:
+		c.pending = {}
+		c.gold = 5000.0
+		var n: int = c.neighbours(c.location)[0]
+		c.travel(n)
+		check(c.travel_events.size() >= 1, "évènement : aucun malgré une chance de 100 %")
+		for e in c.travel_events:
+			kinds[e.substr(0, 12)] = true
+		if c.total_men() < 40:
+			c.company[0]["men"] = 30
+	check(kinds.size() >= 4, "évènement : peu de variété (%d)" % kinds.size())
+	CampaignState.event_chance = 0.0
+	print("Évènements de route : OK")
+
+
 ## Sauvegarde : aller-retour exact (y compris le tirage des futurs contrats), refus des fichiers abîmés.
 func _test_save() -> void:
 	var c := CampaignState.new_game(77)
@@ -319,6 +377,9 @@ func _test_save() -> void:
 	c.gold = 1000.0
 	c.recruit(CampaignState.TOWNS[c.location]["recruits"][0])
 	c.company[0]["men"] = 7
+	c.company[0]["xp"] = 180.0
+	c.reputation = [25, -12, 3]
+	c.fame = 33
 	check(c.save(), "sauvegarde : écriture impossible")
 	check(CampaignState.has_save() and not FileAccess.file_exists(CampaignState.save_path + ".tmp"), "sauvegarde : fichier absent ou temporaire oublié")
 	var l := CampaignState.load_game()
@@ -326,6 +387,22 @@ func _test_save() -> void:
 	if l == null:
 		return
 	check(JSON.stringify(l.to_dict()) == JSON.stringify(c.to_dict()), "sauvegarde : données différentes après relecture")
+	check(is_equal_approx(float(l.company[0]["xp"]), 180.0) and l.reputation == [25, -12, 3] and l.fame == 33, "sauvegarde : expérience, réputation ou renommée perdues")
+	# Ancienne sauvegarde (version 1) : toujours lisible, valeurs par défaut pour les nouveautés
+	var old := c.to_dict()
+	old["version"] = 1
+	old.erase("fame")
+	old.erase("reputation")
+	old["victories"] = 2
+	for r in old["company"]:
+		r.erase("xp")
+	for k in old["contracts"]:
+		k.erase("faction")
+		for e in k["enemy"]:
+			e.erase("rank")
+	var v1 := CampaignState.from_dict(JSON.parse_string(JSON.stringify(old)))
+	check(v1 != null and v1.reputation == [0, 0, 0] and v1.fame == 30 and float(v1.company[0]["xp"]) == 0.0
+		and int(v1.contracts[0]["faction"]) == CampaignState.town_faction(int(v1.contracts[0]["town"])), "sauvegarde : version 1 mal relue")
 	var k1 := c.make_contract(2)
 	var k2 := l.make_contract(2)
 	check(k1["title"] == k2["title"] and k1["reward"] == k2["reward"] and k1["seed"] == k2["seed"], "sauvegarde : tirage aléatoire non restauré")
@@ -541,13 +618,31 @@ func _test_map() -> bool:
 	check(camp.location == to and camp.day > day, "carte : la compagnie n'est pas arrivée")
 	var after := CampaignState.load_game()
 	check(after != null and after.location == to, "carte : la marche n'est pas sauvegardée")
+	# Embuscade en marchant : la carte lance la bataille dès l'arrivée
+	CampaignState.forced_event = "ambush"
+	map.auto_launch = false
+	map.click_town(from)
+	for i in 40:
+		map._process(0.2)
+	CampaignState.forced_event = ""
+	check(map.ambushed and camp.in_battle() and camp.location == from, "carte : l'embuscade ne lance pas de bataille")
+	var amb := (load("res://scenes/main.tscn") as PackedScene).instantiate()
+	root.add_child(amb)
+	var foes: Array = amb.regiments.filter(func(r): return r.team == 1)
+	check(amb.campaign == camp and foes.size() == camp.pending["enemy"].size(), "carte : bataille d'embuscade mal déployée")
+	root.remove_child(amb)
+	amb.free()
+	camp.pending = {}
+	map.ambushed = false
+	var went := to
+	to = from
 	# Nouvelle campagne : il faut confirmer
 	map.do_new_campaign()
 	check(CampaignState.current == camp and map.confirm_new, "carte : nouvelle campagne sans confirmation")
 	map.cancel_new_campaign()
 	map.do_recruit(CampaignState.TOWNS[to]["recruits"][0])
 	map.queue_redraw()
-	print("Carte : marche %s → %s, %d éléments dans le panneau" % [CampaignState.TOWNS[from]["name"], CampaignState.TOWNS[to]["name"], map.box.get_child_count()])
+	print("Carte : marche %s → %s puis retour avec embuscade, %d éléments dans le panneau" % [CampaignState.TOWNS[from]["name"], CampaignState.TOWNS[went]["name"], map.box.get_child_count()])
 	root.remove_child(map)
 	map.free()
 	_finish([])
