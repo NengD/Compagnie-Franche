@@ -49,6 +49,9 @@ var sprites := SpriteBank.new()
 var audio: BattleAudio
 var road_noise := FastNoiseLite.new()
 var rng := RandomNumberGenerator.new()
+var terrain := Terrain.new() ## Collines, rivière, village, palissade (voir terrain.gd)
+var terrain_tex: ImageTexture = null ## Couche du relief et de l'eau posée sur le sol
+var terrain_override := "" ## Terrain imposé (tests) ; vide = au hasard ou d'après le contrat
 
 var dragging := false
 var drag_start := Vector2.ZERO
@@ -81,6 +84,11 @@ func _ready() -> void:
 		spawn_army(ENEMY, campaign.pending["enemy"])
 	else:
 		spawn_armies()
+	if terrain.kind == "siege":
+		# L'assaillant d'une palissade amène des renforts (sinon la défense serait trop facile)
+		for k in Terrain.SIEGE_REINFORCEMENTS.size():
+			add_regiment(ENEMY, Terrain.SIEGE_REINFORCEMENTS[k], Vector2(WORLD_SIZE.x * (0.5 + 0.3 * k), 230.0), Vector2.DOWN)
+		deploy_siege_defense()
 
 	camera = Camera2D.new()
 	camera.zoom = Vector2(1, 1)
@@ -102,6 +110,8 @@ func _ready() -> void:
 
 	if campaign != null:
 		add_message("Contrat : %s" % campaign.pending["title"])
+	if terrain.kind != "plain":
+		add_message("Terrain : %s. %s" % [terrain.display_name(), terrain.hint()])
 	add_message("Placez vos troupes, puis appuyez sur Espace pour lancer la bataille.")
 
 
@@ -121,27 +131,52 @@ func _exit_tree() -> void:
 
 
 func generate_world() -> void:
+	road_noise.seed = rng.randi()
+	road_noise.frequency = 0.0075
+	terrain.setup(choose_terrain(), rng, WORLD_SIZE, road_y)
+
 	# Forêts (pour les embuscades)
-	for i in 6:
+	var placed := 0
+	var tries := 0
+	while placed < terrain.forest_count() and tries < 200:
+		tries += 1
 		var c := Vector2(rng.randf_range(300, WORLD_SIZE.x - 300), rng.randf_range(560, WORLD_SIZE.y - 560))
 		var r := rng.randf_range(100, 190)
+		if not terrain.forest_ok(c, r):
+			continue
+		placed += 1
 		forests.append([c, r])
 		var n := int(r * r / 150.0)
 		for j in n:
 			var a := rng.randf() * TAU
 			var d := sqrt(rng.randf()) * r
-			trees.append(c + Vector2(cos(a), sin(a)) * d)
+			var t := c + Vector2(cos(a), sin(a)) * d
+			if terrain.tree_ok(t):
+				trees.append(t)
 	# Quelques arbres isolés
 	for i in 40:
 		var p := Vector2(rng.randf_range(0, WORLD_SIZE.x), rng.randf_range(0, WORLD_SIZE.y))
-		if p.y > 460 and p.y < WORLD_SIZE.y - 460 and absf(p.y - road_y(p.x)) > ROAD_HALF + 12.0:
+		if p.y > 460 and p.y < WORLD_SIZE.y - 460 and absf(p.y - road_y(p.x)) > ROAD_HALF + 12.0 and terrain.tree_ok(p):
 			trees.append(p)
 	trees.sort_custom(func(a, b): return a.y < b.y)
 
-	road_noise.seed = rng.randi()
-	road_noise.frequency = 0.0075
 	if not build_tiled_ground():
 		build_procedural_ground()
+	terrain_tex = terrain.build_overlay(rng)
+
+
+## Terrain de la bataille : imposé par les tests, d'après la ville du contrat, sinon au hasard.
+func choose_terrain() -> String:
+	if terrain_override != "":
+		return terrain_override
+	if campaign != null:
+		return Terrain.for_contract(int(campaign.pending.get("town", -1)), int(campaign.pending.get("difficulty", 1)), CampaignState.TOWNS)
+	return Terrain.KINDS[rng.randi() % Terrain.KINDS.size()]
+
+
+## Vrai si p est sur la route (pas de route quand la rivière la remplace).
+func on_road(p: Vector2, half: float) -> bool:
+	return terrain.has_road() and absf(p.y - road_y(p.x)) < half
 
 
 ## Hauteur de la route qui traverse le champ de bataille.
@@ -172,7 +207,7 @@ func build_tiled_ground() -> bool:
 		for tx in tw:
 			var c := Vector2(tx * 16 + 8, ty * 16 + 8)
 			var t: Image
-			if absf(c.y - road_y(c.x)) < ROAD_HALF:
+			if on_road(c, ROAD_HALF):
 				t = sand
 			elif is_in_forest(c):
 				t = dark[rng.randi() % dark.size()]
@@ -226,10 +261,9 @@ func build_procedural_ground() -> void:
 			var wp := Vector2(x + 0.5, y + 0.5) * ground_scale
 			if is_in_forest(wp):
 				c = c.darkened(0.3)
-			var dy := absf(wp.y - road_y(wp.x))
-			if dy < ROAD_HALF:
+			if on_road(wp, ROAD_HALF):
 				c = Color(0.58, 0.47, 0.31).darkened(rng.randf() * 0.08)
-			elif dy < ROAD_HALF + ground_scale:
+			elif on_road(wp, ROAD_HALF + ground_scale):
 				c = Color(0.46, 0.42, 0.27)
 			img.set_pixel(x, y, c)
 	ground_tex = ImageTexture.create_from_image(img)
@@ -255,6 +289,52 @@ func spawn_armies() -> void:
 	add_regiment(ENEMY, "archer", Vector2(cx - 360, 270), Vector2.DOWN)
 	add_regiment(ENEMY, "archer", Vector2(cx + 360, 270), Vector2.DOWN)
 	add_regiment(ENEMY, "cavalry", Vector2(cx + 1040, 340), Vector2.DOWN)
+
+
+## Défense de palissade : l'infanterie du joueur encadre chaque brèche (ce qui la franchit est pris
+## en tenaille), les archers tirent abrités derrière les pieux, la cavalerie attend en réserve.
+func deploy_siege_defense() -> void:
+	var foot: Array[Regiment] = []
+	var archers: Array[Regiment] = []
+	var horse: Array[Regiment] = []
+	for r in regiments:
+		if r.team != PLAYER:
+			continue
+		match r.type:
+			"archer":
+				archers.append(r)
+			"cavalry":
+				horse.append(r)
+			_:
+				foot.append(r)
+	var br := terrain.breaches
+	var wy := Terrain.WALL_Y
+	var mid := (br[0] + br[1]) * 0.5
+	var place := func(r: Regiment, at: Vector2) -> void:
+		r.dest = at
+		r.facing = Vector2.UP
+		var alive := r.alive_soldiers()
+		for i in alive.size():
+			alive[i].pos = r.slot_position(i, alive.size())
+		r.update_center()
+	foot.sort_custom(func(a, b): return a.center.x < b.center.x)
+	for k in foot.size():
+		@warning_ignore("integer_division")
+		var group := k * br.size() / maxi(foot.size(), 1) # Moitié gauche → brèche gauche
+		var members: Array[int] = []
+		for j in foot.size():
+			@warning_ignore("integer_division")
+			if j * br.size() / maxi(foot.size(), 1) == group:
+				members.append(j)
+		var pos_in := members.find(k)
+		var x: float = br[group] + (pos_in - (members.size() - 1) * 0.5) * 240.0
+		place.call(foot[k], Vector2(x, wy + 110.0))
+	for k in archers.size():
+		place.call(archers[k], Vector2(mid + (k - (archers.size() - 1) * 0.5) * 360.0, wy + 70.0))
+	for k in horse.size():
+		var x: float = lerpf(br[0], br[1], 0.25 if k % 2 == 0 else 0.75)
+		@warning_ignore("integer_division")
+		place.call(horse[k], Vector2(x + (k / 2) * 60.0, wy + 300.0))
 
 
 ## Déploie une armée de campagne (liste de {"type", "men"}) : infanterie devant, archers derrière,
@@ -512,7 +592,7 @@ func update_stamina(r: Regiment, dt: float) -> void:
 
 
 func update_archers(r: Regiment, dt: float) -> void:
-	var range_px: float = r.stats["range"]
+	var range_px: float = r.stats["range"] * terrain.range_factor(r.center) # Plus loin en hauteur
 	if raining:
 		range_px *= 0.75
 	r.fire_target = null
@@ -643,12 +723,16 @@ func update_soldier(s: Soldier, dt: float) -> void:
 
 
 func move_towards(s: Soldier, goal: Vector2, speed: float, dt: float) -> void:
+	var rad: float = s.regiment.stats["radius"]
+	goal = terrain.route(s.pos, goal, rad) # Brèche à franchir, ou but ramené hors d'une maison
 	var v := goal - s.pos
 	var l := v.length()
 	if l < 0.01:
 		return
+	var dir := v / l
+	speed *= terrain.speed_factor(s.pos, dir, s.regiment.type) # Eau, montée
 	var step := minf(speed * dt, l)
-	s.move_dir = v / l
+	s.move_dir = terrain.steer(s.pos, dir, rad, goal) # Longe maisons et pieux
 	s.pos += s.move_dir * step
 	s.moving = true
 	s.anim += dt * (8.0 * UnitTypes.RUN_SPEED if s.regiment.running else 8.0)
@@ -668,7 +752,7 @@ func separate(s: Soldier) -> void:
 				v = Vector2(rng.randf_range(-1, 1), rng.randf_range(-1, 1))
 				d = v.length()
 			s.pos += v / d * (min_d - d) * 0.5
-	s.pos = s.pos.clamp(Vector2(-120, -120), WORLD_SIZE + Vector2(120, 120))
+	s.pos = terrain.push_out(s.pos.clamp(Vector2(-120, -120), WORLD_SIZE + Vector2(120, 120)), rad)
 
 
 func find_foe(s: Soldier, radius: float) -> Soldier:
@@ -678,6 +762,8 @@ func find_foe(s: Soldier, radius: float) -> Soldier:
 	for o in soldiers_near(s.pos, radius):
 		if o.regiment.team == s.regiment.team:
 			continue
+		if terrain.wall_blocks(s.pos, o.pos):
+			continue # De l'autre côté de la palissade
 		var d: float = s.pos.distance_squared_to(o.pos)
 		if prefer != null and o.regiment == prefer:
 			d *= 0.5
@@ -703,6 +789,7 @@ func strike(a: Soldier, b: Soldier) -> void:
 	var ar := a.regiment
 	var br := b.regiment
 	var dmg: float = float(ar.stats["damage"]) * UnitTypes.bonus(ar.type, br.type)
+	dmg *= terrain.height_damage(a.pos, b.pos) # Frapper d'en haut
 
 	# Embuscade : la première attaque d'un régiment caché terrifie la cible
 	if ar.hidden:
@@ -805,6 +892,8 @@ func arrow_impact(a: Dictionary) -> void:
 	var victim: Soldier = hits[0]
 	if is_in_forest(victim.pos) and rng.randf() < 0.5:
 		return # Les arbres arrêtent la flèche
+	if terrain.wall_shelters(a["from"], victim.pos) and rng.randf() < Terrain.WALL_COVER:
+		return # Les pieux de la palissade arrêtent la flèche
 	var dmg: float = a["dmg"] * float(victim.regiment.stats["arrow_armor"])
 	victim.regiment.morale -= UnitTypes.MORALE_ARROW_HIT
 	damage(victim, dmg * rng.randf_range(0.7, 1.3), null)
@@ -1200,6 +1289,10 @@ func zoom_at(factor: float) -> void:
 
 func _draw() -> void:
 	draw_texture_rect(ground_tex, Rect2(Vector2.ZERO, WORLD_SIZE), false)
+	if terrain_tex != null:
+		draw_texture_rect(terrain_tex, Rect2(Vector2.ZERO, WORLD_SIZE), false)
+	if terrain.has_river():
+		draw_river_glints()
 
 	if state == State.DEPLOY:
 		draw_rect(Rect2(0, DEPLOY_Y, WORLD_SIZE.x, WORLD_SIZE.y - DEPLOY_Y), Color(0.3, 0.5, 1.0, 0.08))
@@ -1240,10 +1333,19 @@ func _draw() -> void:
 		items.append([s.pos.y, s])
 	for t in trees:
 		items.append([t.y, t])
+	for h in terrain.houses:
+		items.append([h.end.y, h])
+	for w in terrain.walls:
+		items.append([w.end.y, w])
 	items.sort_custom(func(a, b): return a[0] < b[0])
 	for it in items:
 		if it[1] is Vector2:
 			draw_tree(it[1])
+		elif it[1] is Rect2:
+			if (it[1] as Rect2).size.y <= Terrain.WALL_HALF * 2.0:
+				draw_palisade(it[1])
+			else:
+				draw_house(it[1])
 		else:
 			draw_soldier(it[1])
 
@@ -1512,3 +1614,75 @@ func draw_banner_shape(r: Regiment, base: Vector2) -> void:
 		draw_rect(Rect2(base.x - 1, base.y - 11, 9, 7), Color(1, 0.95, 0.4), false, 0.7)
 	if r.team == PLAYER and r.hidden:
 		draw_rect(Rect2(base.x + 8, base.y - 9, 2, 2), Color(0.3, 1, 0.4))
+
+
+## Petits reflets mouvants sur l'eau de la rivière.
+func draw_river_glints() -> void:
+	var t := Time.get_ticks_msec() / 1000.0
+	for i in 70:
+		var x := fposmod(i * 47.3 + t * 18.0, WORLD_SIZE.x)
+		var off := sin(i * 12.9898) * (Terrain.RIVER_HALF - 8.0)
+		var p := Vector2(x, road_y(x) + off).round()
+		if terrain.is_ford(p):
+			continue
+		var a := 0.25 + 0.2 * sin(t * 2.0 + i)
+		draw_rect(Rect2(p.x, p.y, 6, 2), Color(0.85, 0.93, 1.0, a))
+
+
+## Maison vue de trois quarts : l'emprise au sol r porte les murs, le toit déborde vers le haut.
+func draw_house(r: Rect2) -> void:
+	var x := r.position.x
+	var w := r.size.x
+	var wall_h := roundf(r.size.y * 0.45 / PX) * PX
+	var roof_top := r.position.y - 20.0
+	var eave := r.end.y - wall_h
+	draw_rect(Rect2(x + 4, r.end.y - 2, w, 6), Color(0, 0, 0, 0.25)) # Ombre
+	# Murs à colombages
+	draw_rect(Rect2(x, eave, w, wall_h), Color(0.86, 0.79, 0.62))
+	var beam := Color(0.36, 0.23, 0.13)
+	draw_rect(Rect2(x, eave, w, PX), beam)
+	draw_rect(Rect2(x, r.end.y - PX, w, PX), beam)
+	var bx := x
+	while bx <= x + w - PX:
+		draw_rect(Rect2(bx, eave, PX, wall_h), beam)
+		bx += 14.0
+	draw_rect(Rect2(x + w - PX, eave, PX, wall_h), beam)
+	# Porte et fenêtre
+	var door := Rect2(roundf((x + w * 0.5) / PX) * PX, r.end.y - 12.0, 6, 12 - PX)
+	draw_rect(door, Color(0.3, 0.18, 0.1))
+	draw_rect(Rect2(x + 4, eave + 4, 6, 4), Color(0.2, 0.25, 0.3))
+	# Toit de tuiles
+	var roof := Rect2(x - PX * 2, roof_top, w + PX * 4, eave - roof_top)
+	var row := 0
+	var y := roof.position.y
+	while y < roof.end.y:
+		var col := Color(0.62, 0.28, 0.18) if row % 2 == 0 else Color(0.53, 0.22, 0.14)
+		draw_rect(Rect2(roof.position.x, y, roof.size.x, minf(PX * 2, roof.end.y - y)), col)
+		var tx := roof.position.x + (PX * 2 if row % 2 == 0 else 0.0)
+		while tx < roof.end.x:
+			draw_rect(Rect2(tx, y, PX, PX), Color(0.45, 0.18, 0.11))
+			tx += PX * 4
+		y += PX * 2
+		row += 1
+	draw_rect(Rect2(roof.position.x, roof.position.y, roof.size.x, PX), Color(0.4, 0.16, 0.1)) # Faîtage
+	draw_rect(Rect2(roof.position.x, roof.end.y - PX, roof.size.x, PX), Color(0.3, 0.12, 0.08)) # Avant-toit
+	# Cheminée
+	draw_rect(Rect2(x + w - 14, roof_top - 6, 6, 10), Color(0.5, 0.48, 0.45))
+
+
+## Tronçon de palissade : une rangée de pieux taillés en pointe.
+func draw_palisade(r: Rect2) -> void:
+	var base := r.end.y
+	draw_rect(Rect2(r.position.x, base - 2, r.size.x, 4), Color(0, 0, 0, 0.25))
+	var x := r.position.x
+	var i := 0
+	while x < r.end.x - 1.0:
+		var h := 16.0 + float((i * 7) % 3) * PX
+		var top := base - h
+		draw_rect(Rect2(x, top + PX, 4, h - PX), Color(0.5, 0.34, 0.18))
+		draw_rect(Rect2(x + 3, top + PX, 1, h - PX), Color(0.33, 0.21, 0.1))
+		draw_rect(Rect2(x + 1, top, 2, PX), Color(0.62, 0.45, 0.26)) # Pointe
+		x += 5.0
+		i += 1
+	# Liens de corde
+	draw_rect(Rect2(r.position.x, base - 10, r.size.x, 1), Color(0.7, 0.6, 0.38, 0.9))
