@@ -25,6 +25,20 @@ var walk_dur := 1.0
 var notice := "" ## Message d'information ou de refus affiché dans le panneau
 var box: VBoxContainer
 var confirm_new := false ## Premier clic sur « Nouvelle campagne » : demande confirmation
+var auto_launch := true ## Lancer la scène de bataille après une embuscade (désactivé par les tests)
+var ambushed := false ## Une embuscade attend : la bataille va commencer
+
+
+## Petit emplacement qui dessine les chevrons de rang d'un régiment dans le panneau.
+class RankIcon extends Control:
+	var rank := 0
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(14, 14)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		Hud.draw_chevrons(self, Vector2(2, 3), rank)
 
 
 func _ready() -> void:
@@ -53,8 +67,15 @@ func _process(delta: float) -> void:
 		if walk_t >= walk_dur:
 			walking = false
 			notice = state.travel(walk_to)
+			if notice == "" and not state.travel_events.is_empty():
+				notice = " ".join(state.travel_events)
 			state.save()
 			refresh_ui()
+			if state.in_battle():
+				# Embuscade : la bataille est forcée dès l'arrivée
+				ambushed = true
+				if auto_launch:
+					get_tree().change_scene_to_file("res://scenes/main.tscn")
 	queue_redraw()
 
 
@@ -146,7 +167,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Clic sur une ville : marche vers elle si une route y mène directement.
 func click_town(t: int) -> void:
-	if walking or t == state.location:
+	if walking or ambushed or t == state.location:
 		return
 	if state.is_destroyed():
 		notice = "Sans troupes, la compagnie ne peut plus marcher."
@@ -295,15 +316,20 @@ func refresh_ui() -> void:
 
 	add_label("COMPAGNIE FRANCHE", 19, GOLD_COL)
 	add_label("Jour %d   ·   %d écus   ·   solde %d écus / jour" % [state.day, int(state.gold), ceili(state.daily_wage())], 14)
-	add_label("Victoires %d   ·   défaites %d   ·   %d hommes" % [state.victories, state.defeats, state.total_men()], 12, Color(0.75, 0.72, 0.65))
+	add_label("Victoires %d   ·   défaites %d   ·   %d hommes   ·   renommée %d" % [state.victories, state.defeats, state.total_men(), state.fame], 12, Color(0.75, 0.72, 0.65))
 	if notice != "":
 		add_label(notice, 13, Color(1, 0.62, 0.3))
 
 	add_section("À %s" % town["name"])
+	var fac := CampaignState.town_faction(state.location)
+	add_label("%s — réputation %+d (%s)" % [CampaignState.faction_name(fac), state.reputation[fac], state.reputation_label(fac)], 12, CampaignState.FACTIONS[fac]["color"])
+	var closed := state.closed_message(state.location)
+	if closed != "":
+		add_label(closed + " Ni contrat ni recrutement ici.", 12, Color(1, 0.5, 0.4))
 	var names: Array[String] = []
 	for t in recruits:
 		names.append(CampaignState.type_name(t).to_lower())
-	add_label("On y lève : %s." % ", ".join(names), 12, Color(0.75, 0.72, 0.65))
+	add_label("On y lève : %s.   Prix des recrues : %s" % [", ".join(names), price_text(state.location)], 12, Color(0.75, 0.72, 0.65))
 
 	# Troupes
 	add_section("Votre compagnie")
@@ -316,16 +342,21 @@ func refresh_ui() -> void:
 		var full: int = UnitTypes.STATS[type]["count"]
 		var row := HBoxContainer.new()
 		box.add_child(row)
+		var chev := RankIcon.new()
+		chev.rank = CampaignState.rank_of(r)
+		row.add_child(chev)
 		var l := Label.new()
-		l.text = "%d. %s   %d / %d" % [i + 1, CampaignState.type_name(type), int(r["men"]), full]
+		l.text = "%d. %s   %d / %d   %s" % [i + 1, CampaignState.type_name(type), int(r["men"]), full, CampaignState.rank_name(chev.rank)]
+		l.tooltip_text = "Expérience %d (aguerris à %d, vétérans à %d)" % [int(r.get("xp", 0.0)), int(CampaignState.RANK_XP[1]), int(CampaignState.RANK_XP[2])]
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if int(r["men"]) < full:
 			l.add_theme_color_override("font_color", Color(1, 0.75, 0.5))
 		row.add_child(l)
 		var missing := state.refill_missing(i)
 		if missing > 0 and type in recruits:
-			var cost := CampaignState.recruit_cost(type, missing)
-			add_button("Compléter : +%d, %d écus" % [missing, cost], do_refill.bind(i), state.gold >= cost, row)
+			var cost := state.recruit_cost(type, missing)
+			add_button("Compléter : +%d, %d écus" % [missing, cost], do_refill.bind(i), state.gold >= cost and closed == "", row)
 
 	# Recrutement
 	add_section("Lever un régiment")
@@ -333,8 +364,8 @@ func refresh_ui() -> void:
 		if not t in recruits:
 			continue
 		var men: int = UnitTypes.STATS[t]["count"]
-		var cost := CampaignState.recruit_cost(t, men)
-		var ok := state.gold >= cost and state.company.size() < CampaignState.MAX_REGIMENTS
+		var cost := state.recruit_cost(t, men)
+		var ok := state.gold >= cost and state.company.size() < CampaignState.MAX_REGIMENTS and closed == ""
 		add_button("%s : %d hommes, %d écus (solde %.0f / jour)" % [CampaignState.type_name(t), men, cost, men * float(CampaignState.WAGE[t])], do_recruit.bind(t), ok)
 	if state.company.size() >= CampaignState.MAX_REGIMENTS:
 		add_label("La compagnie compte déjà %d régiments." % CampaignState.MAX_REGIMENTS, 12, Color(0.75, 0.72, 0.65))
@@ -348,8 +379,14 @@ func refresh_ui() -> void:
 		add_label(str(c["title"]), 14, Color(1, 0.9, 0.7))
 		add_label(str(c["text"]), 12, Color(0.8, 0.77, 0.7))
 		add_label("Ennemi : %s" % CampaignState.army_summary(c["enemy"]), 12)
-		add_label("Prime : %d écus   ·   difficulté %s   ·   jusqu'au jour %d" % [int(c["reward"]), "★".repeat(int(c["difficulty"])) + "☆".repeat(3 - int(c["difficulty"])), int(c["expires"])], 12, GOLD_COL)
-		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not walking)
+		add_label("Prime : %d écus   ·   difficulté %s   ·   jusqu'au jour %d" % [state.contract_reward(c), "★".repeat(int(c["difficulty"])) + "☆".repeat(3 - int(c["difficulty"])), int(c["expires"])], 12, GOLD_COL)
+		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not walking and not ambushed and closed == "")
+
+	# Réputation
+	add_section("Réputation")
+	for f in CampaignState.FACTIONS.size():
+		add_label("%s : %+d (%s)" % [CampaignState.faction_name(f), state.reputation[f], state.reputation_label(f)], 12, CampaignState.FACTIONS[f]["color"])
+	add_label("Un contrat gagné plaît à qui paie et fâche sa rivale ; la réputation fait varier la prime. Sous %d, la faction ferme ses portes." % CampaignState.REP_CLOSED, 11, Color(0.6, 0.58, 0.52))
 
 	# Journal
 	add_section("Journal")
@@ -367,7 +404,13 @@ func refresh_ui() -> void:
 	elif not state.is_destroyed():
 		add_button("Nouvelle campagne", do_new_campaign)
 	add_label("Sauvegarde automatique après chaque marche, recrutement et bataille.", 11, Color(0.6, 0.58, 0.52))
-	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent.", 11, Color(0.6, 0.58, 0.52))
+	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent. En route : marchands, déserteurs, épidémies, intempéries… et brigands.", 11, Color(0.6, 0.58, 0.52))
+
+
+## « normal », « +15 % », « -10 % » : prix des recrues d'une ville.
+func price_text(town: int) -> String:
+	var p := int(round((float(CampaignState.TOWNS[town]["price"]) - 1.0) * 100.0))
+	return "normal" if p == 0 else "%+d %%" % p
 
 
 # ---------------------------------------------------------------- Rendu
@@ -417,7 +460,7 @@ func _draw() -> void:
 	# Cartouche
 	draw_rect(Rect2(12, 12, 210, 30), Color(0.12, 0.08, 0.05, 0.8))
 	draw_rect(Rect2(12, 12, 210, 30), Color(0.6, 0.47, 0.25), false, 1.0)
-	draw_string(font, Vector2(22, 33), "Comté de Valfrène", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, GOLD_COL)
+	draw_string(font, Vector2(22, 33), "Pays de Valfrène", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, GOLD_COL)
 
 	if hover >= 0 and not walking:
 		draw_tooltip(hover)
@@ -466,6 +509,14 @@ func draw_town(i: int, here: bool, near: bool) -> void:
 		draw_line(f, f + Vector2(0, 14), WOOD, 2.0)
 		draw_rect(Rect2(f, Vector2(10, 7)), Color(0.8, 0.15, 0.12))
 		draw_string(font, f + Vector2(2, 6), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color.WHITE)
+	# Liseré aux couleurs de la faction sous le nom (rayé si elle nous ferme ses portes)
+	var fcol: Color = CampaignState.FACTIONS[CampaignState.town_faction(i)]["color"]
+	var bar := Rect2(p + Vector2(-22, 38), Vector2(44, 4))
+	draw_rect(bar.grow(1), Color(0, 0, 0, 0.7))
+	draw_rect(bar, fcol)
+	if state.faction_closed(CampaignState.town_faction(i)):
+		for k in 4:
+			draw_rect(Rect2(bar.position + Vector2(4 + k * 11, 0), Vector2(5, 4)), Color(0.55, 0.08, 0.06))
 	var name: String = CampaignState.TOWNS[i]["name"]
 	var col := GOLD_COL if here else (Color(1, 1, 1) if near else Color(0.85, 0.82, 0.75))
 	draw_string(font, p + Vector2(-60, 33), name, HORIZONTAL_ALIGNMENT_CENTER, 120, 13, Color(0, 0, 0, 0.8))
@@ -487,6 +538,8 @@ func draw_company(base: Vector2) -> void:
 
 func draw_tooltip(i: int) -> void:
 	var lines: Array[String] = [str(CampaignState.TOWNS[i]["name"])]
+	var fi := CampaignState.town_faction(i)
+	lines.append("%s (%s)" % [CampaignState.faction_name(fi), state.reputation_label(fi)])
 	if i == state.location:
 		lines.append("Vous êtes ici")
 	elif i in state.neighbours(state.location):
@@ -497,9 +550,9 @@ func draw_tooltip(i: int) -> void:
 	var names: Array[String] = []
 	for t in CampaignState.TOWNS[i]["recruits"]:
 		names.append(CampaignState.type_name(t).to_lower())
-	lines.append("Recrues : " + ", ".join(names))
+	lines.append("Recrues : %s (prix %s)" % [", ".join(names), price_text(i)])
 	for c in state.contracts_at(i):
-		lines.append("Contrat : %s (%d écus)" % [c["title"], int(c["reward"])])
+		lines.append("Contrat : %s (%d écus)" % [c["title"], state.contract_reward(c)])
 	var w := 0.0
 	for s in lines:
 		w = maxf(w, font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x)

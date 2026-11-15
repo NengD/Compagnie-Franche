@@ -99,6 +99,7 @@ func _draw() -> void:
 			text(rect.position + Vector2(0, 72), group, 11, Color(0.75, 0.75, 0.7), HORIZONTAL_ALIGNMENT_RIGHT, cw - 6)
 		if not orders.is_empty():
 			text(rect.position + Vector2(6, 72), " · ".join(orders), 11, Color(0.55, 0.85, 1))
+		draw_chevrons(self, rect.position + Vector2(cw - 16, -4.0 - 4.0 * r.rank), r.rank) # Badge au-dessus de la carte
 
 	# Messages
 	var y := 52.0
@@ -124,6 +125,7 @@ func _draw() -> void:
 			"ZQSD / flèches / molette (clic) : caméra",
 			"Molette : zoom",
 			"T : pluie   Espace : lancer / pause",
+			"R deux fois : sonner la retraite (défaite limitée)",
 			"M : couper / remettre le son",
 			"Échap : carte de campagne (escarmouche)",
 			"F1 : masquer l'aide",
@@ -144,7 +146,7 @@ func _draw() -> void:
 			title = "VICTOIRE"
 			sub = end_hint()
 		3:
-			title = "DÉFAITE"
+			title = "RETRAITE" if battle.retreated else "DÉFAITE"
 			sub = end_hint()
 	if battle.paused and battle.state == 1:
 		title = "PAUSE"
@@ -154,6 +156,16 @@ func _draw() -> void:
 		text(Vector2(0, vs.y * 0.3 + 32), sub, 16, Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 		if battle.campaign_report != "" and battle.state >= 2:
 			text(Vector2(0, vs.y * 0.3 + 58), battle.campaign_report, 14, Color(1, 0.9, 0.65), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+
+
+## Chevrons de rang (un par rang au-dessus des recrues), pointe en haut, empilés vers le bas.
+## Partagé avec le panneau de la carte de campagne.
+static func draw_chevrons(ci: CanvasItem, at: Vector2, rank: int, col := Color(1, 0.84, 0.4)) -> void:
+	for k in rank:
+		var y := at.y + k * 4.0
+		var pts := PackedVector2Array([Vector2(at.x, y + 4), Vector2(at.x + 5, y), Vector2(at.x + 10, y + 4)])
+		ci.draw_polyline(pts, Color(0, 0, 0, 0.8), 3.0)
+		ci.draw_polyline(pts, col, 1.6)
 
 
 func end_hint() -> String:

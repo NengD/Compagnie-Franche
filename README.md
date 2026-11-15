@@ -9,22 +9,43 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 3. Appuyez sur **F5** (ou le bouton ▶). Le jeu s'ouvre sur la **carte de campagne**.
 
 ## Campagne
-Vous menez une compagnie de mercenaires dans le comté de Valfrène.
+Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disputent trois factions :
+le **Comté de Valfrène** (Valombre, Saint-Aubin), la **Baronnie de Montfaucon** (Montfaucon, Castelroux,
+Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous chaque ville donne sa faction.
 - **Marcher** : cliquez sur une ville reliée par une route à la vôtre. Chaque jour de marche coûte la **solde**
   (par homme et par jour : piquier 0,3 écu, archer 0,35, homme d'armes 0,6, cavalier 1).
   Si les caisses sont vides, une partie des hommes **déserte** chaque jour.
-- **Recruter** : chaque ville lève certains types de troupes. On peut lever un régiment complet
-  (8 régiments au plus) ou **compléter** un régiment entamé.
+- **Recruter** : chaque ville lève certains types de troupes, à son prix (de -15 % à Brévannes à +25 %
+  à Hautemure). On peut lever un régiment complet (8 régiments au plus) ou **compléter** un régiment entamé.
 - **Contrats** : les villes marquées d'un drapeau rouge proposent des contrats (brigands, routiers,
-  ost du baron). Accepter lance la bataille ; la victoire paie la prime. Les contrats deviennent plus
-  durs avec vos victoires et expirent après 14 jours.
+  ost du baron). Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi
+  tué). Les contrats deviennent plus durs avec votre **renommée** (gagnée par les victoires, perdue par
+  les défaites) et expirent après 14 jours. Routiers et ost du baron alignent des régiments aguerris ou vétérans.
+- **Réputation** : un contrat gagné rapporte +10 auprès de la faction qui paie et -5 auprès de sa rivale
+  (le Comté et la Baronnie se haïssent ; la Ligue est rivale de la Baronnie). La prime varie de x0,5 à x1,5
+  selon la réputation. À -30, la faction vous ferme ses portes : ni contrat ni recrutement dans ses villes.
+  Les rancunes s'apaisent d'un point tous les deux jours.
+- **Vétérans** : chaque régiment gagne de l'expérience à chaque bataille (participation, victoire, ennemis
+  tués, flèches comprises). Rangs : **recrues**, **aguerris** (100 xp, un chevron), **vétérans** (250 xp,
+  deux chevrons). Chaque rang donne +10 % de dégâts et +15 % de moral. Compléter un régiment avec des
+  recrues dilue son expérience (moyenne pondérée par les hommes).
+- **Défaite** : l'ennemi pille 30 % de votre or, la faction qui payait vous retire 8 points de réputation,
+  et vous perdez de la renommée.
+- **Retraite** : en bataille, **R deux fois** (en moins de 3 s) sonne la retraite. C'est une défaite,
+  mais seuls les hommes au contact de l'ennemi risquent d'être rattrapés (un sur deux), et la pénalité
+  est réduite (10 % de l'or, -4 de réputation, moitié moins de renommée perdue).
+- **Évènements de route** (environ une chance sur huit par jour de marche, inscrits au journal) :
+  **embuscade** de brigands (bataille forcée à l'arrivée, sans prime mais avec butin), **marchand** à escorter
+  (40 à 90 écus), **épidémie** (8 % des hommes), **déserteurs** qui complètent un régiment (un peu aguerris),
+  **intempéries** (un jour de marche perdu).
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
-  tombés sont relevés blessés. Les effectifs passent d'une bataille à l'autre.
+  tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
 - **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap pour revenir à la carte).
 - **Sauvegarde automatique** après chaque marche, recrutement et bataille, reprise au lancement du jeu.
   Fichier : `campagne.json` dans le dossier de données du jeu
   (Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\`). « Nouvelle campagne » demande confirmation.
-  Quitter en pleine bataille revient à l'état d'avant la bataille.
+  Quitter en pleine bataille revient à l'état d'avant la bataille. Les sauvegardes de la version
+  précédente (sans expérience ni réputation) restent lisibles.
 
 ## Commandes
 | Action | Touche |
@@ -44,6 +65,7 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
 | Pluie on/off | T |
 | Lancer la bataille / pause | Espace |
 | Couper / remettre le son | M |
+| Sonner la retraite | R deux fois |
 | Aide | F1 |
 | Fin de bataille | Entrée : carte de campagne (contrat) ou rejouer (escarmouche) |
 | Retour à la carte (escarmouche) | Échap |
@@ -96,7 +118,8 @@ scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si a
 scripts/battle_audio.gd Sons de bataille et musique
 assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
-tests/campaign_test.gd  Test de la campagne (règles, deux batailles de contrat, carte)
+tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, défaite, économie, évènements,
+                        deux batailles de contrat, une retraite, carte et embuscade)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
@@ -108,7 +131,7 @@ tests/test_player.gd    Joueurs simulés utilisés par les tests
 godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, code de sortie 1 si échec
 godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur un terrain imposé
                                                       # (plain, forest, hills, river, village, siege, random)
-godot --headless --path . -s tests/campaign_test.gd   # campagne : solde, recrutement, pertes reportées, sauvegarde
+godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, batailles, retraite, sauvegarde, carte
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
@@ -126,5 +149,4 @@ village 6/10 et 3/10 ; palissade 11/20 et 10/20. Toutes les batailles se termine
 Les écarts restent dans le bruit d'une série de 10 batailles.
 
 ## Pistes pour continuer
-- Expérience des régiments, événements sur les routes.
 - IA qui utilise les formations (carré contre la cavalerie) et la course.

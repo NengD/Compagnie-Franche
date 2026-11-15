@@ -71,6 +71,9 @@ var cleanup_timer := 0.0
 var seed_override := 0 ## Graine fixe pour les tests (0 = aléatoire)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
 var campaign_report := "" ## Compte rendu de fin de bataille en campagne
+var retreated := false ## La bataille s'est terminée par une retraite (touche R)
+var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
+var retreat_ask_ms := -100000 ## Instant du premier appui sur R (il faut confirmer)
 
 var groups := {} ## Groupes de contrôle : chiffre (0-8) -> Array[Regiment]
 var last_digit := -1 ## Dernier chiffre appuyé (pour le double appui)
@@ -384,6 +387,7 @@ func spawn_army(team: int, list: Array) -> void:
 		placed[wings[k]] = Vector2(clampf(x, 120, WORLD_SIZE.x - 120), front_y + back * 0.45)
 	for i in list.size():
 		var r := add_regiment(team, str(list[i]["type"]), placed[i], face, int(list[i]["men"]))
+		r.set_rank(CampaignState.rank_of(list[i]))
 		if team == PLAYER:
 			r.company_index = i
 
@@ -910,7 +914,7 @@ func strike(a: Soldier, b: Soldier) -> void:
 
 	if br.routing:
 		dmg *= 1.5
-	dmg *= UnitTypes.fatigue_factor(ar.stamina, UnitTypes.EXHAUSTED_DAMAGE)
+	dmg *= UnitTypes.fatigue_factor(ar.stamina, UnitTypes.EXHAUSTED_DAMAGE) * ar.rank_damage()
 	dmg *= rng.randf_range(0.7, 1.3)
 	a.attack_dur = 0.3
 	a.attack_anim = a.attack_dur
@@ -930,6 +934,8 @@ func damage(s: Soldier, amount: float, source: Soldier) -> void:
 	if s.hp <= 0.0:
 		s.alive = false
 		var r := s.regiment
+		if source != null and source.regiment.team != r.team:
+			source.regiment.kills += 1
 		corpses.append([s.pos.round(), r.team, r.type, 1 if rng.randf() < 0.5 else -1])
 		if corpses.size() > 2000:
 			corpses.pop_front()
@@ -953,7 +959,8 @@ func fire_arrow(s: Soldier, target: Regiment) -> void:
 	var aim := t.pos + Vector2(rng.randf_range(-spread, spread), rng.randf_range(-spread, spread))
 	arrows.append({
 		"from": s.pos + Vector2(0, -8), "to": aim, "t": 0.0, "dur": 0.5 + dist / 440.0,
-		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE),
+		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE) * s.regiment.rank_damage(),
+		"src": s.regiment, # Pour compter les ennemis tués par les flèches
 		"h": dist * 0.25,
 	})
 	s.regiment.revealed = maxf(s.regiment.revealed, 2.0)
@@ -981,11 +988,14 @@ func arrow_impact(a: Dictionary) -> void:
 	var victim: Soldier = hits[0]
 	if is_in_forest(victim.pos) and rng.randf() < 0.5:
 		return # Les arbres arrêtent la flèche
-	if terrain.wall_shelters(a["from"], victim.pos) and rng.randf() < Terrain.WALL_COVER:
+	if terrain.wall_shelters(a.get("from", a["to"]), victim.pos) and rng.randf() < Terrain.WALL_COVER:
 		return # Les pieux de la palissade arrêtent la flèche
 	var dmg: float = a["dmg"] * float(victim.regiment.stats["arrow_armor"])
 	victim.regiment.morale -= UnitTypes.MORALE_ARROW_HIT
 	damage(victim, dmg * rng.randf_range(0.7, 1.3), null)
+	var src: Regiment = a.get("src")
+	if src != null and not victim.alive and src.team != victim.regiment.team:
+		src.kills += 1
 
 
 # ---------------------------------------------------------------- Fin de partie
@@ -1015,18 +1025,52 @@ func check_end() -> void:
 		finish_campaign()
 
 
+## Touche R : un premier appui demande confirmation, un second (dans les 3 s) sonne la retraite.
+func request_retreat() -> void:
+	if state != State.BATTLE:
+		return
+	if Time.get_ticks_msec() - retreat_ask_ms > 3000:
+		retreat_ask_ms = Time.get_ticks_msec()
+		add_message("Appuyez encore sur R pour sonner la retraite (défaite, mais pertes limitées).")
+		return
+	order_retreat()
+
+
+## Retraite ordonnée : la bataille est perdue, mais seuls les hommes au contact de l'ennemi
+## risquent d'être rattrapés (un sur deux) ; tous les autres rejoignent la compagnie.
+func order_retreat() -> void:
+	if state != State.BATTLE:
+		return
+	retreated = true
+	retreat_caught = 0
+	for r in regiments:
+		if r.team != PLAYER or r.routing:
+			continue
+		for s in r.soldiers:
+			if s.alive and s.foe != null and s.foe.alive and s.pos.distance_to(s.foe.pos) < 30.0 and rng.randf() < 0.5:
+				s.alive = false
+				retreat_caught += 1
+		r.update_center()
+	state = State.DEFEAT
+	add_message("Vous sonnez la retraite : la compagnie décroche (%d hommes rattrapés)." % retreat_caught)
+	if campaign != null:
+		finish_campaign()
+
+
 ## Reporte les pertes sur la compagnie : les hommes debout et ceux qui ont fui survivent.
 func finish_campaign() -> void:
 	var survivors := []
 	survivors.resize(campaign.battle_army().size())
 	survivors.fill(0)
+	var kills := survivors.duplicate()
 	for r in regiments:
 		if r.team != PLAYER or r.company_index < 0:
 			continue
+		kills[r.company_index] += r.kills
 		for s in r.soldiers:
 			if s.alive or s.fled:
 				survivors[r.company_index] += 1
-	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors)
+	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors, kills, retreated)
 	campaign.save()
 	add_message(campaign_report)
 
@@ -1123,6 +1167,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_hold_position()
 		KEY_X:
 			toggle_fire_at_will()
+		KEY_R:
+			request_retreat()
 		KEY_M:
 			audio.set_enabled(not audio.enabled)
 			add_message("Son activé." if audio.enabled else "Son coupé.")
