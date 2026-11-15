@@ -112,26 +112,7 @@ func _draw() -> void:
 
 	# Aide
 	if battle.show_help:
-		var lines := [
-			"Clic gauche / glisser : sélectionner",
-			"Maj + clic : ajouter à la sélection",
-			"Clic droit : se déplacer / attaquer",
-			"Clic droit glissé : tracer la ligne de front",
-			"Double clic droit : courir (fatigue)",
-			"Ctrl+A : tout   1-8 : un régiment",
-			"Ctrl+1-8 : mémoriser un groupe",
-			"1-8 : rappeler le groupe (2 fois : y aller)",
-			"%s : halte   %s : formation (ligne / colonne / carré)" % [GameOptions.key_label("halt"), GameOptions.key_label("formation")],
-			"%s : tenir la position (on / off)" % GameOptions.key_label("hold"),
-			"%s : archers, tir à volonté / cesser le tir" % GameOptions.key_label("fire"),
-			"ZQSD / flèches / molette (clic) : caméra",
-			"Molette : zoom",
-			"%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain"),
-			"%s deux fois : sonner la retraite (défaite limitée)" % GameOptions.key_label("retreat"),
-			"%s : couper / remettre le son   %s : vitesse" % [GameOptions.key_label("sound"), GameOptions.key_label("speed")],
-			"Échap : menu principal (escarmouche)",
-			"%s : masquer l'aide" % GameOptions.key_label("help"),
-		]
+		var lines := help_lines()
 		var hr := Rect2(vs.x - 300, 42, 288, lines.size() * 18 + 14)
 		draw_rect(hr, Color(0.05, 0.04, 0.03, 0.7))
 		for i in lines.size():
@@ -158,6 +139,32 @@ func _draw() -> void:
 		text(Vector2(0, vs.y * 0.3 + 32), sub, 16, Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 		if battle.campaign_report != "" and battle.state >= 2:
 			text(Vector2(0, vs.y * 0.3 + 58), battle.campaign_report, 14, Color(1, 0.9, 0.65), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+
+
+## Lignes de l'aide (panneau F1 et page Aide du menu pause). Les touches suivent les Options.
+static func help_lines() -> Array[String]:
+	var lines: Array[String] = [
+		"Clic gauche / glisser : sélectionner",
+		"Maj + clic : ajouter à la sélection",
+		"Clic droit : se déplacer / attaquer",
+		"Clic droit glissé : tracer la ligne de front",
+		"Double clic droit : courir (fatigue)",
+		"Ctrl+A : tout   1-8 : un régiment",
+		"Ctrl+1-8 : mémoriser un groupe",
+		"1-8 : rappeler le groupe (2 fois : y aller)",
+		"%s : halte   %s : formation (ligne / colonne / carré)" % [GameOptions.key_label("halt"), GameOptions.key_label("formation")],
+		"%s : tenir la position (on / off)" % GameOptions.key_label("hold"),
+		"%s : archers, tir à volonté / cesser le tir" % GameOptions.key_label("fire"),
+		"ZQSD / flèches / molette (clic) : caméra",
+		"Molette : zoom",
+		"%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain"),
+		"Déploiement : zone bleue, aucun combat",
+		"%s deux fois : sonner la retraite (défaite limitée)" % GameOptions.key_label("retreat"),
+		"%s : couper / remettre le son   %s : vitesse" % [GameOptions.key_label("sound"), GameOptions.key_label("speed")],
+		"Échap : menu pause (options, abandon)",
+		"%s : masquer l'aide" % GameOptions.key_label("help"),
+	]
+	return lines
 
 
 ## Chevrons de rang (un par rang au-dessus des recrues), pointe en haut, empilés vers le bas.

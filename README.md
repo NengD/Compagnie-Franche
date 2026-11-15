@@ -14,8 +14,12 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 - **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
   changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
-  sur les archers, gagner. Échap : retour au menu.
-- **Escarmouche** : bataille libre hors campagne (Échap : retour au menu).
+  sur les archers, gagner. Échap : menu pause (Menu principal pour quitter).
+- **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu).
+- **Menu pause** (Échap en bataille : contrat, escarmouche ou tutoriel) : la bataille s'arrête.
+  Reprendre (ou Échap), Aide (toutes les commandes), Options (volumes, vitesse, plein écran),
+  **Abandonner la bataille** (en contrat : retraite ordonnée, après confirmation ; ailleurs : retour au
+  menu) et **Menu principal** (en contrat, après un avertissement : compte comme une retraite).
 - **Options** : volumes général / musique / effets, plein écran, vitesse du jeu (x1, x1,5, x2 ; touche V
   en bataille), **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
   si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, chiffres,
@@ -56,11 +60,12 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   **intempéries** (un jour de marche perdu).
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
   tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
-- **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap pour revenir au menu).
+- **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap : menu pause).
 - **Sauvegarde automatique** après chaque marche, recrutement et bataille, reprise au lancement du jeu.
   Fichier : `campagne.json` dans le dossier de données du jeu
   (Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\`). « Nouvelle campagne » demande confirmation.
-  Quitter en pleine bataille revient à l'état d'avant la bataille. Les sauvegardes de la version
+  Quitter par le menu pause compte comme une retraite ; fermer la fenêtre en pleine bataille
+  revient à l'état d'avant la bataille. Les sauvegardes de la version
   précédente (sans expérience ni réputation) restent lisibles.
 
 ## Commandes
@@ -81,13 +86,13 @@ Les touches marquées * se changent dans **Options**.
 | Caméra | ZQSD (ou WASD), flèches, clic molette maintenu |
 | Zoom | Molette |
 | Pluie on/off | T * |
-| Lancer la bataille / pause | Espace |
+| Lancer la bataille / pause | Espace (pendant le déploiement, aucun combat : les ordres restent dans la zone bleue et on ne peut pas attaquer) |
 | Couper / remettre le son | M * |
 | Sonner la retraite | R * deux fois |
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
 | Aide | F1 * |
 | Fin de bataille | Entrée : carte de campagne (contrat) ou rejouer (escarmouche) |
-| Retour au menu (escarmouche, tutoriel) | Échap |
+| Menu pause (reprendre, aide, options, abandonner, menu principal) | Échap ; sur l'écran de fin d'escarmouche : retour au menu |
 
 ## Règles de combat
 - **Pierre-feuille-ciseaux** : piquiers > cavalerie > archers ; hommes d'armes > piquiers.
@@ -139,6 +144,7 @@ scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques des unités (à modifier pour équilibrer)
 scripts/enemy_ai.gd     IA ennemie
 scripts/hud.gd          Interface
+scripts/pause_menu.gd   Menu pause de la bataille (Échap)
 scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si absents)
 scripts/battle_audio.gd Sons de bataille et musique
 assets/                 Sprites et sons (voir CREDITS.md)
@@ -147,6 +153,7 @@ tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, d
                         deux batailles de contrat, une retraite, carte et embuscade)
 tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
+tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)
@@ -162,6 +169,7 @@ godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur
 godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, batailles, retraite, sauvegarde, carte
 godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
+godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
