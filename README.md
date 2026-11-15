@@ -101,7 +101,7 @@ accompagné de `CREDITS.md` (obligatoire : licences des assets) et `README.md`.
 Le préréglage « Windows » (`export_presets.cfg`) exclut `tests/`, `captures/`, `tools/` et `build/`.
 On peut aussi exporter depuis l'éditeur : *Projet → Exporter… → Windows*.
 Pour distribuer : zippez le contenu de `build/` (l'exe et les deux fichiers .md).
-Le jeu n'a pas encore d'icône propre (icône Godot par défaut).
+L'icône de l'exe vient de `assets/icon.ico` (générée avec `tools/make_icon.py`, comme `assets/icon.png`).
 
 ## Équilibrage
 Réglages dans `scripts/unit_types.gd` (statistiques, moral, charge) et `scripts/enemy_ai.gd`.

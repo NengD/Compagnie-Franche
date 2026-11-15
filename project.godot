@@ -18,6 +18,7 @@ config/name="Compagnie Franche"
 config/description="Prototype de bataille médiévale en temps réel, style pixel art."
 run/main_scene="res://scenes/campaign.tscn"
 config/features=PackedStringArray("4.7")
+config/icon="res://assets/icon.png"
 
 [display]
 
