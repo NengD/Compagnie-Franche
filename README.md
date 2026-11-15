@@ -167,6 +167,23 @@ godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # id
 godot --path . -s tests/terrain_shots.gd              # captures/terrain_*.png
 ```
 
+## Exporter le jeu
+Produit un exécutable Windows autonome `build/CompagnieFranche.exe` (pck intégré, ~110 Mo),
+accompagné de `CREDITS.md` (obligatoire : licences des assets) et `README.md`.
+1. Installez une fois les **modèles d'export 4.7.2** : dans l'éditeur, *Éditeur → Gérer les modèles d'export →
+   Télécharger et installer* (ils vont dans `%APPDATA%\Godot\export_templates\4.7.2.stable\`).
+2. Lancez :
+   ```
+   powershell -ExecutionPolicy Bypass -File tools\export_windows.ps1
+   ```
+   Godot est cherché dans `E:\_jeu perso\godot\` ; sinon passez `-Godot <chemin\vers\godot.exe>`
+   ou définissez la variable d'environnement `GODOT`.
+
+Le préréglage « Windows » (`export_presets.cfg`) exclut `tests/`, `captures/`, `tools/` et `build/`.
+On peut aussi exporter depuis l'éditeur : *Projet → Exporter… → Windows*.
+Pour distribuer : zippez le contenu de `build/` (l'exe et les deux fichiers .md).
+L'icône de l'exe vient de `assets/icon.ico` (générée avec `tools/make_icon.py`, comme `assets/icon.png`).
+
 ## Équilibrage
 Réglages dans `scripts/unit_types.gd` (statistiques, moral, charge) et `scripts/enemy_ai.gd`.
 Objectif : une bataille dure 2 à 4 minutes ; l'ennemi a plus d'infanterie (8 régiments contre 8,
