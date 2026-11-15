@@ -123,6 +123,8 @@ static func apply() -> void:
 
 ## Crée les bus Musique et Effets (reliés au bus Master) s'ils n'existent pas encore.
 static func ensure_buses() -> void:
+	if is_test_run():
+		AudioServer.set_bus_mute(0, true) # Tests : sortie principale coupée
 	for bus_name in [BUS_MUSIC, BUS_SFX]:
 		if AudioServer.get_bus_index(bus_name) < 0:
 			AudioServer.add_bus()
@@ -136,6 +138,16 @@ static func apply_audio() -> void:
 	_set_bus("Master", master_volume)
 	_set_bus(BUS_MUSIC, music_volume)
 	_set_bus(BUS_SFX, sfx_volume)
+	if is_test_run():
+		AudioServer.set_bus_mute(0, true) # Tests : jamais de son, même avec fenêtre
+
+
+## Vrai quand le jeu est lancé par un script de test (godot -s ...) ou sans affichage.
+static func is_test_run() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return true
+	var args := OS.get_cmdline_args()
+	return args.has("-s") or args.has("--script")
 
 
 static func _set_bus(bus_name: String, v: float) -> void:

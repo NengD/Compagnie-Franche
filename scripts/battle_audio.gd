@@ -31,9 +31,9 @@ var cries: Array = [] ## Cris de déroute à venir : [instant, position]
 
 
 func _ready() -> void:
-	# Sans fenêtre (tests), personne n'entend rien : on charge les sons sans les jouer.
+	# Tests (sans fenêtre, ou lancés par « godot -s ») : on charge les sons sans les jouer.
 	# Le pilote audio factice ne libère pas les lectures en cours à la fermeture.
-	if DisplayServer.get_name() == "headless":
+	if GameOptions.is_test_run():
 		enabled = false
 	GameOptions.ensure_loaded()
 	GameOptions.ensure_buses()
