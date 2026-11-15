@@ -36,7 +36,26 @@ func _ready() -> void:
 	box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
+	add_version_label()
 	refresh()
+
+
+## Numéro de version du jeu (application/config/version dans project.godot).
+static func game_version() -> String:
+	return str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
+
+
+## Version affichée discrètement dans le coin inférieur droit.
+func add_version_label() -> void:
+	var l := UiTheme.label("v" + game_version(), 12, UiTheme.DIM)
+	l.name = "Version"
+	l.modulate.a = 0.7
+	l.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	l.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	l.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	l.offset_right = -8
+	l.offset_bottom = -6
+	add_child(l)
 
 
 func _process(delta: float) -> void:

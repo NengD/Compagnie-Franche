@@ -1,9 +1,11 @@
 extends SceneTree
 ## Captures de chaque terrain (à lancer AVEC fenêtre, pas en --headless) :
-##   godot --path . -s tests/terrain_shots.gd
-## Enregistre captures/terrain_<type>.png (vue d'ensemble) et captures/terrain_<type>_zoom.png
-## (gros plan sur le relief, un gué, le village ou une brèche, après 35 s de bataille).
+##   godot --path . -s tests/terrain_shots.gd [-- --out=<dossier>]
+## Enregistre terrain_<type>.png (vue d'ensemble) et terrain_<type>_zoom.png (gros plan sur le
+## relief, un gué, le village ou une brèche, après 35 s de bataille) dans user://captures (défaut)
+## ou dans <dossier> (relatif à la racine du projet : --out=captures met à jour celles du dépôt).
 
+const CaptureDir := preload("res://tests/capture_dir.gd")
 const SEED := 12345
 
 var scene: PackedScene
@@ -83,7 +85,4 @@ func _focus(t: Terrain) -> Vector2:
 
 
 func _save(name: String) -> void:
-	var img := root.get_texture().get_image()
-	var path := ProjectSettings.globalize_path("res://captures/").path_join(name)
-	img.save_png(path)
-	print("Capture : ", path)
+	CaptureDir.save(self, name)
