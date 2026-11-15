@@ -26,6 +26,7 @@ var music: AudioStreamPlayer
 var gallop: AudioStreamPlayer
 var gallop_level := 0.0
 var clock := 0.0
+var cries: Array = [] ## Cris de déroute à venir : [instant, position]
 
 
 func _ready() -> void:
@@ -109,6 +110,9 @@ func loaded_count() -> int:
 
 func _process(delta: float) -> void:
 	clock += delta
+	while not cries.is_empty() and float(cries[0][0]) <= clock:
+		var c: Array = cries.pop_front()
+		_cry(c[1])
 	if gallop != null:
 		var target := -80.0 if (gallop_level <= 0.01 or not enabled) else lerpf(-26.0, -8.0, gallop_level)
 		gallop.volume_db = move_toward(gallop.volume_db, target, delta * 60.0)
@@ -126,6 +130,7 @@ func set_enabled(on: bool) -> void:
 		elif not on:
 			music.stop()
 	if not on:
+		cries.clear()
 		for v in voices:
 			v.stop()
 
@@ -149,6 +154,34 @@ func play(bank: String, world_pos: Vector2, extra_db := 0.0) -> void:
 			v.stream = list[randi() % list.size()]
 			v.volume_db = float(BANKS[bank][1]) + att + extra_db
 			v.pitch_scale = randf_range(0.9, 1.1)
+			v.play()
+			return
+
+
+## Cris de panique d'un régiment qui fuit : quelques cris étalés sur une seconde et demie.
+## Réutilise les cris de la banque « death », joués plus aigus pour sonner comme des hurlements.
+func play_cries(world_pos: Vector2, n: int) -> void:
+	if not enabled:
+		return
+	var t := clock
+	for i in n:
+		t += randf_range(0.12, 0.4)
+		cries.append([t, world_pos + Vector2(randf_range(-30, 30), randf_range(-20, 20))])
+	cries.sort_custom(func(a, b): return a[0] < b[0])
+
+
+func _cry(world_pos: Vector2) -> void:
+	var list: Array = streams.get("death", [])
+	if not enabled or list.is_empty():
+		return
+	var att := attenuation(world_pos)
+	if att <= -40.0:
+		return
+	for v in voices:
+		if not v.playing:
+			v.stream = list[randi() % list.size()]
+			v.volume_db = -11.0 + att
+			v.pitch_scale = randf_range(1.2, 1.45)
 			v.play()
 			return
 

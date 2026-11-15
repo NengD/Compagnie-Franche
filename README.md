@@ -34,8 +34,11 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
 | Tracer la ligne de front | Clic droit maintenu + glisser : la longueur règle la largeur du front, les troupes font face à l'opposé de leur position |
 | Tout sélectionner / un régiment | Ctrl+A / 1 à 8 |
 | Courir (fatigue) | Double clic droit (sur le sol, un ennemi, ou en traçant une ligne) |
+| Groupes de contrôle | Ctrl + 1 à 8 : mémoriser la sélection ; 1 à 8 : la rappeler (sinon, sélectionne le régiment n°) ; deux appuis rapides : centrer la caméra dessus |
 | Halte | H |
 | Formation : ligne → colonne → carré | F |
+| Tenir la position (on/off) | G : le régiment frappe ce qui est à sa portée mais ne poursuit pas et ne s'engage pas seul (indiqué « tient » sur sa carte) |
+| Tir à volonté / cesser le tir (archers) | X : sans tir à volonté, les archers ne tirent que sur la cible désignée par clic droit (« tir retenu ») |
 | Caméra | ZQSD (ou WASD), flèches, clic molette maintenu |
 | Zoom | Molette |
 | Pluie on/off | T |
@@ -54,6 +57,7 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
 - **Pluie** : les archers tirent moins loin et moins juste, tout le monde avance plus lentement.
 - **Course et endurance** : le double clic droit fait courir le régiment (x1,6), mais la course vide l'endurance en une douzaine de secondes ; la mêlée fatigue aussi, lentement. Sous 60 % d'endurance, la vitesse et les dégâts baissent (jusqu'à x0,6 pour un régiment épuisé). La marche et surtout le repos font récupérer. La barre jaune de la carte du régiment montre l'endurance.
 - **Formations** (touche F) : la **ligne** (par défaut) ; la **colonne** (3 de front) avance 15 % plus vite ; le **carré** creux est lent (x0,55) mais n'a ni flanc ni dos : il annule les bonus de flanc et de dos.
+- **Ressenti** : une charge de cavalerie qui percute fait trembler la caméra (moins si elle est loin), les chevaux au galop soulèvent de la poussière, un régiment qui fuit pousse des cris, et la fin de la bataille passe quelques secondes au ralenti.
 - **Tir ami** : les flèches touchent ce qu'elles trouvent… évitez de tirer dans une mêlée.
 
 ## Structure
