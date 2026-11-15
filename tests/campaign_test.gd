@@ -41,6 +41,7 @@ func _initialize() -> void:
 	_test_rules()
 	_test_veterans()
 	_test_reputation()
+	_test_defeat()
 	_test_save()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
@@ -242,6 +243,31 @@ func _test_reputation() -> void:
 	print("Réputation : OK")
 
 
+## Défaite : pillage et réputation ; retraite : pénalités réduites.
+func _test_defeat() -> void:
+	for retreat in [false, true]:
+		var c := CampaignState.new_game(11)
+		c.gold = 1000.0
+		c.fame = 40
+		var k: Dictionary = c.contracts_at(0)[0]
+		var f := int(k["faction"])
+		c.accept(k)
+		var surv := []
+		for r in c.battle_army():
+			surv.append(int(r["men"]))
+		var wage := c.daily_wage()
+		c.finish_battle(false, surv, [], retreat)
+		var pill: float = CampaignState.PILLAGE_RETREAT if retreat else CampaignState.PILLAGE
+		var want: float = 1000.0 - floor(1000.0 * pill) - wage
+		var what := "retraite" if retreat else "défaite"
+		check(absf(c.gold - want) < 0.01, "%s : or %.1f au lieu de %.1f" % [what, c.gold, want])
+		var loss: int = CampaignState.REP_RETREAT if retreat else CampaignState.REP_LOSS
+		check(c.reputation[f] - loss in [0, 1], "%s : réputation %d au lieu de %d" % [what, c.reputation[f], loss])
+		check(c.fame == 40 - (CampaignState.FAME_RETREAT if retreat else CampaignState.FAME_LOSS), "%s : renommée %d" % [what, c.fame])
+		check(c.defeats == 1 and not c.in_battle() and not k in c.contracts, "%s : contrat non soldé" % what)
+	print("Défaite et retraite : OK")
+
+
 ## Sauvegarde : aller-retour exact (y compris le tirage des futurs contrats), refus des fichiers abîmés.
 func _test_save() -> void:
 	var c := CampaignState.new_game(77)
@@ -353,6 +379,8 @@ func _run_battle() -> void:
 	for i in 40:
 		player.update(battle)
 		battle.simulate(STEP)
+		if phase == "retreat" and battle.state == 1 and _try_retreat():
+			break
 		if battle.state >= 2 or battle.battle_time > MAX_TIME:
 			break
 	if battle.state < 2 and battle.battle_time <= MAX_TIME:
@@ -379,7 +407,15 @@ func _run_battle() -> void:
 		battle.battle_time, before, camp.total_men(), int(battle.get_meta("gold_before")), int(camp.gold)])
 	check(not camp.in_battle(), "%s : contrat toujours en cours après la bataille" % phase)
 	check(camp.total_men() == expected, "%s : %d hommes dans la compagnie au lieu de %d" % [phase, camp.total_men(), expected])
-	check(camp.total_men() < before, "%s : aucune perte reportée" % phase)
+	if phase != "retreat":
+		check(camp.total_men() < before, "%s : aucune perte reportée" % phase)
+	else:
+		check(not victory and battle.retreated, "retraite : la bataille ne finit pas en retraite")
+		check(battle.retreat_caught <= int(battle.get_meta("contact")), "retraite : %d rattrapés pour %d au contact" % [battle.retreat_caught, int(battle.get_meta("contact"))])
+		var g0: float = battle.get_meta("gold_before")
+		check(camp.gold <= g0 - floor(g0 * CampaignState.PILLAGE_RETREAT) + 0.01 and camp.gold > g0 * (1.0 - CampaignState.PILLAGE) - 0.01 - camp.daily_wage() * 2,
+			"retraite : or %.1f (avant %.1f)" % [camp.gold, g0])
+		check(camp.reputation[int(battle.get_meta("faction"))] < int(battle.get_meta("rep_before")), "retraite : réputation intacte")
 	check(battle.campaign_report != "", "%s : pas de compte rendu" % phase)
 	var saved := CampaignState.load_game()
 	check(saved != null and saved.total_men() == camp.total_men() and saved.victories == camp.victories,
@@ -391,7 +427,7 @@ func _run_battle() -> void:
 	for r in battle.regiments:
 		if r.team == 0:
 			kills_total += r.kills
-	check(kills_total > 0, "%s : aucun ennemi tué compté" % phase)
+	check(kills_total > 0 or phase == "retreat", "%s : aucun ennemi tué compté" % phase)
 	for r in camp.company:
 		check(float(r["xp"]) >= CampaignState.XP_BATTLE, "%s : expérience non gagnée" % phase)
 	root.remove_child(battle)
@@ -400,6 +436,10 @@ func _run_battle() -> void:
 
 	if phase == "battle1" and not camp.is_destroyed():
 		phase = "battle2"
+		_start_contract_battle()
+		return
+	if phase == "battle2" and not camp.is_destroyed():
+		phase = "retreat"
 		_start_contract_battle()
 		return
 	# Carte de campagne
@@ -413,6 +453,32 @@ func _run_battle() -> void:
 	map = (load("res://scenes/campaign.tscn") as PackedScene).instantiate()
 	root.add_child(map)
 	waiting = true
+
+
+## Phase « retreat » : dès que la mêlée est engagée, R deux fois. Renvoie true si la retraite est sonnée.
+func _try_retreat() -> bool:
+	var contact := 0
+	var alive := 0
+	for r in battle.regiments:
+		if r.team != 0 or r.routing:
+			continue
+		for s in r.soldiers:
+			if s.alive:
+				alive += 1
+				if s.foe != null and s.foe.alive and s.pos.distance_to(s.foe.pos) < 30.0:
+					contact += 1
+	if contact < 5 and battle.battle_time < 90.0:
+		return false
+	var f := int(camp.pending["faction"])
+	battle.set_meta("contact", contact)
+	battle.set_meta("faction", f)
+	battle.set_meta("rep_before", camp.reputation[f])
+	battle.set_meta("gold_before", camp.gold)
+	battle.request_retreat()
+	check(battle.state == 1, "retraite : sonnée sans confirmation")
+	battle.request_retreat()
+	print("retreat : retraite à %.0f s, %d hommes au contact sur %d, %d rattrapés" % [battle.battle_time, contact, alive, battle.retreat_caught])
+	return true
 
 
 func _test_map() -> bool:

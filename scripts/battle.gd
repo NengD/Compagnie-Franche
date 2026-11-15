@@ -62,6 +62,9 @@ var cleanup_timer := 0.0
 var seed_override := 0 ## Graine fixe pour les tests (0 = aléatoire)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
 var campaign_report := "" ## Compte rendu de fin de bataille en campagne
+var retreated := false ## La bataille s'est terminée par une retraite (touche R)
+var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
+var retreat_ask_ms := -100000 ## Instant du premier appui sur R (il faut confirmer)
 
 
 # ---------------------------------------------------------------- Mise en place
@@ -843,6 +846,38 @@ func check_end() -> void:
 		finish_campaign()
 
 
+## Touche R : un premier appui demande confirmation, un second (dans les 3 s) sonne la retraite.
+func request_retreat() -> void:
+	if state != State.BATTLE:
+		return
+	if Time.get_ticks_msec() - retreat_ask_ms > 3000:
+		retreat_ask_ms = Time.get_ticks_msec()
+		add_message("Appuyez encore sur R pour sonner la retraite (défaite, mais pertes limitées).")
+		return
+	order_retreat()
+
+
+## Retraite ordonnée : la bataille est perdue, mais seuls les hommes au contact de l'ennemi
+## risquent d'être rattrapés (un sur deux) ; tous les autres rejoignent la compagnie.
+func order_retreat() -> void:
+	if state != State.BATTLE:
+		return
+	retreated = true
+	retreat_caught = 0
+	for r in regiments:
+		if r.team != PLAYER or r.routing:
+			continue
+		for s in r.soldiers:
+			if s.alive and s.foe != null and s.foe.alive and s.pos.distance_to(s.foe.pos) < 30.0 and rng.randf() < 0.5:
+				s.alive = false
+				retreat_caught += 1
+		r.update_center()
+	state = State.DEFEAT
+	add_message("Vous sonnez la retraite : la compagnie décroche (%d hommes rattrapés)." % retreat_caught)
+	if campaign != null:
+		finish_campaign()
+
+
 ## Reporte les pertes sur la compagnie : les hommes debout et ceux qui ont fui survivent.
 func finish_campaign() -> void:
 	var survivors := []
@@ -856,7 +891,7 @@ func finish_campaign() -> void:
 		for s in r.soldiers:
 			if s.alive or s.fled:
 				survivors[r.company_index] += 1
-	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors, kills)
+	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors, kills, retreated)
 	campaign.save()
 	add_message(campaign_report)
 
@@ -949,6 +984,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			show_help = not show_help
 		KEY_F:
 			cycle_formation()
+		KEY_R:
+			request_retreat()
 		KEY_M:
 			audio.set_enabled(not audio.enabled)
 			add_message("Son activé." if audio.enabled else "Son coupé.")

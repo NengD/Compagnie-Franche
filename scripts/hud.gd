@@ -109,6 +109,7 @@ func _draw() -> void:
 			"ZQSD / flèches / molette (clic) : caméra",
 			"Molette : zoom",
 			"T : pluie   Espace : lancer / pause",
+			"R deux fois : sonner la retraite (défaite limitée)",
 			"M : couper / remettre le son",
 			"Échap : carte de campagne (escarmouche)",
 			"F1 : masquer l'aide",
@@ -129,7 +130,7 @@ func _draw() -> void:
 			title = "VICTOIRE"
 			sub = end_hint()
 		3:
-			title = "DÉFAITE"
+			title = "RETRAITE" if battle.retreated else "DÉFAITE"
 			sub = end_hint()
 	if battle.paused and battle.state == 1:
 		title = "PAUSE"

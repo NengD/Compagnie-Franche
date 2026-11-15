@@ -36,6 +36,12 @@ const REP_WIN := 10 ## Contrat gagné : réputation auprès de la faction qui pa
 const REP_RIVAL := -5 ## ... et auprès de sa rivale
 const REP_CLOSED := -30 ## À ce niveau, la faction ne propose plus de contrat et refuse de recruter
 const REP_REWARD := 0.005 ## Prime : +0,5 % par point de réputation (de x0,5 à x1,5)
+const REP_LOSS := -8 ## Contrat perdu : la faction qui payait est déçue
+const REP_RETREAT := -4 ## ... moins après une retraite ordonnée
+const PILLAGE := 0.3 ## Part de l'or pillée dans les bagages après une défaite
+const PILLAGE_RETREAT := 0.1 ## ... après une retraite (les bagages sont en partie sauvés)
+const FAME_LOSS := 10
+const FAME_RETREAT := 5
 const FAME_STEP := 25 ## Renommée nécessaire pour chaque niveau de difficulté des contrats
 
 ## Villes de la carte (positions en pixels d'écran), faction et types de troupes qu'on peut y lever.
@@ -541,8 +547,8 @@ func battle_army() -> Array[Dictionary]:
 
 ## Fin de bataille. survivors[i] = hommes encore debout (ou enfuis) du régiment battle_army()[i],
 ## kills[i] = ennemis qu'il a tués. Les pertes et l'expérience sont reportées sur la compagnie.
-## Renvoie le compte rendu.
-func finish_battle(victory: bool, survivors: Array, kills: Array = []) -> String:
+## retreat : défaite par retraite ordonnée (pénalités réduites). Renvoie le compte rendu.
+func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false) -> String:
 	var army := battle_army()
 	var lost := 0
 	var healed := 0
@@ -581,7 +587,18 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = []) -> String
 			rep_note = " Réputation : %s %+d, %s %+d." % [FACTIONS[f]["short"], REP_WIN, FACTIONS[rival]["short"], REP_RIVAL]
 	else:
 		defeats += 1
-		report = "Défaite face aux %s... Pertes : %d hommes. Aucune prime." % [pending["foe"], lost]
+		# Défaite : les bagages sont pillés, la renommée et la faction qui payait en pâtissent
+		var pillage := int(floor(gold * (PILLAGE_RETREAT if retreat else PILLAGE)))
+		gold -= pillage
+		fame = maxi(0, fame - (FAME_RETREAT if retreat else FAME_LOSS))
+		if retreat:
+			report = "Retraite face aux %s. Pertes : %d hommes. Bagages abandonnés : -%d écus." % [pending["foe"], lost, pillage]
+		else:
+			report = "Défaite face aux %s... Pertes : %d hommes. L'ennemi pille vos bagages : -%d écus." % [pending["foe"], lost, pillage]
+		if f >= 0:
+			var loss := REP_RETREAT if retreat else REP_LOSS
+			change_reputation(f, loss)
+			rep_note = " Réputation : %s %+d." % [FACTIONS[f]["short"], loss]
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
