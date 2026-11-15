@@ -36,7 +36,8 @@ func configure(difficulty: String) -> void:
 	use_square = bool(Difficulty.level(difficulty)["ai_square"])
 
 
-func think(b, dt: float) -> void:
+## Une réflexion (au plus toutes les think_every secondes). b : la simulation de la bataille.
+func think(b: BattleSim, dt: float) -> void:
 	timer -= dt
 	if timer > 0.0:
 		return
@@ -87,7 +88,7 @@ func advance_depth(p: Vector2) -> float:
 	return p.y if team == 1 else -p.y
 
 
-func think_archer(b, r: Regiment, mine: Array[Regiment], theirs: Array[Regiment]) -> void:
+func think_archer(b: BattleSim, r: Regiment, mine: Array[Regiment], theirs: Array[Regiment]) -> void:
 	var range_px: float = r.stats["range"]
 	if b.raining:
 		range_px *= 0.75

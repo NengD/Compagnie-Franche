@@ -6,7 +6,7 @@ extends Control
 
 const MENU_SCENE := "res://scenes/menu.tscn"
 
-var battle ## Script de bataille (battle.gd ou tutorial.gd)
+var battle: Battle ## Bataille en cours (battle.gd ou tutorial.gd)
 var page := "main" ## "main", "help", "options", "confirm_abandon" ou "confirm_menu"
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée

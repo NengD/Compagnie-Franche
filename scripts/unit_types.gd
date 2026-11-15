@@ -2,6 +2,19 @@ class_name UnitTypes
 extends RefCounted
 ## Statistiques de chaque type d'unité. Modifiez ces valeurs pour équilibrer le jeu.
 ## Distances en pixels du monde (un soldat fait environ 16 px de haut).
+##
+## C'est la seule source des statistiques : la simulation (battle_sim.gd) ne teste jamais le nom
+## d'un type, elle lit ses capacités ici. Pour ajouter une unité : une entrée dans STATS (avec
+## toutes les clés ci-dessous), une ligne dans bonus() si elle a des avantages, ses sprites
+## (sprite_bank.gd) et, à défaut, son dessin de repli et son pictogramme (battle_renderer.gd).
+## L'IA (enemy_ai.gd) et la campagne choisissent encore leurs régiments par nom de type.
+##
+## Capacités :
+##   « ranged » : tire des flèches (« range », « reload », « ranged_damage »), se place derrière ;
+##   « mounted » : charge (élan), poursuit les fuyards, soulève de la poussière, se place sur les ailes ;
+##   « braces » : plante ses piques (blesse le cheval qui charge, moitié moins de peur d'une charge) ;
+##   « armored » : les coups reçus sonnent sur le métal (bruitage « clash ») ;
+##   « forest_speed » : facteur de vitesse en forêt.
 
 const STATS := {
 	"men_at_arms": {
@@ -10,6 +23,7 @@ const STATS := {
 		"hp": 54.0, "damage": 2.0, "cooldown": 1.1, "reach": 10.0,
 		"speed": 40.0, "arrow_armor": 0.35, "morale": 100.0,
 		"ranged": false, "radius": 5.2,
+		"mounted": false, "braces": false, "armored": true, "forest_speed": 0.65,
 	},
 	"spear": {
 		"name": "Piquiers",
@@ -17,6 +31,7 @@ const STATS := {
 		"hp": 36.0, "damage": 1.5, "cooldown": 1.0, "reach": 14.0,
 		"speed": 44.0, "arrow_armor": 0.7, "morale": 85.0,
 		"ranged": false, "radius": 4.8,
+		"mounted": false, "braces": true, "armored": false, "forest_speed": 0.65,
 	},
 	"archer": {
 		"name": "Archers",
@@ -25,6 +40,7 @@ const STATS := {
 		"speed": 48.0, "arrow_armor": 1.0, "morale": 65.0,
 		"ranged": true, "range": 340.0, "reload": 2.4, "ranged_damage": 2.6,
 		"radius": 4.8,
+		"mounted": false, "braces": false, "armored": false, "forest_speed": 0.65,
 	},
 	"cavalry": {
 		"name": "Cavaliers",
@@ -32,6 +48,7 @@ const STATS := {
 		"hp": 48.0, "damage": 2.0, "cooldown": 1.2, "reach": 14.0,
 		"speed": 104.0, "arrow_armor": 0.6, "morale": 90.0,
 		"ranged": false, "radius": 8.0,
+		"mounted": true, "braces": false, "armored": true, "forest_speed": 0.4,
 	},
 }
 
