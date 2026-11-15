@@ -42,6 +42,7 @@ func _initialize() -> void:
 	_test_veterans()
 	_test_reputation()
 	_test_defeat()
+	_test_economy()
 	_test_save()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
@@ -83,7 +84,7 @@ func _test_rules() -> void:
 	var recruits: Array = CampaignState.TOWNS[c.location]["recruits"]
 	var type: String = recruits[0]
 	var n := c.company.size()
-	var cost := CampaignState.recruit_cost(type, int(UnitTypes.STATS[type]["count"]))
+	var cost := c.recruit_cost(type, int(UnitTypes.STATS[type]["count"]))
 	check(c.recruit(type) == "" and c.company.size() == n + 1, "recrutement refusé")
 	check(is_equal_approx(c.gold, 2000.0 - cost), "recrutement : prix")
 	var idx := -1
@@ -266,6 +267,49 @@ func _test_defeat() -> void:
 		check(c.fame == 40 - (CampaignState.FAME_RETREAT if retreat else CampaignState.FAME_LOSS), "%s : renommée %d" % [what, c.fame])
 		check(c.defeats == 1 and not c.in_battle() and not k in c.contracts, "%s : contrat non soldé" % what)
 	print("Défaite et retraite : OK")
+
+
+## Économie : butin selon les ennemis tués, prix des recrues selon la ville.
+func _test_economy() -> void:
+	var c := CampaignState.new_game(13)
+	c.gold = 0.0
+	var k: Dictionary = c.contracts_at(0)[0]
+	var reward := c.contract_reward(k)
+	c.accept(k)
+	var surv := []
+	var kills := []
+	for r in c.battle_army():
+		surv.append(int(r["men"]))
+		kills.append(4)
+	var wage := c.daily_wage()
+	c.finish_battle(true, surv, kills)
+	var loot := 4 * kills.size() * CampaignState.LOOT_PER_KILL
+	check(absf(c.gold - (reward + loot - wage)) < 0.01, "butin : or %.1f au lieu de %.1f" % [c.gold, reward + loot - wage])
+	# Pas de butin après une défaite
+	c.gold = 0.0
+	c.refresh_contracts(0)
+	c.accept(c.contracts_at(0)[0])
+	c.finish_battle(false, surv, kills)
+	check(c.gold == 0.0, "butin après une défaite")
+	# Prix différents d'une ville à l'autre
+	var prices := {}
+	for t in CampaignState.TOWNS.size():
+		prices[c.recruit_cost("spear", 30, t)] = true
+	check(prices.size() >= 3, "prix des recrues identiques partout")
+	var cheap := 0
+	var dear := 0
+	for t in CampaignState.TOWNS.size():
+		if c.recruit_cost("archer", 10, t) < c.recruit_cost("archer", 10, cheap):
+			cheap = t
+		if c.recruit_cost("archer", 10, t) > c.recruit_cost("archer", 10, dear):
+			dear = t
+	check(c.recruit_cost("archer", 10, cheap) < c.recruit_cost("archer", 10, dear), "prix : pas d'écart entre villes")
+	c.location = 3 # Brévannes : prix bas
+	c.gold = 1000.0
+	var cost := c.recruit_cost("spear", int(UnitTypes.STATS["spear"]["count"]))
+	check(cost < CampaignState.RECRUIT_COST["spear"] * int(UnitTypes.STATS["spear"]["count"]), "prix : Brévannes n'est pas bon marché")
+	check(c.recruit("spear") == "" and is_equal_approx(c.gold, 1000.0 - cost), "prix : recrutement au mauvais prix")
+	print("Économie : OK")
 
 
 ## Sauvegarde : aller-retour exact (y compris le tirage des futurs contrats), refus des fichiers abîmés.

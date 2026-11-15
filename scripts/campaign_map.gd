@@ -320,7 +320,7 @@ func refresh_ui() -> void:
 	var names: Array[String] = []
 	for t in recruits:
 		names.append(CampaignState.type_name(t).to_lower())
-	add_label("On y lève : %s." % ", ".join(names), 12, Color(0.75, 0.72, 0.65))
+	add_label("On y lève : %s.   Prix des recrues : %s" % [", ".join(names), price_text(state.location)], 12, Color(0.75, 0.72, 0.65))
 
 	# Troupes
 	add_section("Votre compagnie")
@@ -346,7 +346,7 @@ func refresh_ui() -> void:
 		row.add_child(l)
 		var missing := state.refill_missing(i)
 		if missing > 0 and type in recruits:
-			var cost := CampaignState.recruit_cost(type, missing)
+			var cost := state.recruit_cost(type, missing)
 			add_button("Compléter : +%d, %d écus" % [missing, cost], do_refill.bind(i), state.gold >= cost and closed == "", row)
 
 	# Recrutement
@@ -355,7 +355,7 @@ func refresh_ui() -> void:
 		if not t in recruits:
 			continue
 		var men: int = UnitTypes.STATS[t]["count"]
-		var cost := CampaignState.recruit_cost(t, men)
+		var cost := state.recruit_cost(t, men)
 		var ok := state.gold >= cost and state.company.size() < CampaignState.MAX_REGIMENTS and closed == ""
 		add_button("%s : %d hommes, %d écus (solde %.0f / jour)" % [CampaignState.type_name(t), men, cost, men * float(CampaignState.WAGE[t])], do_recruit.bind(t), ok)
 	if state.company.size() >= CampaignState.MAX_REGIMENTS:
@@ -396,6 +396,12 @@ func refresh_ui() -> void:
 		add_button("Nouvelle campagne", do_new_campaign)
 	add_label("Sauvegarde automatique après chaque marche, recrutement et bataille.", 11, Color(0.6, 0.58, 0.52))
 	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent.", 11, Color(0.6, 0.58, 0.52))
+
+
+## « normal », « +15 % », « -10 % » : prix des recrues d'une ville.
+func price_text(town: int) -> String:
+	var p := int(round((float(CampaignState.TOWNS[town]["price"]) - 1.0) * 100.0))
+	return "normal" if p == 0 else "%+d %%" % p
 
 
 # ---------------------------------------------------------------- Rendu
@@ -534,7 +540,7 @@ func draw_tooltip(i: int) -> void:
 	var names: Array[String] = []
 	for t in CampaignState.TOWNS[i]["recruits"]:
 		names.append(CampaignState.type_name(t).to_lower())
-	lines.append("Recrues : " + ", ".join(names))
+	lines.append("Recrues : %s (prix %s)" % [", ".join(names), price_text(i)])
 	for c in state.contracts_at(i):
 		lines.append("Contrat : %s (%d écus)" % [c["title"], state.contract_reward(c)])
 	var w := 0.0

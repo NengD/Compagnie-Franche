@@ -12,9 +12,10 @@ const TRAVEL_PX_PER_DAY := 130.0 ## Distance parcourue sur la carte en une journ
 const CONTRACT_DAYS := 14 ## Validité d'un contrat, en jours
 const DESERT_RATE := 0.15 ## Part des hommes qui désertent chaque jour sans solde
 const WOUNDED_RECOVER := 0.3 ## Part des tombés relevés blessés après une victoire
+const LOOT_PER_KILL := 2 ## Butin ramassé sur chaque ennemi tué, après une victoire
 ## Solde quotidienne d'un homme, en écus
 const WAGE := {"spear": 0.3, "archer": 0.35, "men_at_arms": 0.6, "cavalry": 1.0}
-## Prix d'enrôlement d'un homme, en écus
+## Prix d'enrôlement d'un homme, en écus (modulé par la ville, voir TOWNS « price »)
 const RECRUIT_COST := {"spear": 6, "archer": 7, "men_at_arms": 12, "cavalry": 20}
 
 ## Expérience : seuils des rangs (recrues, aguerris, vétérans) et gains après une bataille
@@ -44,15 +45,16 @@ const FAME_LOSS := 10
 const FAME_RETREAT := 5
 const FAME_STEP := 25 ## Renommée nécessaire pour chaque niveau de difficulté des contrats
 
-## Villes de la carte (positions en pixels d'écran), faction et types de troupes qu'on peut y lever.
+## Villes de la carte (positions en pixels d'écran), faction, prix des recrues (x RECRUIT_COST)
+## et types de troupes qu'on peut y lever.
 const TOWNS := [
-	{"name": "Valombre", "pos": Vector2(140, 560), "faction": 0, "recruits": ["spear", "archer"]},
-	{"name": "Saint-Aubin", "pos": Vector2(330, 420), "faction": 0, "recruits": ["spear", "men_at_arms"]},
-	{"name": "Montfaucon", "pos": Vector2(230, 200), "faction": 1, "recruits": ["archer", "cavalry"]},
-	{"name": "Brévannes", "pos": Vector2(500, 600), "faction": 2, "recruits": ["spear", "archer"]},
-	{"name": "Castelroux", "pos": Vector2(560, 290), "faction": 1, "recruits": ["men_at_arms", "cavalry"]},
-	{"name": "Hautemure", "pos": Vector2(770, 140), "faction": 1, "recruits": ["men_at_arms", "archer", "cavalry"]},
-	{"name": "Pontrieux", "pos": Vector2(760, 470), "faction": 2, "recruits": ["spear", "men_at_arms", "archer"]},
+	{"name": "Valombre", "pos": Vector2(140, 560), "faction": 0, "price": 1.0, "recruits": ["spear", "archer"]},
+	{"name": "Saint-Aubin", "pos": Vector2(330, 420), "faction": 0, "price": 0.9, "recruits": ["spear", "men_at_arms"]},
+	{"name": "Montfaucon", "pos": Vector2(230, 200), "faction": 1, "price": 1.15, "recruits": ["archer", "cavalry"]},
+	{"name": "Brévannes", "pos": Vector2(500, 600), "faction": 2, "price": 0.85, "recruits": ["spear", "archer"]},
+	{"name": "Castelroux", "pos": Vector2(560, 290), "faction": 1, "price": 1.1, "recruits": ["men_at_arms", "cavalry"]},
+	{"name": "Hautemure", "pos": Vector2(770, 140), "faction": 1, "price": 1.25, "recruits": ["men_at_arms", "archer", "cavalry"]},
+	{"name": "Pontrieux", "pos": Vector2(760, 470), "faction": 2, "price": 0.95, "recruits": ["spear", "men_at_arms", "archer"]},
 ]
 const ROADS := [[0, 1], [0, 3], [1, 2], [1, 3], [1, 4], [2, 4], [3, 6], [4, 6], [4, 5], [5, 6]]
 
@@ -374,8 +376,11 @@ static func rank_name(k: int) -> String:
 	return str(Regiment.RANK_NAMES[k])
 
 
-static func recruit_cost(type: String, men: int) -> int:
-	return int(RECRUIT_COST[type]) * men
+## Prix de men recrues d'un type, dans une ville (par défaut celle où l'on se trouve).
+func recruit_cost(type: String, men: int, town := -1) -> int:
+	if town < 0:
+		town = location
+	return int(ceil(int(RECRUIT_COST[type]) * men * float(TOWNS[town]["price"])))
 
 
 static func type_name(type: String) -> String:
@@ -553,6 +558,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	var lost := 0
 	var healed := 0
 	var promoted: Array[String] = []
+	var killed := 0
 	for i in army.size():
 		var r := army[i]
 		var before: int = r["men"]
@@ -565,6 +571,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		r["men"] = after
 		# Expérience : participation, victoire, ennemis tués (rapportés à la taille du régiment)
 		var k: int = int(kills[i]) if i < kills.size() else 0
+		killed += k
 		var full := float(UnitTypes.STATS[r["type"]]["count"])
 		var rank0 := rank_of(r)
 		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (XP_VICTORY if victory else 0.0) + XP_KILLS * k / full, XP_MAX)
@@ -577,9 +584,10 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	if victory:
 		victories += 1
 		var reward := contract_reward(pending)
-		gold += reward
+		var loot := killed * LOOT_PER_KILL
+		gold += reward + loot
 		fame += 5 + 5 * int(pending.get("difficulty", 1))
-		report = "Victoire contre les %s ! +%d écus. Pertes : %d hommes (%d blessés relevés)." % [pending["foe"], reward, lost, healed]
+		report = "Victoire contre les %s ! Prime %d écus, butin %d écus. Pertes : %d hommes (%d blessés relevés)." % [pending["foe"], reward, loot, lost, healed]
 		if f >= 0:
 			var rival := int(FACTIONS[f]["rival"])
 			change_reputation(f, REP_WIN)
