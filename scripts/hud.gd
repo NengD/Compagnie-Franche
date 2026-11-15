@@ -51,7 +51,9 @@ func _draw() -> void:
 	text(Vector2(bar.position.x - 50, 21), str(p), 14, Color(0.6, 0.75, 1))
 	text(Vector2(bar.end.x + 10, 21), str(e), 14, Color(1, 0.6, 0.55))
 	var weather := "Pluie" if battle.raining else "Temps clair"
-	text(Vector2(vs.x - 160, 21), weather + "  [T]", 13, Color(0.85, 0.85, 0.85))
+	text(Vector2(vs.x - 160, 21), weather + "  [%s]" % GameOptions.key_label("rain"), 13, Color(0.85, 0.85, 0.85))
+	if battle.game_speed != 1.0:
+		text(Vector2(vs.x - 250, 21), "Vitesse " + GameOptions.speed_label(battle.game_speed), 13, Color(1, 0.85, 0.45))
 
 	# Cartes des régiments du joueur
 	var list: Array = battle.player_regiments()
@@ -104,13 +106,13 @@ func _draw() -> void:
 			"Clic droit glissé : tracer la ligne de front",
 			"Double clic droit : courir (fatigue)",
 			"Ctrl+A : tout   1-8 : un régiment",
-			"H : halte   F : formation (ligne / colonne / carré)",
+			"%s : halte   %s : formation (ligne / colonne / carré)" % [GameOptions.key_label("halt"), GameOptions.key_label("formation")],
 			"ZQSD / flèches / molette (clic) : caméra",
 			"Molette : zoom",
-			"T : pluie   Espace : lancer / pause",
-			"M : couper / remettre le son",
-			"Échap : carte de campagne (escarmouche)",
-			"F1 : masquer l'aide",
+			"%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain"),
+			"%s : couper / remettre le son   %s : vitesse" % [GameOptions.key_label("sound"), GameOptions.key_label("speed")],
+			"Échap : menu principal (escarmouche)",
+			"%s : masquer l'aide" % GameOptions.key_label("help"),
 		]
 		var hr := Rect2(vs.x - 300, 42, 288, lines.size() * 18 + 14)
 		draw_rect(hr, Color(0.05, 0.04, 0.03, 0.7))
@@ -143,4 +145,4 @@ func _draw() -> void:
 func end_hint() -> String:
 	if battle.campaign != null:
 		return "Entrée : retour à la carte de campagne"
-	return "Entrée pour rejouer   Échap : carte de campagne"
+	return "Entrée pour rejouer   Échap : menu principal"

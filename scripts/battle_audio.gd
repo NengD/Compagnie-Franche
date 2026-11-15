@@ -2,6 +2,7 @@ class_name BattleAudio
 extends Node
 ## Sons de bataille et musique (assets libres, voir CREDITS.md).
 ## Volume selon la distance au centre de la caméra ; limite le nombre de sons simultanés.
+## Musique sur le bus « Musique », effets sur le bus « Effets » (volumes réglés dans les Options).
 
 const SFX_DIR := "res://assets/audio/sfx/"
 const MUSIC_PATH := "res://assets/audio/music/battle.mp3"
@@ -33,6 +34,8 @@ func _ready() -> void:
 	# Le pilote audio factice ne libère pas les lectures en cours à la fermeture.
 	if DisplayServer.get_name() == "headless":
 		enabled = false
+	GameOptions.ensure_loaded()
+	GameOptions.ensure_buses()
 	for bank in BANKS:
 		var spec: Array = BANKS[bank][0]
 		var pattern: String = spec[0]
@@ -53,6 +56,7 @@ func _ready() -> void:
 
 	for i in VOICES:
 		var p := AudioStreamPlayer.new()
+		p.bus = GameOptions.BUS_SFX
 		add_child(p)
 		voices.append(p)
 
@@ -63,6 +67,7 @@ func _ready() -> void:
 		gallop = AudioStreamPlayer.new()
 		gallop.stream = g
 		gallop.volume_db = -80.0
+		gallop.bus = GameOptions.BUS_SFX
 		add_child(gallop)
 
 	var m := _load(MUSIC_PATH)
@@ -72,6 +77,7 @@ func _ready() -> void:
 		music = AudioStreamPlayer.new()
 		music.stream = m
 		music.volume_db = MUSIC_DB
+		music.bus = GameOptions.BUS_MUSIC
 		add_child(music)
 		if enabled:
 			music.play()

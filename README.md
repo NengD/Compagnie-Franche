@@ -6,7 +6,23 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 ## Lancer le jeu
 1. Installez **Godot 4.7 ou plus récent** (version standard, pas besoin de .NET) : https://godotengine.org
 2. Dans Godot : **Importer** → choisissez le fichier `project.godot` de ce dossier.
-3. Appuyez sur **F5** (ou le bouton ▶). Le jeu s'ouvre sur la **carte de campagne**.
+3. Appuyez sur **F5** (ou le bouton ▶). Le jeu s'ouvre sur le **menu principal**.
+
+## Menu principal
+- **Continuer la campagne** (si une sauvegarde existe) / **Nouvelle campagne** (demande confirmation
+  si une campagne est en cours : elle serait effacée).
+- **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
+  et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
+  changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
+  sur les archers, gagner. Échap : retour au menu.
+- **Escarmouche** : bataille libre hors campagne (Échap : retour au menu).
+- **Options** : volumes général / musique / effets, plein écran, vitesse du jeu (x1, x1,5, x2 ; touche V
+  en bataille), **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
+  si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, chiffres,
+  flèches et caméra ZQSD sont réservés ; bouton « Touches par défaut »). Les touches sont enregistrées
+  par lettre, donc correctes en AZERTY comme en QWERTY.
+  Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
+- La carte de campagne revient au menu par le bouton « Menu principal » ou Échap.
 
 ## Campagne
 Vous menez une compagnie de mercenaires dans le comté de Valfrène.
@@ -20,13 +36,15 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
   durs avec vos victoires et expirent après 14 jours.
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
   tombés sont relevés blessés. Les effectifs passent d'une bataille à l'autre.
-- **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap pour revenir à la carte).
+- **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap pour revenir au menu).
 - **Sauvegarde automatique** après chaque marche, recrutement et bataille, reprise au lancement du jeu.
   Fichier : `campagne.json` dans le dossier de données du jeu
   (Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\`). « Nouvelle campagne » demande confirmation.
   Quitter en pleine bataille revient à l'état d'avant la bataille.
 
 ## Commandes
+Les touches marquées * se changent dans **Options**.
+
 | Action | Touche |
 |---|---|
 | Sélectionner | Clic gauche ou glisser un cadre (Maj pour ajouter) |
@@ -34,16 +52,17 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
 | Tracer la ligne de front | Clic droit maintenu + glisser : la longueur règle la largeur du front, les troupes font face à l'opposé de leur position |
 | Tout sélectionner / un régiment | Ctrl+A / 1 à 8 |
 | Courir (fatigue) | Double clic droit (sur le sol, un ennemi, ou en traçant une ligne) |
-| Halte | H |
-| Formation : ligne → colonne → carré | F |
+| Halte | H * |
+| Formation : ligne → colonne → carré | F * |
 | Caméra | ZQSD (ou WASD), flèches, clic molette maintenu |
 | Zoom | Molette |
-| Pluie on/off | T |
+| Pluie on/off | T * |
 | Lancer la bataille / pause | Espace |
-| Couper / remettre le son | M |
-| Aide | F1 |
+| Couper / remettre le son | M * |
+| Vitesse du jeu x1 → x1,5 → x2 | V * |
+| Aide | F1 * |
 | Fin de bataille | Entrée : carte de campagne (contrat) ou rejouer (escarmouche) |
-| Retour à la carte (escarmouche) | Échap |
+| Retour au menu (escarmouche, tutoriel) | Échap |
 
 ## Règles de combat
 - **Pierre-feuille-ciseaux** : piquiers > cavalerie > archers ; hommes d'armes > piquiers.
@@ -58,10 +77,16 @@ Vous menez une compagnie de mercenaires dans le comté de Valfrène.
 
 ## Structure
 ```
-scenes/campaign.tscn    Carte de campagne (scène de départ)
+scenes/menu.tscn        Menu principal (scène de départ)
+scenes/tutorial.tscn    Tutoriel (bataille guidée)
+scenes/campaign.tscn    Carte de campagne
 scenes/main.tscn        Bataille (un seul nœud, tout est construit par le code)
 scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, contrats
 scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats
+scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
+scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, vitesse, touches
+scripts/ui_theme.gd     Thème des menus
+scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, étapes validées par les actions
 scripts/battle.gd       Terrain, simulation, ordres, caméra, rendu pixel art
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/soldier.gd      Soldat individuel
@@ -73,7 +98,9 @@ scripts/battle_audio.gd Sons de bataille et musique
 assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, deux batailles de contrat, carte)
+tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
+tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
@@ -82,6 +109,8 @@ tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
 godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, code de sortie 1 si échec
 godot --headless --path . -s tests/campaign_test.gd   # campagne : solde, recrutement, pertes reportées, sauvegarde
+godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
+godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 ```
