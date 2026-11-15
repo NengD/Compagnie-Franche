@@ -15,6 +15,7 @@ var overlay: Control
 
 func _ready() -> void:
 	seed_override = TUTO_SEED
+	is_tutorial = true
 	if CampaignState.current != null:
 		CampaignState.current.pending = {} # Le tutoriel n'est jamais une bataille de contrat
 	super._ready()
@@ -157,6 +158,7 @@ func _process(delta: float) -> void:
 	step_clock += delta
 	check_steps()
 	if overlay != null:
+		overlay.visible = report_panel == null or not report_panel.visible # Le bilan le remplace
 		overlay.queue_redraw()
 
 

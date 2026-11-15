@@ -56,6 +56,12 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   **intempéries** (un jour de marche perdu).
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
   tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
+- **Bilan de fin de bataille** : après quelques secondes de ralenti, un panneau résume la bataille par-dessus
+  le champ (qui continue au ralenti) : issue (victoire, défaite, retraite), contrat, terrain et durée ; pour chaque
+  régiment, l'effectif avant → après, les morts, les fuyards revenus, les blessés relevés, les ennemis tués,
+  l'expérience gagnée et les **promotions** (ligne dorée « ▲ AGUERRIS ! ») ; puis les pertes des deux camps,
+  prime, butin ou pillage, solde du jour, or avant → après, réputation et renommée. En escarmouche et au
+  tutoriel, le bilan est simplifié (sans or ni expérience). Entrée affiche le bilan tout de suite, puis continue.
 - **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap pour revenir au menu).
 - **Sauvegarde automatique** après chaque marche, recrutement et bataille, reprise au lancement du jeu.
   Fichier : `campagne.json` dans le dossier de données du jeu
@@ -86,7 +92,7 @@ Les touches marquées * se changent dans **Options**.
 | Sonner la retraite | R * deux fois |
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
 | Aide | F1 * |
-| Fin de bataille | Entrée : carte de campagne (contrat) ou rejouer (escarmouche) |
+| Fin de bataille | Entrée : afficher le bilan, puis carte de campagne (contrat) ou rejouer (escarmouche, tutoriel) |
 | Retour au menu (escarmouche, tutoriel) | Échap |
 
 ## Règles de combat
@@ -139,17 +145,19 @@ scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques des unités (à modifier pour équilibrer)
 scripts/enemy_ai.gd     IA ennemie
 scripts/hud.gd          Interface
+scripts/battle_report.gd  Panneau du bilan de fin de bataille (données : battle.build_end_report)
 scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si absents)
 scripts/battle_audio.gd Sons de bataille et musique
 assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, défaite, économie, évènements,
-                        deux batailles de contrat, une retraite, carte et embuscade)
+                        deux batailles de contrat, une retraite, bilan de fin de bataille, carte et embuscade)
 tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
 tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)
+tests/report_capture.gd Captures du bilan (contrat avec promotions, escarmouche) dans captures/ (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
@@ -163,6 +171,7 @@ godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, bata
 godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
+godot --path . -s tests/report_capture.gd             # captures/bilan_campagne.png, bilan_escarmouche.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain

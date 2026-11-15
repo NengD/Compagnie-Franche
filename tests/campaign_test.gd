@@ -349,7 +349,7 @@ func _test_events() -> void:
 		kills.append(2)
 	var g1 := c.gold
 	var wage := c.daily_wage()
-	var report := c.finish_battle(true, surv, kills)
+	var report: String = c.finish_battle(true, surv, kills)["text"]
 	check(absf(c.gold - (g1 + 2 * kills.size() * CampaignState.LOOT_PER_KILL - wage)) < 0.01 and c.reputation == rep0 and report.contains("Embuscade"),
 		"évènement : embuscade mal soldée (%s)" % report)
 	# Tirage au hasard : un évènement par jour au plus
@@ -435,6 +435,9 @@ func _start_contract_battle() -> void:
 	var k: Dictionary = camp.contracts_at(camp.location)[0]
 	var err := camp.accept(k)
 	check(err == "", "contrat refusé : " + err)
+	if phase == "battle1":
+		# Juste sous le rang d'aguerris : la participation suffit à le promouvoir (bilan)
+		camp.company[0]["xp"] = float(CampaignState.RANK_XP[1]) - 1.0
 	battle = (load("res://scenes/main.tscn") as PackedScene).instantiate()
 	root.add_child(battle)
 	waiting = true
@@ -538,6 +541,7 @@ func _run_battle() -> void:
 			"retraite : or %.1f (avant %.1f)" % [camp.gold, g0])
 		check(camp.reputation[int(battle.get_meta("faction"))] < int(battle.get_meta("rep_before")), "retraite : réputation intacte")
 	check(battle.campaign_report != "", "%s : pas de compte rendu" % phase)
+	_check_end_report(victory)
 	var saved := CampaignState.load_game()
 	check(saved != null and saved.total_men() == camp.total_men() and saved.victories == camp.victories,
 		"%s : résultat de la bataille non sauvegardé" % phase)
@@ -574,6 +578,55 @@ func _run_battle() -> void:
 	map = (load("res://scenes/campaign.tscn") as PackedScene).instantiate()
 	root.add_child(map)
 	waiting = true
+
+
+## Bilan de fin de bataille : cohérent avec l'état de la campagne, promotions signalées.
+func _check_end_report(victory: bool) -> void:
+	var rep: Dictionary = battle.end_report
+	var c: Dictionary = rep.get("campaign", {})
+	check(not c.is_empty() and c == battle.campaign_result, "%s : bilan sans la partie campagne" % phase)
+	if c.is_empty():
+		return
+	check(str(rep["outcome"]) == ("victory" if victory else ("retreat" if phase == "retreat" else "defeat")), "%s : issue du bilan %s" % [phase, rep["outcome"]])
+	check(is_equal_approx(float(c["gold_after"]), camp.gold) and int(c["fame_after"]) == camp.fame and c["reputation_after"] == camp.reputation,
+		"%s : bilan : or, renommée ou réputation différents de la campagne" % phase)
+	check(is_equal_approx(float(c["gold_before"]), float(battle.get_meta("gold_before"))), "%s : bilan : or avant %.1f" % [phase, float(c["gold_before"])])
+	var money := float(c["reward"]) + float(c["loot"]) - float(c["pillage"]) - float(c["wage"])
+	check(absf(float(c["gold_before"]) + money - camp.gold) < 0.01, "%s : bilan : prime, butin, pillage et solde ne font pas l'or final" % phase)
+	check((int(c["pillage"]) == 0) if victory else (int(c["reward"]) == 0 and int(c["loot"]) == 0), "%s : bilan : prime ou pillage incohérents" % phase)
+	var t: Dictionary = rep["totals"]
+	check(int(t["player_before"]) == int(battle.get_meta("men_before")), "%s : bilan : %d hommes avant au lieu de %d" % [phase, int(t["player_before"]), int(battle.get_meta("men_before"))])
+	check(int(t["player_after"]) - int(c["deserted"]) == camp.total_men(), "%s : bilan : %d hommes après, compagnie %d" % [phase, int(t["player_after"]), camp.total_men()])
+	check(int(t["player_before"]) - int(t["player_dead"]) == int(t["player_after"]) and (int(t["enemy_dead"]) > 0 or phase == "retreat"),
+		"%s : bilan : morts et effectifs incohérents" % phase)
+	var xp_before: Array = battle.get_meta("xp_before")
+	var promotions := 0
+	for row in rep["rows"]:
+		var i := int(row["index"])
+		check(int(row["before"]) == int(row["standing"]) + int(row["fled"]) + int(row["dead"]) + int(row["healed"])
+			and int(row["after"]) == int(row["standing"]) + int(row["fled"]) + int(row["healed"]), "%s : bilan : ligne %d incohérente" % [phase, i])
+		var full := float(UnitTypes.STATS[row["type"]]["count"])
+		var gain := minf(float(xp_before[i]) + CampaignState.XP_BATTLE + (CampaignState.XP_VICTORY if victory else 0.0) + CampaignState.XP_KILLS * int(row["kills"]) / full, CampaignState.XP_MAX) - float(xp_before[i])
+		check(is_equal_approx(float(row["xp"]), gain), "%s : bilan : xp de la ligne %d %.1f au lieu de %.1f" % [phase, i, float(row["xp"]), gain])
+		var up := int(row["after"]) > 0 and CampaignState.rank_from_xp(float(xp_before[i]) + gain) > CampaignState.rank_from_xp(float(xp_before[i]))
+		check(bool(row["promoted"]) == up, "%s : bilan : promotion de la ligne %d mal signalée" % [phase, i])
+		if up:
+			promotions += 1
+	if phase == "battle1" and int(rep["rows"][0]["after"]) > 0:
+		check(bool(rep["rows"][0]["promoted"]) and battle.campaign_report.contains("Promotions"), "battle1 : promotion du régiment 1 absente du bilan")
+	# Panneau : une ligne dorée par promotion, un bouton, et il tient en 1280x720
+	var panel: BattleReport = battle.report_panel
+	check(panel != null and not panel.visible, "%s : panneau du bilan non préparé" % phase)
+	if panel == null:
+		return
+	battle.show_report()
+	check(panel.visible and panel.buttons.size() == 1, "%s : panneau du bilan : affichage ou boutons" % phase)
+	var promo_rows := panel.find_children("Promotion*", "", true, false).size()
+	check(promo_rows == promotions, "%s : %d lignes de promotion pour %d promotions" % [phase, promo_rows, promotions])
+	var size := panel.panel.get_combined_minimum_size()
+	check(size.x > 300.0 and size.x <= 1240.0 and size.y > 200.0 and size.y <= 690.0, "%s : panneau du bilan de %s (déborde de 1280x720 ?)" % [phase, size])
+	print("%s : bilan %s, %d lignes, %d promotion(s), or %d → %d, panneau %dx%d" % [phase, rep["outcome"], rep["rows"].size(), promotions,
+		int(c["gold_before"]), int(c["gold_after"]), int(size.x), int(size.y)])
 
 
 ## Phase « retreat » : dès que la mêlée est engagée, R deux fois. Renvoie true si la retraite est sonnée.

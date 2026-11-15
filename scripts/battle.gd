@@ -26,6 +26,7 @@ const SHAKE_MAX_PX := 7.0 ## Amplitude maximale de la secousse de caméra (pixel
 const SLOWMO_SCALE := 0.3 ## Vitesse du ralenti de fin de bataille
 const SLOWMO_HOLD := 2.0 ## Durée du ralenti à pleine intensité (secondes réelles)
 const SLOWMO_FADE := 1.5 ## Retour progressif à la vitesse normale (secondes réelles)
+const REPORT_DELAY := 1.5 ## Le bilan s'affiche après ce temps réel de ralenti (secondes)
 
 enum State { DEPLOY, BATTLE, VICTORY, DEFEAT }
 
@@ -70,7 +71,12 @@ var line_now := Vector2.ZERO
 var cleanup_timer := 0.0
 var seed_override := 0 ## Graine fixe pour les tests (0 = aléatoire)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
-var campaign_report := "" ## Compte rendu de fin de bataille en campagne
+var campaign_report := "" ## Compte rendu de fin de bataille en campagne (texte du journal)
+var campaign_result: Dictionary = {} ## Bilan structuré renvoyé par CampaignState.finish_battle
+var end_report: Dictionary = {} ## Bilan de fin de bataille (build_end_report), vide pendant la bataille
+var report_panel: BattleReport = null ## Panneau du bilan (caché pendant REPORT_DELAY)
+var report_clock := 0.0 ## Temps réel écoulé depuis la fin de la bataille
+var is_tutorial := false ## Bataille du tutoriel (bilan simplifié, Entrée recommence)
 var retreated := false ## La bataille s'est terminée par une retraite (touche R)
 var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
 var retreat_ask_ms := -100000 ## Instant du premier appui sur R (il faut confirmer)
@@ -435,10 +441,17 @@ func _process(delta: float) -> void:
 	update_camera(delta)
 	if not paused:
 		# Vitesse x1,5 / x2 (options, touche V) et ralenti de fin : plusieurs pas d'au plus 0,05 s
-		var dt := minf(delta, 0.05) * time_factor(delta) * game_speed
+		var tf := time_factor(delta)
+		if report_panel != null and report_panel.visible:
+			tf = SLOWMO_SCALE # Le champ de bataille reste au ralenti derrière le bilan
+		var dt := minf(delta, 0.05) * tf * game_speed
 		var steps := maxi(1, ceili(dt / 0.05 - 0.001))
 		for i in steps:
 			simulate(dt / steps)
+	if report_panel != null and not report_panel.visible:
+		report_clock += delta
+		if report_clock >= REPORT_DELAY:
+			show_report()
 	for m in messages:
 		m[1] -= delta
 	messages = messages.filter(func(m): return m[1] > 0.0)
@@ -1030,6 +1043,7 @@ func check_end() -> void:
 	slowmo = 0.0 # Ralenti de quelques secondes sur la fin de la bataille
 	if campaign != null:
 		finish_campaign()
+	open_report()
 
 
 ## Touche R : un premier appui demande confirmation, un second (dans les 3 s) sonne la retraite.
@@ -1060,8 +1074,10 @@ func order_retreat() -> void:
 		r.update_center()
 	state = State.DEFEAT
 	add_message("Vous sonnez la retraite : la compagnie décroche (%d hommes rattrapés)." % retreat_caught)
+	slowmo = 0.0
 	if campaign != null:
 		finish_campaign()
+	open_report()
 
 
 ## Reporte les pertes sur la compagnie : les hommes debout et ceux qui ont fui survivent.
@@ -1077,9 +1093,104 @@ func finish_campaign() -> void:
 		for s in r.soldiers:
 			if s.alive or s.fled:
 				survivors[r.company_index] += 1
-	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors, kills, retreated)
+	campaign_result = campaign.finish_battle(state == State.VICTORY, survivors, kills, retreated)
+	campaign_report = str(campaign_result["text"])
 	campaign.save()
-	add_message(campaign_report)
+
+
+## Bilan de fin de bataille : issue, contrat, durée, une ligne par régiment du joueur
+## (effectif avant → après, morts, fuyards revenus, blessés relevés, ennemis tués, expérience,
+## promotion) et les totaux des deux camps ; « campaign » reprend le bilan de finish_battle.
+func build_end_report() -> Dictionary:
+	var outcome := "victory" if state == State.VICTORY else ("retreat" if retreated else "defeat")
+	var title := "Escarmouche"
+	if is_tutorial:
+		title = "Tutoriel"
+	elif campaign != null:
+		title = str(campaign_result.get("title", "Contrat"))
+		if bool(campaign_result.get("ambush", false)):
+			title = "Embuscade sur la route"
+	var camp_rows: Array = campaign_result.get("regiments", [])
+	var rows: Array[Dictionary] = []
+	var t := {"player_before": 0, "player_after": 0, "player_dead": 0, "player_fled": 0, "player_healed": 0,
+		"enemy_before": 0, "enemy_dead": 0, "enemy_fled": 0, "enemy_standing": 0}
+	var idx := 0
+	for r in regiments:
+		var standing := 0
+		var fled := 0
+		var dead := 0
+		for s in r.soldiers:
+			if s.alive and not r.routing:
+				standing += 1
+			elif s.alive or s.fled:
+				fled += 1 # En fuite ou sorti du champ : il rejoint sa compagnie
+			else:
+				dead += 1
+		if r.team == ENEMY:
+			t["enemy_before"] += r.soldiers.size()
+			t["enemy_dead"] += dead
+			t["enemy_fled"] += fled
+			t["enemy_standing"] += standing
+			continue
+		var row := {"index": idx, "name": r.display_name(), "type": r.type, "rank": r.rank, "rank_after": r.rank,
+			"before": r.soldiers.size(), "standing": standing, "fled": fled, "dead": dead, "healed": 0,
+			"after": standing + fled, "kills": r.kills, "xp": 0.0, "promoted": false}
+		if r.company_index >= 0 and r.company_index < camp_rows.size():
+			var c: Dictionary = camp_rows[r.company_index]
+			row["healed"] = int(c["healed"])
+			row["dead"] = dead - int(c["healed"])
+			row["after"] = int(c["after"])
+			row["xp"] = float(c["xp_after"]) - float(c["xp_before"])
+			row["rank_after"] = int(c["rank_after"])
+			row["promoted"] = bool(c["promoted"])
+		t["player_before"] += row["before"]
+		t["player_after"] += row["after"]
+		t["player_dead"] += row["dead"]
+		t["player_fled"] += row["fled"]
+		t["player_healed"] += row["healed"]
+		rows.append(row)
+		idx += 1
+	return {"outcome": outcome, "title": title, "terrain": terrain.display_name(), "duration": battle_time,
+		"tutorial": is_tutorial, "rows": rows, "totals": t, "campaign": campaign_result}
+
+
+## Fin de bataille : calcule le bilan et prépare son panneau (affiché après REPORT_DELAY).
+func open_report() -> void:
+	end_report = build_end_report()
+	if hud == null:
+		return
+	report_panel = BattleReport.new()
+	report_panel.setup(end_report, self)
+	report_panel.visible = false
+	report_clock = 0.0
+	var layer := CanvasLayer.new()
+	layer.layer = 5 # Au-dessus du HUD et du panneau du tutoriel
+	add_child(layer)
+	layer.add_child(report_panel)
+
+
+func show_report() -> void:
+	if report_panel == null or report_panel.visible:
+		return
+	report_panel.visible = true
+	report_panel.modulate.a = 0.0
+	report_panel.create_tween().tween_property(report_panel, "modulate:a", 1.0, 0.35)
+
+
+## Entrée ou bouton principal du bilan : carte de campagne, sinon on rejoue.
+func continue_after_battle() -> void:
+	if state != State.VICTORY and state != State.DEFEAT:
+		return
+	if campaign != null:
+		get_tree().change_scene_to_file("res://scenes/campaign.tscn")
+	else:
+		get_tree().reload_current_scene()
+
+
+## Échap : retour au menu principal (sauf contrat de campagne, qui se joue jusqu'au bout).
+func back_to_menu() -> void:
+	if campaign == null:
+		get_tree().change_scene_to_file("res://scenes/menu.tscn")
 
 
 func team_strength(team: int) -> int:
@@ -1185,15 +1296,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			GameOptions.save_options()
 			add_message("Vitesse du jeu : %s" % GameOptions.speed_label(game_speed))
 		KEY_ENTER, KEY_KP_ENTER:
-			if state == State.VICTORY or state == State.DEFEAT:
-				if campaign != null:
-					get_tree().change_scene_to_file("res://scenes/campaign.tscn")
-				else:
-					get_tree().reload_current_scene()
+			if report_panel != null and not report_panel.visible:
+				show_report() # Premier appui pendant le ralenti : afficher le bilan tout de suite
+			else:
+				continue_after_battle()
 		KEY_ESCAPE:
 			# Escarmouche : retour au menu principal (un contrat se joue jusqu'au bout)
-			if campaign == null:
-				get_tree().change_scene_to_file("res://scenes/menu.tscn")
+			back_to_menu()
 	# Touches 1 à 9 (position physique, fonctionne en AZERTY)
 	var idx: int = int(k.physical_keycode) - int(KEY_1)
 	if idx >= 0 and idx < 9:

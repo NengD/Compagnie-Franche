@@ -645,17 +645,21 @@ func battle_army() -> Array[Dictionary]:
 
 ## Fin de bataille. survivors[i] = hommes encore debout (ou enfuis) du régiment battle_army()[i],
 ## kills[i] = ennemis qu'il a tués. Les pertes et l'expérience sont reportées sur la compagnie.
-## retreat : défaite par retraite ordonnée (pénalités réduites). Renvoie le compte rendu.
-func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false) -> String:
+## retreat : défaite par retraite ordonnée (pénalités réduites).
+## Renvoie le bilan structuré (voir finish_report) ; son « text » est le compte rendu du journal.
+func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false) -> Dictionary:
 	var army := battle_army()
 	var lost := 0
 	var healed := 0
 	var promoted: Array[String] = []
 	var killed := 0
+	var out := {"gold_before": gold, "fame_before": fame, "reputation_before": reputation.duplicate(),
+		"regiments": [], "reward": 0, "loot": 0, "pillage": 0}
 	for i in army.size():
 		var r := army[i]
 		var before: int = r["men"]
 		var after: int = clampi(int(survivors[i]) if i < survivors.size() else before, 0, before)
+		var stood := after
 		if victory:
 			var h := int(floor((before - after) * WOUNDED_RECOVER))
 			after += h
@@ -667,9 +671,13 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		killed += k
 		var full := float(UnitTypes.STATS[r["type"]]["count"])
 		var rank0 := rank_of(r)
+		var xp0 := float(r.get("xp", 0.0))
 		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (XP_VICTORY if victory else 0.0) + XP_KILLS * k / full, XP_MAX)
 		if after > 0 and rank_of(r) > rank0:
 			promoted.append("les %s (%d) deviennent %s" % [type_name(r["type"]).to_lower(), i + 1, rank_name(rank_of(r))])
+		out["regiments"].append({"type": r["type"], "before": before, "after": after, "healed": after - stood,
+			"kills": k, "xp_before": xp0, "xp_after": float(r["xp"]), "rank_before": rank0, "rank_after": rank_of(r),
+			"promoted": after > 0 and rank_of(r) > rank0})
 	company = company.filter(func(r): return int(r["men"]) > 0)
 	var report: String
 	var f := int(pending.get("faction", -1))
@@ -678,6 +686,8 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		victories += 1
 		var reward := contract_reward(pending)
 		var loot := killed * LOOT_PER_KILL
+		out["reward"] = reward
+		out["loot"] = loot
 		gold += reward + loot
 		fame += 5 + 5 * int(pending.get("difficulty", 1))
 		if pending.get("ambush", false):
@@ -694,6 +704,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		# Défaite : les bagages sont pillés, la renommée et la faction qui payait en pâtissent
 		var pillage := int(floor(gold * (PILLAGE_RETREAT if retreat else PILLAGE)))
 		gold -= pillage
+		out["pillage"] = pillage
 		fame = maxi(0, fame - (FAME_RETREAT if retreat else FAME_LOSS))
 		if retreat:
 			report = "Retraite face aux %s. Pertes : %d hommes. Bagages abandonnés : -%d écus." % [pending["foe"], lost, pillage]
@@ -706,8 +717,35 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
+	out["gold_battle"] = gold # Or juste après la bataille, avant la solde du jour
+	out["men_battle"] = total_men()
+	finish_report(out, victory, retreat, lost, healed, killed, report)
 	contracts.erase(pending)
 	pending = {}
 	add_log("Jour %d : %s" % [day, report])
 	pass_day() # La bataille et ses suites prennent la journée
-	return report
+	out["wage"] = maxf(float(out["gold_battle"]) - gold, 0.0)
+	out["deserted"] = int(out["men_battle"]) - total_men()
+	out["gold_after"] = gold
+	out["fame_after"] = fame
+	out["reputation_after"] = reputation.duplicate()
+	return out
+
+
+## Complète le bilan de finish_battle : issue, contrat, totaux et compte rendu texte.
+## Clés : victory, retreat, ambush, title, foe, faction, lost, healed, killed, text,
+## regiments (un par régiment de battle_army() : type, before, after, healed, kills,
+## xp_before, xp_after, rank_before, rank_after, promoted), reward, loot, pillage,
+## gold_before, gold_battle, wage, gold_after, men_battle, deserted,
+## fame_before, fame_after, reputation_before, reputation_after.
+func finish_report(out: Dictionary, victory: bool, retreat: bool, lost: int, healed: int, killed: int, text: String) -> void:
+	out["victory"] = victory
+	out["retreat"] = retreat and not victory
+	out["ambush"] = bool(pending.get("ambush", false))
+	out["title"] = str(pending.get("title", ""))
+	out["foe"] = str(pending.get("foe", ""))
+	out["faction"] = int(pending.get("faction", -1))
+	out["lost"] = lost
+	out["healed"] = healed
+	out["killed"] = killed
+	out["text"] = text

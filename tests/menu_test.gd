@@ -360,6 +360,11 @@ func _test_tutorial(b: Node2D) -> void:
 	b.check_steps()
 	check(b.state == 2, "tutoriel gagné (état %d après %d s)" % [b.state, int(t)])
 	check(b.finished(), "toutes les étapes validées")
+	# Bilan simplifié (sans campagne) : recommencer ou menu principal
+	var rep: Dictionary = b.end_report
+	check(bool(rep.get("tutorial", false)) and (rep.get("campaign", {}) as Dictionary).is_empty() and rep["outcome"] == "victory",
+		"tutoriel : bilan absent ou en mode campagne")
+	check(b.report_panel != null and b.report_panel.buttons.size() == 2, "tutoriel : panneau du bilan sans ses deux boutons")
 	print("Tutoriel : %s (victoire en %d s)" % ["OK" if fails.is_empty() else "ÉCHEC", int(t)])
 
 

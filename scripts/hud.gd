@@ -103,15 +103,19 @@ func _draw() -> void:
 			text(rect.position + Vector2(6, 72), " · ".join(orders), 11, Color(0.55, 0.85, 1))
 		draw_chevrons(self, rect.position + Vector2(cw - 16, -4.0 - 4.0 * r.rank), r.rank) # Badge au-dessus de la carte
 
+	# Le bilan de fin de bataille masque messages et aide (il les résume)
+	var report_shown: bool = battle.report_panel != null and battle.report_panel.visible
 	# Messages
 	var y := 52.0
 	for m in battle.messages:
+		if report_shown:
+			break
 		var a := clampf(m[1], 0.0, 1.0)
 		text(Vector2(14, y), m[0], 14, Color(1, 0.95, 0.8, a))
 		y += 20.0
 
 	# Aide
-	if battle.show_help:
+	if battle.show_help and not report_shown:
 		var lines := [
 			"Clic gauche / glisser : sélectionner",
 			"Maj + clic : ajouter à la sélection",
@@ -153,11 +157,11 @@ func _draw() -> void:
 	if battle.paused and battle.state == 1:
 		title = "PAUSE"
 		sub = "Espace pour reprendre"
+	if report_shown:
+		title = "" # Le panneau du bilan (battle_report.gd) prend le relais
 	if title != "":
 		text(Vector2(0, vs.y * 0.3), title, 42, Color(1, 0.88, 0.55), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 		text(Vector2(0, vs.y * 0.3 + 32), sub, 16, Color(1, 1, 1, 0.9), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
-		if battle.campaign_report != "" and battle.state >= 2:
-			text(Vector2(0, vs.y * 0.3 + 58), battle.campaign_report, 14, Color(1, 0.9, 0.65), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
 
 
 ## Chevrons de rang (un par rang au-dessus des recrues), pointe en haut, empilés vers le bas.
@@ -171,6 +175,4 @@ static func draw_chevrons(ci: CanvasItem, at: Vector2, rank: int, col := Color(1
 
 
 func end_hint() -> String:
-	if battle.campaign != null:
-		return "Entrée : retour à la carte de campagne"
-	return "Entrée pour rejouer   Échap : menu principal"
+	return "Entrée : voir le bilan"
