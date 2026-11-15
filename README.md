@@ -36,8 +36,8 @@ Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1
 
 | | Facile | Normal | Difficile |
 |---|---|---|---|
-| Effectifs ennemis | x0,8 | x1 | x1 |
-| Moral ennemi | x0,8 | x1 | x1,15 |
+| Effectifs ennemis | x0,85 | x1 | x1 |
+| Moral ennemi | x0,85 | x1 | x1,15 |
 | Dégâts ennemis | x0,9 | x1 | x1,1 |
 | IA : réflexion / marche / cavalerie | 1,6 s / 25 s / 40 s | 0,8 s / 12 s / 20 s | 0,5 s / 8 s / 15 s |
 | IA : carré des piquiers contre les charges | non | oui | oui |
@@ -255,6 +255,19 @@ Banc d'essai par terrain (10 à 20 graines, victoires du joueur « tactique » /
 4/10 et 4/10 ; rase campagne 2/10 et 2/10 ; bois 4/10 et 4/10 ; collines 6/10 et 3/10 ; rivière 3/10 et 2/10 ;
 village 6/10 et 3/10 ; palissade 11/20 et 10/20. Toutes les batailles se terminent (aucune bloquée).
 Les écarts restent dans le bruit d'une série de 10 batailles.
+
+Par difficulté (`balance.gd -- --seeds=20 --first=101 --difficulty=…`, terrain tiré au sort ; victoires du joueur,
+durée médiane) :
+
+| Difficulté | Tactique | Naïf | IA contre IA | Durée médiane (tactique) |
+|---|---|---|---|---|
+| Facile | 20/20 (100 %) | 12/20 (60 %) | 19/20 | 125 s |
+| Normal | 11/20 (55 %) | 3/20 (15 %) | 5/20 | 139 s |
+| Difficile | 6/20 (30 %) | 5/20 (25 %) | 5/20 | 126 s |
+
+« Normal » est la référence (tous les multiplicateurs à 1, même résultat qu'avant la difficulté).
+« Difficile » joue surtout sur le moral et les dégâts ennemis et une IA plus vive ; on ne peut pas
+dépasser l'effectif plein d'un régiment.
 
 ## Pistes pour continuer
 - Plusieurs emplacements de sauvegarde.
