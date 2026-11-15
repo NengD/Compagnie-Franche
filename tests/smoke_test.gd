@@ -1,0 +1,452 @@
+extends SceneTree
+## Test de fumée headless : joue une bataille accélérée et vérifie qu'elle se termine sans erreur.
+##
+## Lancer :  godot --headless --path . -s tests/smoke_test.gd
+## Options (après « -- ») :  --seed=N   graine du terrain et des jets de dés (défaut 12345)
+##                           --max=S    durée simulée maximale en secondes (défaut 600)
+## Code de sortie : 0 si tout va bien, 1 sinon.
+
+const TestPlayer := preload("res://tests/test_player.gd")
+const STEP := 0.05 ## Pas de simulation (identique au maximum utilisé par le jeu)
+const STEPS_PER_FRAME := 40 ## 2 s de bataille simulées par image
+const MIN_DURATION := 60.0 ## En dessous, la bataille est jugée beaucoup trop rapide
+
+
+## Compte les erreurs émises par le moteur ou les scripts pendant le test.
+class ErrorCounter extends Logger:
+	var errors: Array[String] = []
+	var warnings: Array[String] = []
+	var mutex := Mutex.new()
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String,
+			_editor_notify: bool, error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
+		var msg := "%s:%d (%s) %s" % [file, line, function, rationale if rationale != "" else code]
+		mutex.lock()
+		if error_type == Logger.ERROR_TYPE_WARNING:
+			warnings.append(msg)
+		else:
+			errors.append(msg)
+		mutex.unlock()
+
+
+var counter := ErrorCounter.new()
+var battle: Node
+var max_time := 600.0
+var player := TestPlayer.new("tactical") ## Joueur simulé (voir tests/test_player.gd)
+var frames := 0
+var finished := false
+
+
+func _initialize() -> void:
+	OS.add_logger(counter)
+	var seed_value := 12345
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--seed="):
+			seed_value = int(a.trim_prefix("--seed="))
+		elif a.begins_with("--max="):
+			max_time = float(a.trim_prefix("--max="))
+
+	var scene: PackedScene = load("res://scenes/main.tscn")
+	if scene == null:
+		_finish(["impossible de charger res://scenes/main.tscn"])
+		return
+	battle = scene.instantiate()
+	battle.set("seed_override", seed_value)
+	root.add_child(battle)
+	print("Smoke test : graine %d, durée simulée max %d s" % [seed_value, int(max_time)])
+
+
+func _process(_delta: float) -> bool:
+	if finished:
+		return true
+	frames += 1
+	if frames == 1:
+		# _ready() de la bataille a maintenant été appelé : on teste le déploiement, puis on lance.
+		var line_fails := _test_line_orders()
+		if not line_fails.is_empty() or not counter.errors.is_empty():
+			line_fails.append("échec pendant le test des lignes de front")
+			_finish(line_fails)
+			return true
+		print("Lignes de front : OK")
+		var form_fails := _test_formations()
+		if not form_fails.is_empty() or not counter.errors.is_empty():
+			form_fails.append("échec pendant le test des formations")
+			_finish(form_fails)
+			return true
+		print("Formations : OK")
+		var run_fails := _test_running()
+		if not run_fails.is_empty() or not counter.errors.is_empty():
+			run_fails.append("échec pendant le test de la course")
+			_finish(run_fails)
+			return true
+		print("Course et endurance : OK")
+		var asset_fails := _check_assets()
+		if not asset_fails.is_empty():
+			_finish(asset_fails)
+			return true
+		battle.start_battle()
+		return false
+	for i in STEPS_PER_FRAME:
+		if battle.state != battle.State.BATTLE:
+			break
+		player.update(battle)
+		battle.simulate(STEP)
+	if battle.state != battle.State.BATTLE or battle.battle_time >= max_time:
+		# Deux images de plus pour laisser passer _process et _draw sur l'état final
+		if frames > 2:
+			_finish(_check())
+			return true
+	return false
+
+
+## Vérifie l'ordre « ligne de front » (clic droit glissé), pendant le déploiement.
+func _test_line_orders() -> Array[String]:
+	var fails: Array[String] = []
+	var mine: Array[Regiment] = battle.player_regiments()
+	var sel: Array[Regiment] = []
+	for r in mine:
+		if r.type == "spear" or r.type == "men_at_arms":
+			sel.append(r)
+	var spear: Regiment = sel[0]
+
+	# Un seul régiment : ligne longue = front large, ligne courte = front étroit
+	var long_l: Array[Dictionary] = battle.line_layout([spear] as Array[Regiment], Vector2(1200, 1520), Vector2(1480, 1520))
+	var short_l: Array[Dictionary] = battle.line_layout([spear] as Array[Regiment], Vector2(1200, 1520), Vector2(1230, 1520))
+	var huge_l: Array[Dictionary] = battle.line_layout([spear] as Array[Regiment], Vector2(200, 1520), Vector2(3000, 1520))
+	var c_long: int = long_l[0]["cols"]
+	var c_short: int = short_l[0]["cols"]
+	var c_huge: int = huge_l[0]["cols"]
+	print("Ligne : colonnes courte=%d longue=%d immense=%d (min %d, max %d)" % [
+		c_short, c_long, c_huge, spear.min_columns(), spear.max_columns()])
+	if not (c_short < c_long):
+		fails.append("ligne : une ligne longue devrait donner plus de colonnes qu'une courte")
+	if c_short != spear.min_columns() or c_huge != spear.max_columns():
+		fails.append("ligne : les bornes min/max de colonnes ne sont pas respectées")
+
+	# Orientation : troupes en bas (y≈1600), ligne tracée au-dessus → elles regardent vers le haut,
+	# quel que soit le sens du tracé.
+	for pts in [[Vector2(1000, 1400), Vector2(2200, 1400)], [Vector2(2200, 1400), Vector2(1000, 1400)]]:
+		var lay: Array[Dictionary] = battle.line_layout(sel, pts[0], pts[1])
+		for e in lay:
+			var f: Vector2 = e["facing"]
+			if f.dot(Vector2.UP) < 0.99:
+				fails.append("ligne : orientation %s au lieu de vers le haut" % str(f))
+				break
+	# Ligne tracée derrière elles (y=1800) → elles se retournent (vers le bas)
+	var back: Array[Dictionary] = battle.line_layout(sel, Vector2(1000, 1800), Vector2(2200, 1800))
+	if (back[0]["facing"] as Vector2).dot(Vector2.DOWN) < 0.99:
+		fails.append("ligne : les troupes devraient se retourner vers la ligne tracée derrière elles")
+
+	# Ordre gauche-droite conservé, même si la ligne est tracée de droite à gauche
+	var lay2: Array[Dictionary] = battle.line_layout(sel, Vector2(2200, 1400), Vector2(1000, 1400))
+	var by_x: Array[Dictionary] = lay2.duplicate()
+	by_x.sort_custom(func(p, q): return (p["dest"] as Vector2).x < (q["dest"] as Vector2).x)
+	for i in by_x.size() - 1:
+		if (by_x[i]["reg"] as Regiment).center.x > (by_x[i + 1]["reg"] as Regiment).center.x:
+			fails.append("ligne : l'ordre gauche-droite des régiments n'est pas conservé")
+			break
+	# Pas de chevauchement entre régiments voisins
+	for i in by_x.size() - 1:
+		var a: Dictionary = by_x[i]
+		var b: Dictionary = by_x[i + 1]
+		var wa: float = int(a["cols"]) * float((a["reg"] as Regiment).stats["spacing"])
+		var wb: float = int(b["cols"]) * float((b["reg"] as Regiment).stats["spacing"])
+		if (b["dest"] as Vector2).x - (a["dest"] as Vector2).x < (wa + wb) * 0.5:
+			fails.append("ligne : deux régiments se chevauchent")
+			break
+
+	# Ordre réel + simulation pendant le déploiement : les soldats rejoignent la ligne
+	for r in battle.regiments:
+		r.selected = sel.has(r)
+	battle.issue_line_order(Vector2(2200, 1400), Vector2(1000, 1400))
+	for i in 400:
+		battle.simulate(STEP)
+	for r in sel:
+		if r.cols_override <= 0:
+			fails.append("ligne : cols_override non appliqué")
+			break
+		if r.center.distance_to(r.dest) > 12.0:
+			fails.append("ligne : %s n'a pas rejoint sa place (%.0f px)" % [r.display_name(), r.center.distance_to(r.dest)])
+			break
+	# Un simple clic (glissé minuscule) n'est pas un tracé de ligne
+	if battle.is_line_drag(Vector2(1200, 1200), Vector2(1202, 1200)):
+		fails.append("ligne : un clic sans glisser est pris pour un tracé")
+	for r in battle.regiments:
+		r.selected = false
+	return fails
+
+
+## Vérifie la touche F : ligne → colonne → carré, la vitesse et l'absence de flanc en carré.
+func _test_formations() -> Array[String]:
+	var fails: Array[String] = []
+	var r: Regiment = null
+	for x in battle.player_regiments():
+		if x.type == "men_at_arms":
+			r = x
+			break
+	var n := r.alive_n
+	for x in battle.regiments:
+		x.selected = x == r
+
+	# Cycle de la touche F
+	var key := InputEventKey.new()
+	key.keycode = KEY_F
+	key.pressed = true
+	var seen: Array[int] = [r.formation]
+	for i in 3:
+		battle._unhandled_input(key)
+		seen.append(r.formation)
+	if seen != [0, 1, 2, 0]:
+		fails.append("formations : la touche F donne %s au lieu de ligne, colonne, carré, ligne" % str(seen))
+
+	# Colonne : 3 de front, plus profonde que la ligne
+	r.formation = Regiment.Formation.COLUMN
+	if r.columns(n) != UnitTypes.COLUMN_WIDTH or r.depth_rows(n) <= 2:
+		fails.append("formations : colonne de %d de front sur %d rangs" % [r.columns(n), r.depth_rows(n)])
+
+	# Carré : toutes les places sur le pourtour, toutes différentes, centrées sur la destination
+	r.formation = Regiment.Formation.SQUARE
+	for count in [n, 7, 10, 20]:
+		var side := Regiment.square_side(count)
+		var half := (side - 1) * 0.5 * float(r.stats["spacing"])
+		var places := {}
+		var sum := Vector2.ZERO
+		for i in count:
+			var p := r.square_slot(i, count, Vector2(1000, 1000), Vector2.UP) - Vector2(1000, 1000)
+			sum += p
+			var edge_dist := maxf(absf(p.x), absf(p.y))
+			if absf(edge_dist - half) > 0.5:
+				fails.append("formations : place %d du carré (%d) hors du pourtour" % [i, count])
+				break
+			places[p.round()] = true
+		if places.size() != count:
+			fails.append("formations : places en double dans un carré de %d" % count)
+		if count % 4 == 0 and (sum / count).length() > 1.0:
+			fails.append("formations : carré de %d décentré" % count)
+
+	# Le carré annule flancs et dos ; en ligne ils comptent
+	var e: Regiment = battle.regiments.filter(func(x): return x.team == 1)[0]
+	var victim := Vector2(1000, 1000)
+	e.facing = Vector2.DOWN
+	e.formation = Regiment.Formation.LINE
+	var rear_line: int = battle.hit_side(victim + Vector2(0, -10), victim, e)
+	var flank_line: int = battle.hit_side(victim + Vector2(10, 0), victim, e)
+	e.formation = Regiment.Formation.SQUARE
+	var rear_sq: int = battle.hit_side(victim + Vector2(0, -10), victim, e)
+	var flank_sq: int = battle.hit_side(victim + Vector2(10, 0), victim, e)
+	e.formation = Regiment.Formation.LINE
+	if rear_line != battle.HIT_REAR or flank_line != battle.HIT_FLANK:
+		fails.append("formations : en ligne, le dos et le flanc ne sont pas détectés")
+	if rear_sq != battle.HIT_FRONT or flank_sq != battle.HIT_FRONT:
+		fails.append("formations : le carré devrait annuler le bonus de flanc et de dos")
+
+	# Le carré est plus lent : on mesure un déplacement de 6 s en ligne puis en carré
+	var dist := []
+	var home := r.dest
+	for f in [Regiment.Formation.LINE, Regiment.Formation.SQUARE]:
+		r.formation = f
+		var start := r.center
+		r.dest = start + Vector2(0, -400)
+		for i in 120:
+			battle.simulate(STEP)
+		dist.append(r.center.distance_to(start))
+		r.dest = r.center
+	print("Formations : distance en 6 s — ligne %.0f px, carré %.0f px" % [dist[0], dist[1]])
+	if not (dist[1] < dist[0] * 0.75):
+		fails.append("formations : le carré n'est pas plus lent que la ligne")
+
+	# Retour à la place de départ, en ligne
+	r.formation = Regiment.Formation.LINE
+	r.dest = home
+	for i in 300:
+		battle.simulate(STEP)
+	r.selected = false
+	return fails
+
+
+## Course (double clic droit) : plus rapide, vide l'endurance, s'arrête à l'épuisement ;
+## la fatigue réduit vitesse et dégâts.
+func _test_running() -> Array[String]:
+	var fails: Array[String] = []
+	var r: Regiment = null
+	for x in battle.player_regiments():
+		if x.type == "spear":
+			r = x
+			break
+	for x in battle.regiments:
+		x.selected = x == r
+	var home := r.dest
+	var home_facing := r.facing
+
+	# Double clic droit via les vrais évènements : le 2e appui porte double_click
+	var screen := battle.get_viewport().get_visible_rect().size * Vector2(0.5, 0.35)
+	for dbl in [false, true]:
+		for pressed in [true, false]:
+			var mb := InputEventMouseButton.new()
+			mb.button_index = MOUSE_BUTTON_RIGHT
+			mb.position = screen
+			mb.pressed = pressed
+			mb.double_click = dbl and pressed
+			battle._unhandled_input(mb)
+		if r.running != dbl:
+			fails.append("course : après le %s clic, running = %s" % ["1er" if not dbl else "2e", str(r.running)])
+
+	# Distance parcourue en 4 s au pas puis en courant, depuis frais, sur un trajet sans forêt
+	var lane := _clear_lane(Vector2.RIGHT, 520.0)
+	var dist := []
+	for run in [false, true]:
+		r.stamina = 1.0
+		_teleport(r, lane, Vector2.RIGHT)
+		var start := r.center
+		r.dest = start + Vector2(500, 0)
+		r.running = run
+		for i in 80:
+			battle.simulate(STEP)
+		dist.append(r.center.distance_to(start))
+	print("Course : distance en 4 s — pas %.0f px, course %.0f px, endurance restante %.2f" % [dist[0], dist[1], r.stamina])
+	if not (dist[1] > dist[0] * 1.3):
+		fails.append("course : pas plus rapide qu'au pas")
+	if not (r.stamina < 0.8):
+		fails.append("course : l'endurance ne baisse pas (%.2f)" % r.stamina)
+
+	# Épuisement : la course s'arrête d'elle-même
+	r.stamina = 0.05
+	r.running = true
+	r.dest = r.center + Vector2(0, 600)
+	for i in 40:
+		battle.simulate(STEP)
+	if r.running or r.stamina > 0.05:
+		fails.append("course : ne s'arrête pas à l'épuisement (endurance %.2f)" % r.stamina)
+	battle.issue_order(r.center + Vector2(0, 200), true)
+	if r.running:
+		fails.append("course : un régiment épuisé ne devrait pas pouvoir courir")
+
+	# Pénalités de fatigue
+	if not is_equal_approx(UnitTypes.fatigue_factor(1.0, UnitTypes.EXHAUSTED_DAMAGE), 1.0) 			or not is_equal_approx(UnitTypes.fatigue_factor(UnitTypes.STAMINA_TIRED, UnitTypes.EXHAUSTED_DAMAGE), 1.0) 			or not is_equal_approx(UnitTypes.fatigue_factor(0.0, UnitTypes.EXHAUSTED_DAMAGE), UnitTypes.EXHAUSTED_DAMAGE):
+		fails.append("course : facteur de fatigue incorrect")
+	var slow := []
+	for st in [1.0, 0.0]:
+		r.stamina = st
+		r.running = false
+		_teleport(r, lane, Vector2.RIGHT)
+		var start := r.center
+		r.dest = start + Vector2(500, 0)
+		for i in 40:
+			battle.simulate(STEP)
+		slow.append(r.center.distance_to(start))
+		r.stamina = st
+	if not (slow[1] < slow[0] * 0.8):
+		fails.append("course : un régiment épuisé n'est pas plus lent (%.0f contre %.0f px)" % [slow[1], slow[0]])
+
+	# Récupération au repos
+	r.stamina = 0.2
+	r.dest = r.center
+	for i in 100:
+		battle.simulate(STEP)
+	if not (r.stamina > 0.3):
+		fails.append("course : pas de récupération au repos (%.2f)" % r.stamina)
+
+	# Retour à la place de départ, reposé
+	r.running = false
+	_teleport(r, home, home_facing)
+	r.stamina = 1.0
+	r.selected = false
+	return fails
+
+
+## Point de départ d'un trajet sans forêt de la longueur voulue dans la zone de déploiement.
+func _clear_lane(dir: Vector2, length: float) -> Vector2:
+	for y in range(1500, 1950, 50):
+		for x in range(200, 2800, 100):
+			var start := Vector2(x, y)
+			var ok := true
+			for k in range(0, int(length) + 1, 16):
+				for side in [-70.0, 0.0, 70.0]:
+					if battle.is_in_forest(start + dir * k + Vector2(-dir.y, dir.x) * side):
+						ok = false
+						break
+				if not ok:
+					break
+			if ok:
+				return start
+	return Vector2(400, 1700)
+
+
+## Place instantanément un régiment en formation en p.
+func _teleport(r: Regiment, p: Vector2, face: Vector2) -> void:
+	r.dest = p
+	r.facing = face
+	r.target = null
+	var alive := r.alive_soldiers()
+	for i in alive.size():
+		alive[i].pos = r.slot_position(i, alive.size())
+	r.update_center()
+
+
+## Vérifie que les sprites et les sons sont bien chargés.
+func _check_assets() -> Array[String]:
+	var fails: Array[String] = []
+	var bank: SpriteBank = battle.sprites
+	if not bank.ok:
+		fails.append("sprites d'unités manquants")
+	if not bank.has_trees():
+		fails.append("sprites d'arbres manquants")
+	var n: int = battle.audio.loaded_count()
+	print("Assets : sprites %s, arbres %d, sons chargés %d" % ["OK" if bank.ok else "KO", bank.trees.size(), n])
+	if n < 30:
+		fails.append("seulement %d sons chargés" % n)
+	# Chaque image demandée doit tomber dans la planche
+	for type in SpriteBank.UNITS:
+		for team in 2:
+			for dir in 4:
+				for anim in ["idle", "walk", "attack"]:
+					for t in [0.0, 0.5, 0.99, 7.0]:
+						var f := bank.frame(type, team, dir, anim, t)
+						var tex: Texture2D = f["tex"]
+						var src: Rect2 = f["src"]
+						if not Rect2(Vector2.ZERO, tex.get_size()).encloses(src):
+							fails.append("image hors planche : %s %s dir %d" % [type, anim, dir])
+							return fails
+	return fails
+
+
+func _check() -> Array[String]:
+	var fails: Array[String] = []
+	var lost := [0, 0]
+	for r in battle.regiments:
+		for s in r.soldiers:
+			if not s.alive:
+				lost[r.team] += 1
+	print("Fin à t = %.1f s — état : %s — pertes joueur : %d / %d, ennemi : %d / %d" % [
+		battle.battle_time, battle.State.keys()[battle.state],
+		lost[0], battle.initial_strength[0], lost[1], battle.initial_strength[1]])
+	if battle.state != battle.State.VICTORY and battle.state != battle.State.DEFEAT:
+		fails.append("la bataille n'est pas terminée après %d s simulées" % int(max_time))
+	if battle.state != battle.State.BATTLE and battle.battle_time < MIN_DURATION:
+		fails.append("bataille trop courte : %.0f s (minimum %d s)" % [battle.battle_time, int(MIN_DURATION)])
+	if lost[0] <= 0:
+		fails.append("aucun soldat du joueur n'est mort")
+	if lost[1] <= 0:
+		fails.append("aucun soldat ennemi n'est mort")
+	if not counter.errors.is_empty():
+		fails.append("%d erreur(s) pendant la bataille" % counter.errors.size())
+	return fails
+
+
+func _finish(fails: Array[String]) -> void:
+	finished = true
+	for w in counter.warnings:
+		print("  avertissement : ", w)
+	for e in counter.errors:
+		print("  erreur : ", e)
+	if fails.is_empty():
+		print("SMOKE TEST OK")
+	else:
+		for f in fails:
+			print("ÉCHEC : ", f)
+		print("SMOKE TEST ÉCHOUÉ")
+	OS.remove_logger(counter)
+	if battle != null:
+		root.remove_child(battle)
+		battle.free()
+	quit(0 if fails.is_empty() else 1)
