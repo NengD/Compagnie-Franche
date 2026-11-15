@@ -15,8 +15,8 @@ const LEVELS := {
 	EASY: {
 		"name": "Facile",
 		"hint": "Ennemis moins nombreux et plus fragiles, IA lente. Recrues et solde moins chères, primes plus fortes.",
-		"enemy_men": 0.8, ## Effectif de chaque régiment ennemi (part de l'effectif prévu)
-		"enemy_morale": 0.8, ## Moral maximal des ennemis
+		"enemy_men": 0.85, ## Effectif de chaque régiment ennemi (part de l'effectif prévu)
+		"enemy_morale": 0.85, ## Moral maximal des ennemis
 		"enemy_damage": 0.9, ## Dégâts des ennemis (mêlée et flèches)
 		"ai_think": 1.6, ## Intervalle de réflexion de l'IA, en secondes (plus long = moins réactive)
 		"ai_advance": 25.0, ## Délai avant que l'IA ne marche sur le joueur, en secondes
