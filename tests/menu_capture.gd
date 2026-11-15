@@ -1,7 +1,10 @@
 extends SceneTree
 ## Captures du menu, des options et du tutoriel (à lancer AVEC fenêtre) :
-##   godot --path . -s tests/menu_capture.gd
-## Enregistre captures/menu.png, captures/menu_options.png et captures/tutoriel.png.
+##   godot --path . -s tests/menu_capture.gd [-- --out=<dossier>]
+## Enregistre menu.png, menu_options.png et tutoriel.png dans user://captures (défaut)
+## ou dans <dossier> (relatif à la racine du projet : --out=captures met à jour celles du dépôt).
+
+const CaptureDir := preload("res://tests/capture_dir.gd")
 
 var node: Node
 var frame := 0
@@ -52,9 +55,7 @@ func _process(_delta: float) -> bool:
 
 
 func _save(file: String) -> void:
-	var path := ProjectSettings.globalize_path("res://captures/").path_join(file)
-	root.get_texture().get_image().save_png(path)
-	print("Capture : ", path)
+	CaptureDir.save(self, file)
 
 
 func _clean() -> void:

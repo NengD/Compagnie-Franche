@@ -1,0 +1,2 @@
+# Scripts shell : toujours LF (bash refuse les CRLF), même avec core.autocrlf=true
+*.sh text eol=lf

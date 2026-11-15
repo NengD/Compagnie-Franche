@@ -208,10 +208,12 @@ tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge,
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
+tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
-tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
-tests/menu_capture.gd   Captures du menu, des options et du tutoriel dans captures/ (avec fenêtre)
-tests/report_capture.gd Captures du bilan (contrat avec promotions, escarmouche) dans captures/ (avec fenêtre)
+tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
+tests/menu_capture.gd   Captures du menu, des options et du tutoriel (avec fenêtre ; option --out)
+tests/report_capture.gd Captures du bilan (contrat avec promotions, escarmouche) (avec fenêtre ; option --out)
+tests/capture_dir.gd    Dossier de sortie commun des captures (--out=<dossier>, défaut user://captures)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
 ```
@@ -226,6 +228,17 @@ Pour ajouter à la bataille :
 - un ordre : une touche dans `BattleOrders.handle_key()`.
 
 ## Tests
+Tous les tests headless d'un coup (import du projet, test de fumée sur les 6 terrains, puis chaque
+`tests/*_test.gd`) ; récapitulatif à la fin, code de sortie 1 si un test échoue :
+```
+powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1
+powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1 -Only smoke,menu -Terrains plain
+bash tools/run_tests.sh          # Linux / macOS (Godot : variable GODOT ou « godot » dans le PATH)
+```
+Les journaux complets vont dans `build/test-logs/`. Une GitHub Action facultative
+(`.github/workflows/tests.yml`) télécharge Godot 4.7.2 et lance `tools/run_tests.sh` à chaque push.
+
+Un test à la fois :
 ```
 godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, code de sortie 1 si échec
 godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur un terrain imposé
@@ -235,18 +248,33 @@ godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisé
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
-godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
-godot --path . -s tests/report_capture.gd             # captures/bilan_campagne.png, bilan_escarmouche.png
+godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
+godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
+godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
 godot --headless --path . -s tests/balance.gd -- --seeds=20 --difficulty=all # idem, par difficulté
-godot --path . -s tests/terrain_shots.gd              # captures/terrain_*.png
+godot --path . -s tests/terrain_shots.gd              # terrain_*.png
+godot --path . -s tests/menu_capture.gd -- --out=captures   # met à jour les captures versionnées du dépôt
 ```
+Les scripts de capture (`menu_capture`, `report_capture`, `terrain_shots`) écrivent par défaut dans
+`user://captures` (sous Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\captures\`), donc hors
+du dépôt. `--out=<dossier>` choisit un autre dossier ; un chemin relatif part de la racine du projet,
+et `--out=captures` remplace les images versionnées de `captures/`.
+
+Le test de performance écrit ses résultats en JSON dans `user://perf/perf_results.json`. Lancé sans
+`--headless`, il mesure aussi le vrai coût du rendu. `--max-step-ms=X` le fait échouer si l'étape
+moyenne dépasse X ms (aucun seuil par défaut, car les chiffres dépendent de la machine).
 
 ## Exporter le jeu
 Produit un exécutable Windows autonome `build/CompagnieFranche.exe` (pck intégré, ~110 Mo),
-accompagné de `CREDITS.md` (obligatoire : licences des assets) et `README.md`.
+accompagné de `CREDITS.md` (obligatoire : licences des assets) et `README.md`, et l'archive prête à
+distribuer `build/CompagnieFranche-<version>-windows.zip`. Si le modèle d'export Linux est installé,
+le script exporte aussi `build/linux/CompagnieFranche.x86_64` et `build/CompagnieFranche-<version>-linux.zip`
+(`-NoLinux` pour s'en passer).
+La version (`application/config/version` dans `project.godot`, actuellement 0.5.0) s'affiche en bas à
+droite du menu principal : changez-la là avant une nouvelle diffusion.
 1. Installez une fois les **modèles d'export 4.7.2** : dans l'éditeur, *Éditeur → Gérer les modèles d'export →
    Télécharger et installer* (ils vont dans `%APPDATA%\Godot\export_templates\4.7.2.stable\`).
 2. Lancez :
@@ -256,9 +284,9 @@ accompagné de `CREDITS.md` (obligatoire : licences des assets) et `README.md`.
    Godot est cherché dans `E:\_jeu perso\godot\` ; sinon passez `-Godot <chemin\vers\godot.exe>`
    ou définissez la variable d'environnement `GODOT`.
 
-Le préréglage « Windows » (`export_presets.cfg`) exclut `tests/`, `captures/`, `tools/` et `build/`.
+Les préréglages « Windows » et « Linux » (`export_presets.cfg`) excluent `tests/`, `captures/`, `tools/` et `build/`.
 On peut aussi exporter depuis l'éditeur : *Projet → Exporter… → Windows*.
-Pour distribuer : zippez le contenu de `build/` (l'exe et les deux fichiers .md).
+Pour distribuer : envoyez le zip de `build/` (l'exe et les deux fichiers .md).
 L'icône de l'exe vient de `assets/icon.ico` (générée avec `tools/make_icon.py`, comme `assets/icon.png`).
 
 ## Équilibrage

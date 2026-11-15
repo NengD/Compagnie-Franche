@@ -1,11 +1,13 @@
 extends SceneTree
 ## Captures du bilan de fin de bataille (à lancer AVEC fenêtre, pas en --headless) :
-##   godot --path . -s tests/report_capture.gd
+##   godot --path . -s tests/report_capture.gd [-- --out=<dossier>]
 ## Joue une bataille de contrat (avec une promotion) puis une escarmouche, et enregistre
-## captures/bilan_campagne.png et captures/bilan_escarmouche.png.
+## bilan_campagne.png et bilan_escarmouche.png dans user://captures (défaut) ou dans <dossier>
+## (relatif à la racine du projet : --out=captures met à jour celles du dépôt).
 ## La campagne s'écrit dans user://capture_campagne.json : la vraie sauvegarde n'est pas touchée.
 
 const TestPlayer := preload("res://tests/test_player.gd")
+const CaptureDir := preload("res://tests/capture_dir.gd")
 
 var battle: Node
 var player
@@ -77,7 +79,4 @@ func _fight_center() -> Vector2:
 
 
 func _save(file: String) -> void:
-	var img := root.get_texture().get_image()
-	var path := ProjectSettings.globalize_path("res://captures").path_join(file)
-	img.save_png(path)
-	print("Capture : ", path)
+	CaptureDir.save(self, file)
