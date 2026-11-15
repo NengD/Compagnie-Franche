@@ -27,6 +27,18 @@ var box: VBoxContainer
 var confirm_new := false ## Premier clic sur « Nouvelle campagne » : demande confirmation
 
 
+## Petit emplacement qui dessine les chevrons de rang d'un régiment dans le panneau.
+class RankIcon extends Control:
+	var rank := 0
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(14, 14)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		Hud.draw_chevrons(self, Vector2(2, 3), rank)
+
+
 func _ready() -> void:
 	if CampaignState.current == null:
 		# Au lancement du jeu : reprend la campagne sauvegardée s'il y en a une
@@ -316,8 +328,13 @@ func refresh_ui() -> void:
 		var full: int = UnitTypes.STATS[type]["count"]
 		var row := HBoxContainer.new()
 		box.add_child(row)
+		var chev := RankIcon.new()
+		chev.rank = CampaignState.rank_of(r)
+		row.add_child(chev)
 		var l := Label.new()
-		l.text = "%d. %s   %d / %d" % [i + 1, CampaignState.type_name(type), int(r["men"]), full]
+		l.text = "%d. %s   %d / %d   %s" % [i + 1, CampaignState.type_name(type), int(r["men"]), full, CampaignState.rank_name(chev.rank)]
+		l.tooltip_text = "Expérience %d (aguerris à %d, vétérans à %d)" % [int(r.get("xp", 0.0)), int(CampaignState.RANK_XP[1]), int(CampaignState.RANK_XP[2])]
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if int(r["men"]) < full:
 			l.add_theme_color_override("font_color", Color(1, 0.75, 0.5))

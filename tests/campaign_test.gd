@@ -39,6 +39,7 @@ func _initialize() -> void:
 	CampaignState.save_path = "user://test_campagne.json"
 	CampaignState.delete_save()
 	_test_rules()
+	_test_veterans()
 	_test_save()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
@@ -125,6 +126,64 @@ func _test_rules() -> void:
 	print("Campagne : règles OK" if fails.is_empty() else "Campagne : règles en échec")
 
 
+## Vétérans : gain d'expérience, rangs, bonus, dilution par les recrues, ennemis classés.
+func _test_veterans() -> void:
+	var c := CampaignState.new_game(5)
+	check(CampaignState.rank_of(c.company[0]) == 0 and float(c.company[0]["xp"]) == 0.0, "vétérans : la compagnie de départ n'est pas faite de recrues")
+	c.refresh_contracts(c.location)
+	c.accept(c.contracts_at(c.location)[0])
+	var army := c.battle_army()
+	var surv := []
+	var kills := []
+	for r in army:
+		surv.append(int(r["men"]))
+		kills.append(0)
+	var full := float(UnitTypes.STATS[army[0]["type"]]["count"])
+	kills[0] = int(full) # Le premier régiment tue autant d'ennemis qu'il compte d'hommes
+	c.finish_battle(true, surv, kills)
+	var want0 := CampaignState.XP_BATTLE + CampaignState.XP_VICTORY + CampaignState.XP_KILLS
+	check(is_equal_approx(float(c.company[0]["xp"]), want0), "vétérans : xp du régiment tueur %.1f au lieu de %.1f" % [float(c.company[0]["xp"]), want0])
+	check(is_equal_approx(float(c.company[1]["xp"]), CampaignState.XP_BATTLE + CampaignState.XP_VICTORY), "vétérans : xp de victoire")
+	check(CampaignState.rank_of(c.company[0]) == 1, "vétérans : pas de promotion à %d xp" % int(c.company[0]["xp"]))
+	# Défaite : seulement la participation
+	var xp1 := float(c.company[1]["xp"])
+	c.refresh_contracts(c.location)
+	c.accept(c.contracts_at(c.location)[0])
+	c.finish_battle(false, surv, [])
+	check(is_equal_approx(float(c.company[1]["xp"]), xp1 + CampaignState.XP_BATTLE), "vétérans : xp de défaite")
+	# Dilution : moitié de vétérans, moitié de recrues → moitié de l'expérience
+	c.gold = 5000.0
+	c.location = 0 # Valombre lève des piquiers et des archers
+	var spear := -1
+	for i in c.company.size():
+		if c.company[i]["type"] == "spear":
+			spear = i
+	c.company[spear]["xp"] = 300.0
+	c.company[spear]["men"] = 10
+	var sf := float(UnitTypes.STATS["spear"]["count"])
+	check(c.refill(spear) == "", "vétérans : complément refusé")
+	check(is_equal_approx(float(c.company[spear]["xp"]), 300.0 * 10.0 / sf), "vétérans : les recrues ne diluent pas l'expérience (%.1f)" % float(c.company[spear]["xp"]))
+	check(c.recruit("spear") == "" and float(c.company[-1]["xp"]) == 0.0, "vétérans : un nouveau régiment n'est pas fait de recrues")
+	# Bonus de rang sur un régiment de bataille
+	var reg := Regiment.new()
+	reg.stats = UnitTypes.STATS["spear"]
+	reg.set_rank(2)
+	check(is_equal_approx(reg.max_morale, float(UnitTypes.STATS["spear"]["morale"]) * (1.0 + 2 * Regiment.RANK_MORALE)) and is_equal_approx(reg.rank_damage(), 1.0 + 2 * Regiment.RANK_DAMAGE), "vétérans : bonus de rang")
+	check(CampaignState.rank_of({"type": "spear", "rank": 2}) == 2 and CampaignState.rank_of({"xp": 260.0}) == 2, "vétérans : rang mal lu")
+	# Contrats difficiles : ennemis classés
+	c.victories = 10
+	var ranked := 0
+	for i in 20:
+		var k := c.make_contract(0)
+		for e in k["enemy"]:
+			if int(k["difficulty"]) == 3:
+				check(int(e["rank"]) >= 1, "vétérans : ost du baron sans expérience")
+			if int(e["rank"]) > 0:
+				ranked += 1
+	check(ranked > 0, "vétérans : aucun ennemi aguerri")
+	print("Vétérans : OK")
+
+
 ## Sauvegarde : aller-retour exact (y compris le tirage des futurs contrats), refus des fichiers abîmés.
 func _test_save() -> void:
 	var c := CampaignState.new_game(77)
@@ -202,12 +261,33 @@ func _check_deployment() -> void:
 			"%s : régiment %d avec %d hommes au lieu de %d" % [phase, r.company_index, r.alive_n, want])
 	var enemy: Array = camp.pending["enemy"]
 	check(theirs.size() == enemy.size(), "%s : %d régiments ennemis au lieu de %d" % [phase, theirs.size(), enemy.size()])
+	# Rangs appliqués au déploiement
+	for r in mine:
+		check(r.rank == CampaignState.rank_of(army[r.company_index]), "%s : rang du régiment %d non appliqué" % [phase, r.company_index])
+	for r in theirs:
+		var e: Dictionary = enemy[theirs.find(r)]
+		check(r.rank == int(e.get("rank", 0)), "%s : rang ennemi non appliqué" % phase)
 	print("%s : %d hommes contre %d (%s)" % [phase, camp.total_men(), battle.initial_strength[1], camp.pending["title"]])
 	battle.start_battle()
 	battle.set_meta("player", TestPlayer.new("tactical"))
 	battle.set_meta("men_before", camp.total_men())
 	battle.set_meta("gold_before", camp.gold)
 	battle.set_meta("reward", int(camp.pending["reward"]))
+	var xp := []
+	for r in army:
+		xp.append(float(r.get("xp", 0.0)))
+	battle.set_meta("xp_before", xp)
+	if phase == "battle1":
+		# Une flèche d'archer qui tue compte pour le régiment qui l'a tirée
+		var archer = null
+		for r in mine:
+			if r.type == "archer":
+				archer = r
+		if archer != null:
+			battle.rebuild_grid()
+			var foe = theirs[0].soldiers[0]
+			battle.arrow_impact({"to": foe.pos, "dmg": 99999.0, "src": archer})
+			check(not foe.alive and archer.kills == 1, "battle1 : tué par une flèche non compté (%d)" % archer.kills)
 
 
 func _run_battle() -> void:
@@ -248,6 +328,14 @@ func _run_battle() -> void:
 		"%s : résultat de la bataille non sauvegardé" % phase)
 	if victory:
 		check(camp.gold > float(battle.get_meta("gold_before")), "%s : prime non payée" % phase)
+	# Expérience : chaque régiment survivant a gagné au moins la participation
+	var kills_total := 0
+	for r in battle.regiments:
+		if r.team == 0:
+			kills_total += r.kills
+	check(kills_total > 0, "%s : aucun ennemi tué compté" % phase)
+	for r in camp.company:
+		check(float(r["xp"]) >= CampaignState.XP_BATTLE, "%s : expérience non gagnée" % phase)
 	root.remove_child(battle)
 	battle.free()
 	battle = null

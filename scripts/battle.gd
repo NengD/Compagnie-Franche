@@ -288,6 +288,7 @@ func spawn_army(team: int, list: Array) -> void:
 		placed[wings[k]] = Vector2(clampf(x, 120, WORLD_SIZE.x - 120), front_y + back * 0.45)
 	for i in list.size():
 		var r := add_regiment(team, str(list[i]["type"]), placed[i], face, int(list[i]["men"]))
+		r.set_rank(CampaignState.rank_of(list[i]))
 		if team == PLAYER:
 			r.company_index = i
 
@@ -734,7 +735,7 @@ func strike(a: Soldier, b: Soldier) -> void:
 
 	if br.routing:
 		dmg *= 1.5
-	dmg *= UnitTypes.fatigue_factor(ar.stamina, UnitTypes.EXHAUSTED_DAMAGE)
+	dmg *= UnitTypes.fatigue_factor(ar.stamina, UnitTypes.EXHAUSTED_DAMAGE) * ar.rank_damage()
 	dmg *= rng.randf_range(0.7, 1.3)
 	a.attack_dur = 0.3
 	a.attack_anim = a.attack_dur
@@ -754,6 +755,8 @@ func damage(s: Soldier, amount: float, source: Soldier) -> void:
 	if s.hp <= 0.0:
 		s.alive = false
 		var r := s.regiment
+		if source != null and source.regiment.team != r.team:
+			source.regiment.kills += 1
 		corpses.append([s.pos.round(), r.team, r.type, 1 if rng.randf() < 0.5 else -1])
 		if corpses.size() > 2000:
 			corpses.pop_front()
@@ -777,7 +780,8 @@ func fire_arrow(s: Soldier, target: Regiment) -> void:
 	var aim := t.pos + Vector2(rng.randf_range(-spread, spread), rng.randf_range(-spread, spread))
 	arrows.append({
 		"from": s.pos + Vector2(0, -8), "to": aim, "t": 0.0, "dur": 0.5 + dist / 440.0,
-		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE),
+		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE) * s.regiment.rank_damage(),
+		"src": s.regiment, # Pour compter les ennemis tués par les flèches
 		"h": dist * 0.25,
 	})
 	s.regiment.revealed = maxf(s.regiment.revealed, 2.0)
@@ -808,6 +812,9 @@ func arrow_impact(a: Dictionary) -> void:
 	var dmg: float = a["dmg"] * float(victim.regiment.stats["arrow_armor"])
 	victim.regiment.morale -= UnitTypes.MORALE_ARROW_HIT
 	damage(victim, dmg * rng.randf_range(0.7, 1.3), null)
+	var src: Regiment = a.get("src")
+	if src != null and not victim.alive and src.team != victim.regiment.team:
+		src.kills += 1
 
 
 # ---------------------------------------------------------------- Fin de partie
@@ -841,13 +848,15 @@ func finish_campaign() -> void:
 	var survivors := []
 	survivors.resize(campaign.battle_army().size())
 	survivors.fill(0)
+	var kills := survivors.duplicate()
 	for r in regiments:
 		if r.team != PLAYER or r.company_index < 0:
 			continue
+		kills[r.company_index] += r.kills
 		for s in r.soldiers:
 			if s.alive or s.fled:
 				survivors[r.company_index] += 1
-	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors)
+	campaign_report = campaign.finish_battle(state == State.VICTORY, survivors, kills)
 	campaign.save()
 	add_message(campaign_report)
 

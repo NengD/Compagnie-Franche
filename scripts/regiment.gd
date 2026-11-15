@@ -38,6 +38,25 @@ var in_forest := false
 var hidden := false ## Caché à l'ennemi (en forêt, non repéré)
 var revealed := 0.0
 
+## Rang d'expérience : 0 = recrues, 1 = aguerris, 2 = vétérans
+const RANK_NAMES := ["recrues", "aguerris", "vétérans"]
+const RANK_DAMAGE := 0.10 ## Bonus de dégâts par rang
+const RANK_MORALE := 0.15 ## Bonus de moral maximal par rang
+var rank := 0
+var kills := 0 ## Ennemis tués pendant la bataille (mêlée et flèches)
+
+
+## Fixe le rang d'expérience : le moral maximal monte avec le rang.
+func set_rank(k: int) -> void:
+	rank = clampi(k, 0, RANK_NAMES.size() - 1)
+	max_morale = float(stats["morale"]) * (1.0 + RANK_MORALE * rank)
+	morale = max_morale
+
+
+## Multiplicateur de dégâts dû à l'expérience.
+func rank_damage() -> float:
+	return 1.0 + RANK_DAMAGE * rank
+
 
 func is_dead() -> bool:
 	return alive_n <= 0

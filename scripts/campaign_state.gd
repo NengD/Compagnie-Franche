@@ -17,6 +17,13 @@ const WAGE := {"spear": 0.3, "archer": 0.35, "men_at_arms": 0.6, "cavalry": 1.0}
 ## Prix d'enrôlement d'un homme, en écus
 const RECRUIT_COST := {"spear": 6, "archer": 7, "men_at_arms": 12, "cavalry": 20}
 
+## Expérience : seuils des rangs (recrues, aguerris, vétérans) et gains après une bataille
+const RANK_XP := [0.0, 100.0, 250.0]
+const XP_MAX := 400.0
+const XP_BATTLE := 25.0 ## Avoir combattu
+const XP_VICTORY := 25.0 ## Avoir vaincu
+const XP_KILLS := 60.0 ## Avoir tué autant d'ennemis que le régiment compte d'hommes au complet
+
 ## Villes de la carte (positions en pixels d'écran) et types de troupes qu'on peut y lever.
 const TOWNS := [
 	{"name": "Valombre", "pos": Vector2(140, 560), "recruits": ["spear", "archer"]},
@@ -54,7 +61,7 @@ const CONTRACT_KINDS := [
 var day := 1
 var gold := float(START_GOLD)
 var location := 0 ## Ville où se trouve la compagnie
-var company: Array[Dictionary] = [] ## Régiments : {"type", "men"}
+var company: Array[Dictionary] = [] ## Régiments : {"type", "men", "xp"}
 var contracts: Array[Dictionary] = [] ## {"town", "title", "text", "difficulty", "enemy", "reward", "expires", "seed"}
 var pending: Dictionary = {} ## Contrat en cours de bataille (vide sinon)
 var victories := 0
@@ -71,7 +78,7 @@ static func new_game(seed_value := 0) -> CampaignState:
 	else:
 		c.rng.randomize()
 	for t in ["spear", "spear", "men_at_arms", "archer", "archer", "cavalry"]:
-		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"])})
+		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
 	c.add_log("Jour 1 : la compagnie se forme à %s. Trouvez un contrat !" % TOWNS[0]["name"])
@@ -87,7 +94,7 @@ func add_log(s: String) -> void:
 # ---------------------------------------------------------------- Sauvegarde
 
 static var save_path := "user://campagne.json" ## Les tests utilisent un autre fichier
-const SAVE_VERSION := 1
+const SAVE_VERSION := 2 ## Version 1 (sans expérience, réputation ni renommée) encore lisible
 
 
 ## Données à sauvegarder (types simples uniquement, pour JSON).
@@ -110,7 +117,8 @@ func to_dict() -> Dictionary:
 
 ## Reconstruit une campagne depuis to_dict(). Renvoie null si les données sont invalides.
 static func from_dict(d: Dictionary) -> CampaignState:
-	if int(d.get("version", 0)) != SAVE_VERSION:
+	var version := int(d.get("version", 0))
+	if version < 1 or version > SAVE_VERSION:
 		return null
 	var c := CampaignState.new()
 	c.day = int(d.get("day", 1))
@@ -126,7 +134,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		var type := str(r["type"])
 		var men := clampi(int(r.get("men", 0)), 0, int(UnitTypes.STATS[type]["count"]))
 		if men > 0:
-			c.company.append({"type": type, "men": men})
+			c.company.append({"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)})
 	for k in d.get("contracts", []):
 		if not k is Dictionary:
 			return null
@@ -137,7 +145,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		for e in k.get("enemy", []):
 			if not e is Dictionary or not UnitTypes.STATS.has(str(e.get("type", ""))):
 				return null
-			enemy.append({"type": str(e["type"]), "men": maxi(1, int(e.get("men", 1)))})
+			enemy.append({"type": str(e["type"]), "men": maxi(1, int(e.get("men", 1))), "rank": clampi(int(e.get("rank", 0)), 0, 2)})
 		c.contracts.append({
 			"town": town, "title": str(k.get("title", "")), "text": str(k.get("text", "")),
 			"foe": str(k.get("foe", "ennemis")), "difficulty": clampi(int(k.get("difficulty", 1)), 1, 3),
@@ -222,7 +230,7 @@ func recruit(type: String) -> String:
 	if gold < cost:
 		return "Pas assez d'or (%d écus)." % cost
 	gold -= cost
-	company.append({"type": type, "men": men})
+	company.append({"type": type, "men": men, "xp": 0.0})
 	add_log("Jour %d : %d %s rejoignent la compagnie (-%d écus)." % [day, men, type_name(type).to_lower(), cost])
 	return ""
 
@@ -240,7 +248,7 @@ func refill(index: int) -> String:
 	if gold < cost:
 		return "Pas assez d'or (%d écus)." % cost
 	gold -= cost
-	r["men"] = int(r["men"]) + missing
+	add_men(r, missing, 0.0)
 	add_log("Jour %d : %d recrues complètent les %s (-%d écus)." % [day, missing, type_name(type).to_lower(), cost])
 	return ""
 
@@ -248,6 +256,35 @@ func refill(index: int) -> String:
 func refill_missing(index: int) -> int:
 	var r := company[index]
 	return int(UnitTypes.STATS[r["type"]]["count"]) - int(r["men"])
+
+
+## Ajoute n hommes d'expérience new_xp à un régiment : son expérience est la moyenne des deux.
+## Des recrues (new_xp = 0) diluent donc l'expérience d'un régiment aguerri.
+static func add_men(r: Dictionary, n: int, new_xp: float) -> void:
+	var men := int(r["men"])
+	if n <= 0:
+		return
+	r["xp"] = (float(r.get("xp", 0.0)) * men + new_xp * n) / float(men + n)
+	r["men"] = men + n
+
+
+static func rank_from_xp(xp: float) -> int:
+	var k := 0
+	for i in RANK_XP.size():
+		if xp >= float(RANK_XP[i]):
+			k = i
+	return k
+
+
+## Rang d'un régiment de campagne ({"xp"}) ou d'un régiment ennemi ({"rank"}).
+static func rank_of(entry: Dictionary) -> int:
+	if entry.has("rank"):
+		return clampi(int(entry["rank"]), 0, RANK_XP.size() - 1)
+	return rank_from_xp(float(entry.get("xp", 0.0)))
+
+
+static func rank_name(k: int) -> String:
+	return str(Regiment.RANK_NAMES[k])
 
 
 static func recruit_cost(type: String, men: int) -> int:
@@ -342,7 +379,13 @@ func make_contract(town: int) -> Dictionary:
 	var enemy: Array[Dictionary] = []
 	for t in kind["army"]:
 		var full: int = UnitTypes.STATS[t]["count"]
-		enemy.append({"type": t, "men": maxi(3, int(round(full * rng.randf_range(fill[0], fill[1]))))})
+		# Les ennemis des contrats difficiles sont aguerris, voire vétérans
+		var rank := 0
+		if d == 2 and rng.randf() < 0.4:
+			rank = 1
+		elif d == 3:
+			rank = 2 if rng.randf() < 0.3 else 1
+		enemy.append({"type": t, "men": maxi(3, int(round(full * rng.randf_range(fill[0], fill[1])))), "rank": rank})
 	var titles: Array = kind["titles"]
 	var reward := int(round(int(kind["reward"]) * rng.randf_range(0.9, 1.15) / 10.0)) * 10
 	return {
@@ -362,14 +405,24 @@ func make_contract(town: int) -> Dictionary:
 static func army_summary(list: Array) -> String:
 	var counts := {}
 	var men := 0
+	var ranks := [0, 0, 0]
 	for r in list:
 		counts[r["type"]] = int(counts.get(r["type"], 0)) + 1
 		men += int(r["men"])
+		ranks[rank_of(r)] += 1
 	var parts: Array[String] = []
 	for t in ["spear", "men_at_arms", "archer", "cavalry"]:
 		if counts.has(t):
 			parts.append("%d %s" % [counts[t], type_name(t).to_lower()])
-	return "%s — %d hommes" % [", ".join(parts), men]
+	var s := "%s — %d hommes" % [", ".join(parts), men]
+	if ranks[1] + ranks[2] > 0:
+		var exp: Array[String] = []
+		if ranks[1] > 0:
+			exp.append("%d aguerris" % ranks[1])
+		if ranks[2] > 0:
+			exp.append("%d vétérans" % ranks[2])
+		s += " (régiments %s)" % ", ".join(exp)
+	return s
 
 
 ## Accepte un contrat de la ville actuelle : la bataille peut commencer.
@@ -395,12 +448,14 @@ func battle_army() -> Array[Dictionary]:
 	return out
 
 
-## Fin de bataille. survivors[i] = hommes encore debout (ou enfuis) du régiment battle_army()[i].
-## Les pertes sont reportées sur la compagnie. Renvoie le compte rendu.
-func finish_battle(victory: bool, survivors: Array) -> String:
+## Fin de bataille. survivors[i] = hommes encore debout (ou enfuis) du régiment battle_army()[i],
+## kills[i] = ennemis qu'il a tués. Les pertes et l'expérience sont reportées sur la compagnie.
+## Renvoie le compte rendu.
+func finish_battle(victory: bool, survivors: Array, kills: Array = []) -> String:
 	var army := battle_army()
 	var lost := 0
 	var healed := 0
+	var promoted: Array[String] = []
 	for i in army.size():
 		var r := army[i]
 		var before: int = r["men"]
@@ -411,6 +466,13 @@ func finish_battle(victory: bool, survivors: Array) -> String:
 			healed += h
 		lost += before - after
 		r["men"] = after
+		# Expérience : participation, victoire, ennemis tués (rapportés à la taille du régiment)
+		var k: int = int(kills[i]) if i < kills.size() else 0
+		var full := float(UnitTypes.STATS[r["type"]]["count"])
+		var rank0 := rank_of(r)
+		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (XP_VICTORY if victory else 0.0) + XP_KILLS * k / full, XP_MAX)
+		if after > 0 and rank_of(r) > rank0:
+			promoted.append("les %s (%d) deviennent %s" % [type_name(r["type"]).to_lower(), i + 1, rank_name(rank_of(r))])
 	company = company.filter(func(r): return int(r["men"]) > 0)
 	var report: String
 	if victory:
@@ -420,6 +482,8 @@ func finish_battle(victory: bool, survivors: Array) -> String:
 	else:
 		defeats += 1
 		report = "Défaite face aux %s... Pertes : %d hommes. Aucune prime." % [pending["foe"], lost]
+	if not promoted.is_empty():
+		report += " Promotions : %s." % ", ".join(promoted)
 	contracts.erase(pending)
 	pending = {}
 	add_log("Jour %d : %s" % [day, report])
