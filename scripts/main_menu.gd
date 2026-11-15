@@ -42,7 +42,23 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
 	add_version_label()
+	get_viewport().size_changed.connect(_on_view_resized)
+	var keys := get_node_or_null("/root/DisplayKeys")
+	if keys != null:
+		keys.fullscreen_toggled.connect(_on_fullscreen_toggled)
 	refresh()
+
+
+## Fenêtre redimensionnée (ou taille de l'interface changée) : fond et panneau recalculés.
+func _on_view_resized() -> void:
+	build_background()
+	place_panel()
+
+
+## Alt+Entrée / F11 : la case « Plein écran » de la page Options suit.
+func _on_fullscreen_toggled(_on: bool) -> void:
+	if page == "options" and waiting_action == "":
+		refresh()
 
 
 ## Numéro de version du jeu (application/config/version dans project.godot).
@@ -88,14 +104,14 @@ func refresh() -> void:
 	# Le panneau se recentre sur son nouveau contenu
 	panel.reset_size()
 	await get_tree().process_frame
-	if not is_inside_tree():
+	place_panel()
+
+
+## Page principale sous le titre, autres pages centrées ; réduites si la vue est trop petite.
+func place_panel() -> void:
+	if not is_inside_tree() or panel == null:
 		return
-	var vs := get_viewport_rect().size
-	var w := panel.get_combined_minimum_size()
-	if page == "main":
-		panel.position = Vector2(vs.x * 0.5 - w.x * 0.5, vs.y * 0.36)
-	else:
-		panel.position = ((vs - w) * 0.5).round()
+	UiTheme.fit_panel(panel, get_viewport_rect().size, 0.36 if page == "main" else -1.0)
 
 
 ## Donne le focus clavier au bouton à l'image suivante, s'il est encore affiché.
@@ -255,10 +271,21 @@ func build_options() -> void:
 
 	grid.add_child(UiTheme.label("Plein écran"))
 	var fs := CheckButton.new()
-	fs.button_pressed = GameOptions.fullscreen
+	fs.name = "PleinEcran"
+	fs.button_pressed = GameOptions.is_window_fullscreen()
 	fs.toggled.connect(set_fullscreen)
 	grid.add_child(fs)
-	grid.add_child(Control.new())
+	grid.add_child(UiTheme.label("(Alt+Entrée ou F11)", 13, UiTheme.DIM))
+
+	grid.add_child(UiTheme.label("Taille de l'interface"))
+	var ui := OptionButton.new()
+	ui.name = "TailleInterface"
+	for v in GameOptions.UI_SCALES:
+		ui.add_item(GameOptions.ui_scale_label(v))
+	ui.selected = maxi(GameOptions.UI_SCALES.find(GameOptions.ui_scale), 0)
+	ui.item_selected.connect(set_ui_scale)
+	grid.add_child(ui)
+	grid.add_child(UiTheme.label("(menus, carte et bataille)", 13, UiTheme.DIM))
 
 	grid.add_child(UiTheme.label("Vitesse du jeu"))
 	var sp := OptionButton.new()
@@ -295,7 +322,7 @@ func build_options() -> void:
 		var b := add_button(txt, start_rebind.bind(id), true, keys)
 		b.custom_minimum_size.x = 230
 		b.name = "Touche_" + id
-	var info := "Échap pour annuler." if waiting_action != "" else "Cliquez sur une touche pour la changer. Espace, Entrée, Échap, chiffres et caméra (ZQSD) sont réservés."
+	var info := "Échap pour annuler." if waiting_action != "" else "Cliquez sur une touche pour la changer. Espace, Entrée, Échap, F11, chiffres et caméra (ZQSD) sont réservés."
 	var il := UiTheme.label(info, 13, UiTheme.DIM)
 	il.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	il.custom_minimum_size.x = 560
@@ -348,6 +375,11 @@ func set_fullscreen(on: bool) -> void:
 	GameOptions.fullscreen = on
 	GameOptions.apply_display()
 	GameOptions.save_options()
+
+
+func set_ui_scale(i: int) -> void:
+	GameOptions.set_ui_scale(GameOptions.UI_SCALES[i])
+	_on_view_resized.call_deferred() # La vue visible a changé de taille
 
 
 func set_speed(i: int) -> void:
@@ -504,9 +536,11 @@ func quit_game() -> void:
 
 # ---------------------------------------------------------------- Fond pixel art
 
+## Le fond est généré à la taille de la vue (pixels carrés en 16:9, 16:10 comme en 21:9).
 func build_background() -> void:
-	var w := 1280 / PIX
-	var h := 720 / PIX
+	var vs := get_viewport_rect().size
+	var w := maxi(ceili(vs.x / PIX), 80)
+	var h := maxi(ceili(vs.y / PIX), 45)
 	var img := Image.create_empty(w, h, false, Image.FORMAT_RGB8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1453
@@ -586,19 +620,21 @@ func _rect(img: Image, x: int, y: int, w: int, h: int, col: Color) -> void:
 func _draw() -> void:
 	var vs := get_viewport_rect().size
 	if sky_tex != null:
-		draw_texture_rect(sky_tex, Rect2(Vector2.ZERO, vs), false)
+		draw_texture_rect(sky_tex, Rect2(Vector2.ZERO, Vector2(sky_tex.get_size()) * PIX), false)
 	if page != "main":
 		return # Les pages Options et confirmation masquent le titre et la colonne
 	# Titre
 	var title := "COMPAGNIE FRANCHE"
-	var tw := 1200.0
-	var ty := vs.y * 0.2
+	var tw := vs.x
+	var big := UiTheme.title_size(vs, 64, title.length())
+	var ty := minf(vs.y * 0.2, vs.y * 0.36 - 56.0)
 	for o in [Vector2(5, 5), Vector2(-2, 0), Vector2(2, 0), Vector2(0, -2), Vector2(0, 2)]:
-		draw_string(font, Vector2((vs.x - tw) * 0.5, ty) + o, title, HORIZONTAL_ALIGNMENT_CENTER, tw, 64, Color(0.1, 0.06, 0.03))
-	draw_string(font, Vector2((vs.x - tw) * 0.5, ty), title, HORIZONTAL_ALIGNMENT_CENTER, tw, 64, UiTheme.GOLD)
+		draw_string(font, Vector2(0, ty) + o, title, HORIZONTAL_ALIGNMENT_CENTER, tw, big, Color(0.1, 0.06, 0.03))
+	draw_string(font, Vector2(0, ty), title, HORIZONTAL_ALIGNMENT_CENTER, tw, big, UiTheme.GOLD)
 	var sub := "Batailles de mercenaires au comté de Valfrène"
-	draw_string(font, Vector2((vs.x - tw) * 0.5 + 2, ty + 42), sub, HORIZONTAL_ALIGNMENT_CENTER, tw, 20, Color(0, 0, 0, 0.7))
-	draw_string(font, Vector2((vs.x - tw) * 0.5, ty + 40), sub, HORIZONTAL_ALIGNMENT_CENTER, tw, 20, Color(1, 0.93, 0.8))
+	var small := UiTheme.title_size(vs, 20, sub.length())
+	draw_string(font, Vector2(2, ty + 42), sub, HORIZONTAL_ALIGNMENT_CENTER, tw, small, Color(0, 0, 0, 0.7))
+	draw_string(font, Vector2(0, ty + 40), sub, HORIZONTAL_ALIGNMENT_CENTER, tw, small, Color(1, 0.93, 0.8))
 	# Colonne en marche sur la route, de gauche à droite (en boucle)
 	var road_y := vs.y * 0.9
 	var step := 64.0

@@ -81,3 +81,28 @@ static func label(s: String, size := 16, col := TEXT) -> Label:
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", col)
 	return l
+
+
+## Place un panneau dans la zone visible `vs` (taille réelle de la vue, qui dépend de la fenêtre
+## et de la taille de l'interface) : centré horizontalement, en haut à `top` (fraction de la
+## hauteur, ou centré si négatif), et réduit s'il ne tient pas (petite fenêtre, interface à 150 %).
+static func fit_panel(panel: Control, vs: Vector2, top := -1.0, margin := 12.0) -> void:
+	panel.reset_size()
+	var w := panel.get_combined_minimum_size()
+	panel.size = w
+	if w.x <= 0.0 or w.y <= 0.0:
+		return
+	var avail := vs - Vector2(margin, margin) * 2.0
+	var k := clampf(minf(avail.x / w.x, avail.y / w.y), 0.4, 1.0)
+	panel.pivot_offset = Vector2.ZERO
+	panel.scale = Vector2(k, k)
+	var s := w * k
+	var y := (vs.y - s.y) * 0.5
+	if top >= 0.0:
+		y = minf(vs.y * top, vs.y - margin - s.y)
+	panel.position = Vector2((vs.x - s.x) * 0.5, maxf(y, margin)).round()
+
+
+## Taille de police d'un titre dessiné, réduite si la vue est trop étroite pour `chars` caractères.
+static func title_size(vs: Vector2, base: int, chars: int) -> int:
+	return clampi(int(vs.x / (chars * 0.72)), 18, base)

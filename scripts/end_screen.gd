@@ -37,14 +37,22 @@ func _ready() -> void:
 	build()
 	panel.reset_size()
 	place_panel.call_deferred() # Une fois le contenu mesuré
+	get_viewport().size_changed.connect(_on_view_resized)
+
+
+## Fenêtre redimensionnée (ou taille de l'interface changée) : fond et panneau recalculés.
+func _on_view_resized() -> void:
+	build_background()
+	place_panel()
 
 
 func place_panel() -> void:
 	if not is_inside_tree():
 		return
+	# Sous le titre si la place le permet, sinon centré et réduit
 	var vs := get_viewport_rect().size
-	var w := panel.get_combined_minimum_size()
-	panel.position = Vector2(((vs.x - w.x) * 0.5), maxf(vs.y * 0.3, (vs.y - w.y) * 0.5 + 40.0)).round()
+	var h := panel.get_combined_minimum_size().y
+	UiTheme.fit_panel(panel, vs, maxf(0.3, ((vs.y - h) * 0.5 + 40.0) / vs.y))
 
 
 func _process(delta: float) -> void:
@@ -152,9 +160,11 @@ func new_campaign() -> void:
 # ---------------------------------------------------------------- Fond pixel art
 
 ## Victoire : aube dorée et bannières levées. Ruine : nuit froide, bannière à terre.
+## Généré à la taille de la vue (pixels carrés quel que soit le format de l'écran).
 func build_background() -> void:
-	var w := 1280 / PIX
-	var h := 720 / PIX
+	var vs := get_viewport_rect().size
+	var w := maxi(ceili(vs.x / PIX), 80)
+	var h := maxi(ceili(vs.y / PIX), 45)
 	var img := Image.create_empty(w, h, false, Image.FORMAT_RGB8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1346
@@ -183,12 +193,12 @@ func build_background() -> void:
 func _draw() -> void:
 	var vs := get_viewport_rect().size
 	if sky_tex != null:
-		draw_texture_rect(sky_tex, Rect2(Vector2.ZERO, vs), false)
+		draw_texture_rect(sky_tex, Rect2(Vector2.ZERO, Vector2(sky_tex.get_size()) * PIX), false)
 	var ground := vs.y * 0.74
 	if victory:
 		# Bannières bleues de la compagnie qui flottent au vent
 		for k in 5:
-			var x := vs.x * (0.12 + k * 0.19)
+			var x := vs.x * (0.06 + k * 0.215)
 			var base := Vector2(x, ground + (k % 2) * 10.0)
 			draw_line(base, base + Vector2(0, -90), Color(0.35, 0.24, 0.12), 4.0)
 			var wave := sin(clock * 3.0 + k) * 4.0
@@ -203,10 +213,11 @@ func _draw() -> void:
 		draw_line(base, tip, Color(0.3, 0.22, 0.14), 4.0)
 		draw_colored_polygon(PackedVector2Array([tip, tip + Vector2(30, 20), tip + Vector2(16, 40), tip + Vector2(-6, 24)]), Color(0.2, 0.28, 0.5))
 	var title := "COMPAGNIE FRANCHE"
-	var tw := 1200.0
+	var tw := vs.x
+	var big := UiTheme.title_size(vs, 52, title.length())
 	var ty := vs.y * 0.17
 	for o in [Vector2(4, 4), Vector2(-2, 0), Vector2(2, 0), Vector2(0, -2), Vector2(0, 2)]:
-		draw_string(font, Vector2((vs.x - tw) * 0.5, ty) + o, title, HORIZONTAL_ALIGNMENT_CENTER, tw, 52, Color(0.1, 0.06, 0.03))
-	draw_string(font, Vector2((vs.x - tw) * 0.5, ty), title, HORIZONTAL_ALIGNMENT_CENTER, tw, 52, UiTheme.GOLD)
+		draw_string(font, Vector2(0, ty) + o, title, HORIZONTAL_ALIGNMENT_CENTER, tw, big, Color(0.1, 0.06, 0.03))
+	draw_string(font, Vector2(0, ty), title, HORIZONTAL_ALIGNMENT_CENTER, tw, big, UiTheme.GOLD)
 	var sub := "Victoire" if victory else "Fin de la campagne"
-	draw_string(font, Vector2((vs.x - tw) * 0.5, ty + 36), sub, HORIZONTAL_ALIGNMENT_CENTER, tw, 22, Color(1, 0.93, 0.8))
+	draw_string(font, Vector2(0, ty + 36), sub, HORIZONTAL_ALIGNMENT_CENTER, tw, 22, Color(1, 0.93, 0.8))

@@ -1,7 +1,7 @@
 class_name GameOptions
 extends RefCounted
-## Options du joueur : volumes, plein écran, vitesse du jeu, difficulté de l'escarmouche
-## et touches de bataille.
+## Options du joueur : volumes, plein écran, taille de l'interface, vitesse du jeu,
+## difficulté de l'escarmouche et touches de bataille.
 ## Sauvegardées dans user://options.cfg (ConfigFile) et appliquées au démarrage
 ## (ensure_loaded() est appelé par le menu, la carte et la bataille).
 ##
@@ -11,6 +11,8 @@ extends RefCounted
 
 const DEFAULT_PATH := "user://options.cfg"
 const SPEEDS: Array[float] = [1.0, 1.5, 2.0]
+## Tailles de l'interface proposées (facteur appliqué à toute la fenêtre, voir apply_display()).
+const UI_SCALES: Array[float] = [0.9, 1.0, 1.25, 1.5]
 const BUS_MUSIC := "Musique"
 const BUS_SFX := "Effets"
 
@@ -35,6 +37,7 @@ const RESERVED := {
 	KEY_ENTER: "fin de bataille",
 	KEY_KP_ENTER: "fin de bataille",
 	KEY_ESCAPE: "retour au menu",
+	KEY_F11: "plein écran",
 	KEY_UP: "caméra", KEY_DOWN: "caméra", KEY_LEFT: "caméra", KEY_RIGHT: "caméra",
 	KEY_SHIFT: "ajout à la sélection", KEY_CTRL: "Ctrl", KEY_ALT: "Alt", KEY_META: "Méta",
 }
@@ -52,6 +55,7 @@ static var master_volume := 1.0 ## 0..1
 static var music_volume := 0.8
 static var sfx_volume := 1.0
 static var fullscreen := false
+static var ui_scale := 1.0 ## Taille de l'interface (une valeur de UI_SCALES)
 static var speed := 1.0 ## Vitesse de la simulation en bataille
 static var difficulty := Difficulty.NORMAL ## Difficulté de l'escarmouche (la campagne a la sienne)
 static var binds := {} ## id d'action -> keycode
@@ -70,6 +74,7 @@ static func reset_all() -> void:
 	music_volume = 0.8
 	sfx_volume = 1.0
 	fullscreen = false
+	ui_scale = 1.0
 	speed = 1.0
 	difficulty = Difficulty.NORMAL
 	reset_keys()
@@ -91,6 +96,8 @@ static func load_options() -> void:
 	music_volume = clampf(float(cfg.get_value("audio", "musique", music_volume)), 0.0, 1.0)
 	sfx_volume = clampf(float(cfg.get_value("audio", "effets", sfx_volume)), 0.0, 1.0)
 	fullscreen = bool(cfg.get_value("affichage", "plein_ecran", fullscreen))
+	var ui := float(cfg.get_value("affichage", "taille_interface", ui_scale))
+	ui_scale = ui if ui in UI_SCALES else 1.0
 	var sp := float(cfg.get_value("jeu", "vitesse", speed))
 	speed = sp if sp in SPEEDS else 1.0
 	difficulty = Difficulty.sanitize(str(cfg.get_value("jeu", "difficulte", difficulty)))
@@ -112,6 +119,7 @@ static func save_options() -> bool:
 	cfg.set_value("audio", "musique", music_volume)
 	cfg.set_value("audio", "effets", sfx_volume)
 	cfg.set_value("affichage", "plein_ecran", fullscreen)
+	cfg.set_value("affichage", "taille_interface", ui_scale)
 	cfg.set_value("jeu", "vitesse", speed)
 	cfg.set_value("jeu", "difficulte", difficulty)
 	for id in binds:
@@ -165,7 +173,14 @@ static func _set_bus(bus_name: String, v: float) -> void:
 
 # ---------------------------------------------------------------- Affichage et vitesse
 
+## Affichage : la fenêtre s'étire en mode « canvas_items » avec l'aspect « expand »
+## (project.godot) : la base 1280×720 est agrandie ou réduite selon la hauteur, et les écrans
+## 16:10 ou 21:9 montrent simplement plus de surface. Les polices sont rendues à la taille
+## finale (nettes à toute échelle). La taille de l'interface multiplie ce facteur.
 static func apply_display() -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree != null and tree.root != null:
+		tree.root.content_scale_factor = ui_scale
 	if DisplayServer.get_name() == "headless":
 		return
 	var mode := DisplayServer.window_get_mode()
@@ -174,6 +189,33 @@ static func apply_display() -> void:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	elif not fullscreen and is_full:
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+
+
+## Vrai si la fenêtre est en plein écran (quel que soit le moyen qui l'y a mise).
+static func is_window_fullscreen() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return fullscreen
+	var mode := DisplayServer.window_get_mode()
+	return mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+
+
+## Alt+Entrée / F11 : bascule le plein écran et le sauvegarde.
+static func toggle_fullscreen() -> void:
+	ensure_loaded()
+	fullscreen = not is_window_fullscreen()
+	apply_display()
+	save_options()
+
+
+static func set_ui_scale(v: float) -> void:
+	ui_scale = v if v in UI_SCALES else 1.0
+	apply_display()
+	save_options()
+
+
+## « 125 % » : nom d'une taille de l'interface.
+static func ui_scale_label(v: float) -> String:
+	return "%d %%" % roundi(v * 100.0)
 
 
 ## Vitesse suivante (x1 → x1,5 → x2 → x1).

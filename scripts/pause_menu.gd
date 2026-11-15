@@ -22,17 +22,26 @@ func _ready() -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(dim)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(center)
 	panel = PanelContainer.new()
 	panel.theme = UiTheme.make(17)
-	center.add_child(panel)
+	add_child(panel)
 	box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
+	get_viewport().size_changed.connect(place_panel)
+	var keys := get_node_or_null("/root/DisplayKeys")
+	if keys != null:
+		keys.fullscreen_toggled.connect(func(_on: bool) -> void:
+			if visible and page == "options":
+				refresh())
 	refresh()
+
+
+## Centré dans la vue, réduit s'il ne tient pas (petite fenêtre, grande taille d'interface).
+func place_panel() -> void:
+	if panel == null or not is_inside_tree():
+		return
+	UiTheme.fit_panel(panel, get_viewport_rect().size)
 
 
 ## Le menu est-il affiché ?
@@ -87,6 +96,8 @@ func refresh() -> void:
 			build_confirm_menu()
 		_:
 			build_main()
+	place_panel()
+	place_panel.call_deferred() # Une fois les anciens boutons libérés et le contenu mesuré
 
 
 func add_button(s: String, cb: Callable, parent: Control = null) -> Button:
@@ -174,9 +185,18 @@ func build_options() -> void:
 	grid.add_child(UiTheme.label("(touche %s)" % GameOptions.key_label("speed"), 13, UiTheme.DIM))
 	grid.add_child(UiTheme.label("Plein écran"))
 	var fs := CheckButton.new()
-	fs.button_pressed = GameOptions.fullscreen
+	fs.button_pressed = GameOptions.is_window_fullscreen()
 	fs.toggled.connect(set_fullscreen)
 	grid.add_child(fs)
+	grid.add_child(UiTheme.label("(Alt+Entrée ou F11)", 13, UiTheme.DIM))
+	grid.add_child(UiTheme.label("Taille de l'interface"))
+	var ui := OptionButton.new()
+	ui.name = "TailleInterface"
+	for v in GameOptions.UI_SCALES:
+		ui.add_item(GameOptions.ui_scale_label(v))
+	ui.selected = maxi(GameOptions.UI_SCALES.find(GameOptions.ui_scale), 0)
+	ui.item_selected.connect(set_ui_scale)
+	grid.add_child(ui)
 	grid.add_child(Control.new())
 	add_text("Les touches se reconfigurent depuis le menu principal (Options).", 13, UiTheme.DIM)
 	focus_later(add_button("Retour", show_page.bind("main")))
@@ -287,3 +307,8 @@ func set_fullscreen(on: bool) -> void:
 	GameOptions.fullscreen = on
 	GameOptions.apply_display()
 	GameOptions.save_options()
+
+
+func set_ui_scale(i: int) -> void:
+	GameOptions.set_ui_scale(GameOptions.UI_SCALES[i])
+	place_panel.call_deferred()
