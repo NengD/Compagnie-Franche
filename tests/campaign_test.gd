@@ -40,6 +40,7 @@ func _initialize() -> void:
 	CampaignState.delete_save()
 	_test_rules()
 	_test_veterans()
+	_test_reputation()
 	_test_save()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
@@ -171,7 +172,7 @@ func _test_veterans() -> void:
 	check(is_equal_approx(reg.max_morale, float(UnitTypes.STATS["spear"]["morale"]) * (1.0 + 2 * Regiment.RANK_MORALE)) and is_equal_approx(reg.rank_damage(), 1.0 + 2 * Regiment.RANK_DAMAGE), "vétérans : bonus de rang")
 	check(CampaignState.rank_of({"type": "spear", "rank": 2}) == 2 and CampaignState.rank_of({"xp": 260.0}) == 2, "vétérans : rang mal lu")
 	# Contrats difficiles : ennemis classés
-	c.victories = 10
+	c.fame = 200
 	var ranked := 0
 	for i in 20:
 		var k := c.make_contract(0)
@@ -182,6 +183,63 @@ func _test_veterans() -> void:
 				ranked += 1
 	check(ranked > 0, "vétérans : aucun ennemi aguerri")
 	print("Vétérans : OK")
+
+
+## Réputation et factions : contrat gagné, rivale, prime modulée, portes fermées, renommée.
+func _test_reputation() -> void:
+	var c := CampaignState.new_game(9)
+	var owned := [0, 0, 0]
+	for t in CampaignState.TOWNS.size():
+		owned[CampaignState.town_faction(t)] += 1
+	check(owned[0] > 0 and owned[1] > 0 and owned[2] > 0 and c.reputation == [0, 0, 0], "réputation : factions mal réparties %s" % str(owned))
+	for k in c.contracts:
+		check(int(k["faction"]) == CampaignState.town_faction(int(k["town"])) and int(k["difficulty"]) == 1, "réputation : contrat mal attribué ou trop dur sans renommée")
+	# Contrat gagné à Valombre (Comté) : le Comté apprécie, sa rivale la Baronnie beaucoup moins
+	var f := CampaignState.town_faction(0)
+	var rival := int(CampaignState.FACTIONS[f]["rival"])
+	var other := 3 - f - rival
+	c.accept(c.contracts_at(0)[0])
+	var surv := []
+	for r in c.battle_army():
+		surv.append(int(r["men"]))
+	c.finish_battle(true, surv, [])
+	# (la bataille prend la journée : la rancune de la rivale peut déjà s'apaiser d'un point)
+	check(c.reputation[f] == CampaignState.REP_WIN and c.reputation[rival] - CampaignState.REP_RIVAL in [0, 1] and c.reputation[other] == 0,
+		"réputation après victoire : %s" % str(c.reputation))
+	check(c.fame > 0, "renommée : pas de gain après une victoire")
+	# La réputation module la prime
+	var k := {"reward": 400, "faction": f}
+	c.reputation[f] = 50
+	check(c.contract_reward(k) == 500, "réputation : prime à +50 = %d au lieu de 500" % c.contract_reward(k))
+	c.reputation[f] = -20
+	check(c.contract_reward(k) == 360, "réputation : prime à -20 = %d au lieu de 360" % c.contract_reward(k))
+	# Réputation très basse : contrats et recrutement fermés
+	c.gold = 5000.0
+	c.location = 0
+	c.reputation[f] = CampaignState.REP_CLOSED
+	c.refresh_contracts(0)
+	check(c.faction_closed(f) and c.accept(c.contracts_at(0)[0]) != "" and not c.in_battle(), "réputation : contrat accepté par une faction hostile")
+	check(c.recruit("spear") != "", "réputation : recrutement accepté par une faction hostile")
+	c.company[0]["men"] = 3
+	check(c.refill(0) != "", "réputation : complément accepté par une faction hostile")
+	# Les rancunes s'apaisent avec le temps
+	var r0 := c.reputation[f]
+	c.pass_day()
+	c.pass_day()
+	check(c.reputation[f] > r0, "réputation : aucune remontée avec le temps")
+	# La difficulté suit la renommée
+	c.fame = 0
+	var hard := 0
+	for i in 20:
+		check(int(c.make_contract(1)["difficulty"]) == 1, "renommée nulle : contrat difficile")
+	c.fame = CampaignState.FAME_STEP * 2
+	for i in 20:
+		var d := int(c.make_contract(1)["difficulty"])
+		check(d >= 2, "renommée haute : contrat facile")
+		if d == 3:
+			hard += 1
+	check(hard > 0, "renommée haute : jamais de contrat difficile")
+	print("Réputation : OK")
 
 
 ## Sauvegarde : aller-retour exact (y compris le tirage des futurs contrats), refus des fichiers abîmés.
