@@ -145,6 +145,7 @@ assets/                 Sprites et sons (voir CREDITS.md)
 tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, défaite, économie, évènements,
                         deux batailles de contrat, une retraite, carte et embuscade)
+tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain dans captures/ (avec fenêtre)
@@ -159,6 +160,7 @@ godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, c
 godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur un terrain imposé
                                                       # (plain, forest, hills, river, village, siege, random)
 godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, batailles, retraite, sauvegarde, carte
+godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --path . -s tests/menu_capture.gd               # captures/menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
@@ -195,4 +197,6 @@ village 6/10 et 3/10 ; palissade 11/20 et 10/20. Toutes les batailles se termine
 Les écarts restent dans le bruit d'une série de 10 batailles.
 
 ## Pistes pour continuer
-- IA qui utilise les formations (carré contre la cavalerie) et la course.
+- Plusieurs emplacements de sauvegarde.
+- Sièges plus complets (échelles, portes, assaut d'une ville).
+- Nouveaux types d'unités (arbalétriers, chevaliers démontés).
