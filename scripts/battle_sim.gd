@@ -17,7 +17,7 @@ extends RefCounted
 ## Attention : l'ordre des tirages de rng compte (graines fixes des tests et du banc).
 
 signal message_posted(text: String) ## Message pour le joueur (journal du HUD)
-signal sound_played(sound: String, at: Vector2) ## Bruitage localisé (« sword », « clash », « bow », « death »)
+signal sound_played(sound: String, at: Vector2) ## Bruitage localisé (« sword », « clash », « bow », « death », « swish »)
 signal cries_played(at: Vector2, count: int) ## Cris d'un régiment qui fuit
 signal impact(at: Vector2, amount: float) ## Choc visible (charge) : secousse de caméra
 signal ended ## La bataille vient de se terminer (state vaut VICTORY ou DEFEAT)
@@ -838,6 +838,7 @@ func update_arrows(dt: float) -> void:
 func arrow_impact(a: Dictionary) -> void:
 	var hits := soldiers_near(a["to"], 6.0)
 	if hits.is_empty():
+		sound_played.emit("swish", a["to"]) # Flèche perdue : sifflement
 		return
 	var victim: Soldier = hits[0]
 	if is_in_forest(victim.pos) and rng.randf() < 0.5:

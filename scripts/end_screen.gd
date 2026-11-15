@@ -26,6 +26,7 @@ func _ready() -> void:
 	if state == null:
 		state = CampaignState.load_game()
 	victory = state != null and state.ended == "victory"
+	GameAudio.music("victory" if victory else "defeat")
 	build_background()
 	panel = PanelContainer.new()
 	panel.theme = UiTheme.make(16)

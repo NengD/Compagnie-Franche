@@ -30,6 +30,7 @@ func _ready() -> void:
 	GameOptions.ensure_loaded()
 	if CampaignState.migrate_legacy():
 		notice = "Ancienne sauvegarde déplacée dans l'emplacement 1."
+	GameAudio.music("menu")
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	font = ThemeDB.fallback_font
 	theme_ui = UiTheme.make(17)

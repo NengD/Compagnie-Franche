@@ -47,6 +47,7 @@ class RankIcon extends Control:
 
 func _ready() -> void:
 	GameOptions.ensure_loaded()
+	GameAudio.music("campaign")
 	if CampaignState.current == null:
 		# Au lancement du jeu : reprend la campagne sauvegardée s'il y en a une
 		CampaignState.migrate_legacy()
@@ -207,6 +208,7 @@ func click_town(t: int) -> void:
 		walk_t = 0.0
 		walk_dur = state.travel_days(t) * DAY_ANIM
 		notice = "En marche vers %s..." % CampaignState.TOWNS[t]["name"]
+	GameAudio.ui("click" if walking else "refuse")
 	refresh_ui()
 
 
@@ -221,12 +223,14 @@ func show_end() -> void:
 
 func do_recruit(type: String) -> void:
 	notice = state.recruit(type)
+	GameAudio.feedback(notice == "")
 	state.save()
 	refresh_ui()
 
 
 func do_refill(i: int) -> void:
 	notice = state.refill(i)
+	GameAudio.feedback(notice == "")
 	state.save()
 	refresh_ui()
 
