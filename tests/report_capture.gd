@@ -15,6 +15,7 @@ var end_frame := -1
 
 
 func _initialize() -> void:
+	AudioServer.set_bus_mute(0, true) # Aucun son pendant la capture
 	CampaignState.save_path = "user://capture_campagne.json"
 	CampaignState.event_chance = 0.0
 	var camp := CampaignState.new_game(42)
