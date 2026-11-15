@@ -87,7 +87,7 @@ func _draw() -> void:
 		text(rect.position + Vector2(6, 58), status, 11, scol)
 		if r.hidden:
 			text(rect.position + Vector2(cw - 40, 58), "caché", 11, Color(0.4, 1, 0.5))
-		draw_chevrons(self, rect.position + Vector2(cw - 16, 6), r.rank)
+		draw_chevrons(self, rect.position + Vector2(cw - 16, -4.0 - 4.0 * r.rank), r.rank) # Badge au-dessus de la carte
 
 	# Messages
 	var y := 52.0

@@ -509,13 +509,14 @@ func draw_town(i: int, here: bool, near: bool) -> void:
 		draw_line(f, f + Vector2(0, 14), WOOD, 2.0)
 		draw_rect(Rect2(f, Vector2(10, 7)), Color(0.8, 0.15, 0.12))
 		draw_string(font, f + Vector2(2, 6), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color.WHITE)
-	# Fanion aux couleurs de la faction
+	# Liseré aux couleurs de la faction sous le nom (rayé si elle nous ferme ses portes)
 	var fcol: Color = CampaignState.FACTIONS[CampaignState.town_faction(i)]["color"]
-	var pf := p + Vector2(-18, -22)
-	draw_line(pf, pf + Vector2(0, 14), WOOD, 2.0)
-	draw_rect(Rect2(pf + Vector2(-9, 0), Vector2(9, 6)), fcol)
+	var bar := Rect2(p + Vector2(-22, 38), Vector2(44, 4))
+	draw_rect(bar.grow(1), Color(0, 0, 0, 0.7))
+	draw_rect(bar, fcol)
 	if state.faction_closed(CampaignState.town_faction(i)):
-		draw_line(pf + Vector2(-9, 0), pf + Vector2(0, 6), Color(0.1, 0, 0), 1.5)
+		for k in 4:
+			draw_rect(Rect2(bar.position + Vector2(4 + k * 11, 0), Vector2(5, 4)), Color(0.55, 0.08, 0.06))
 	var name: String = CampaignState.TOWNS[i]["name"]
 	var col := GOLD_COL if here else (Color(1, 1, 1) if near else Color(0.85, 0.82, 0.75))
 	draw_string(font, p + Vector2(-60, 33), name, HORIZONTAL_ALIGNMENT_CENTER, 120, 13, Color(0, 0, 0, 0.8))
