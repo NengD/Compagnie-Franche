@@ -244,6 +244,89 @@ func is_deep_water(p: Vector2) -> bool:
 	return active and is_river(p) and not is_ford(p)
 
 
+# ---------------------------------------------------------------- Requêtes pour l'IA
+
+const FORD_EXIT := 90.0 ## Distance à la rivière des points d'entrée et de sortie d'un gué
+const FORD_DETOUR := 520.0 ## Détour maximal (en px) accepté pour passer par un gué plutôt qu'à la nage
+
+
+## Point le plus haut à moins de radius de p (balayage de la grille des hauteurs).
+func highest_near(p: Vector2, radius: float) -> Vector2:
+	if heights.is_empty():
+		return p
+	var best := p
+	var bh := height(p)
+	var stride := HEIGHT_CELL * 2.0
+	var n := int(radius / stride)
+	for j in range(-n, n + 1):
+		for i in range(-n, n + 1):
+			var q := p + Vector2(i, j) * stride
+			if q.distance_to(p) > radius or q.x < 0.0 or q.y < 0.0 or q.x > world.x or q.y > world.y:
+				continue
+			var h := height(q)
+			if h > bh:
+				bh = h
+				best = q
+	return best
+
+
+## Sommets des collines (un par colline, au point réellement le plus haut).
+func hill_tops() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for hl in hills:
+		out.append(highest_near(hl[0], 120.0))
+	return out
+
+
+## Rive où se trouve p : -1 au nord de la rivière, 1 au sud, 0 dans le lit (ou pas de rivière).
+func river_side(p: Vector2) -> float:
+	if not has_river() or not road_y.is_valid():
+		return 0.0
+	var dy := p.y - float(road_y.call(p.x))
+	if absf(dy) < RIVER_HALF:
+		return 0.0
+	return signf(dy)
+
+
+## Vrai si aller de a à b oblige à traverser la rivière.
+func crosses_river(a: Vector2, b: Vector2) -> bool:
+	var sa := river_side(a)
+	var sb := river_side(b)
+	return sa != 0.0 and sb != 0.0 and sa != sb
+
+
+## Prochain point de passage de from vers goal : si la rivière les sépare, le gué le plus avantageux
+## (d'abord l'entrée sur sa rive, alignée sur le gué, puis la sortie sur l'autre rive) ;
+## sinon, ou si le détour dépasse max_detour par rapport à la traversée à la nage, goal lui-même.
+func ford_waypoint(from: Vector2, goal: Vector2, max_detour := FORD_DETOUR) -> Vector2:
+	if not active or fords.is_empty() or not has_river():
+		return goal
+	var sf := river_side(from)
+	var sg := river_side(goal)
+	if sg == 0.0:
+		return goal
+	if sf == 0.0:
+		# Dans le lit : sur un gué on achève la traversée tout droit, sinon on sort au plus court
+		return Vector2(from.x, float(road_y.call(from.x)) + sg * FORD_EXIT) if is_ford(from) else goal
+	if sf == sg:
+		return goal
+	var best := INF
+	var fx := 0.0
+	for f in fords:
+		var fp := Vector2(f, float(road_y.call(f)))
+		var c := from.distance_to(fp) + fp.distance_to(goal)
+		if c < best:
+			best = c
+			fx = f
+	var wade := from.distance_to(goal) + 2.0 * RIVER_HALF * (1.0 / WATER_SPEED - 1.0)
+	if best - wade > max_detour:
+		return goal
+	var ry: float = road_y.call(fx)
+	if absf(from.x - fx) < FORD_HALF * 0.6 and absf(from.y - ry) < FORD_EXIT + 60.0:
+		return Vector2(fx, ry - sf * FORD_EXIT) # Aligné sur le gué : on traverse
+	return Vector2(fx, ry + sf * FORD_EXIT) # On rejoint l'entrée du gué sur sa rive
+
+
 # ---------------------------------------------------------------- Déplacement
 
 ## Facteur de vitesse d'un soldat en p qui avance dans la direction dir.

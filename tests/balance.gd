@@ -65,8 +65,18 @@ func run_strategies() -> void:
 		var times: Array[float] = []
 		var surv := [0.0, 0.0]
 		var unfinished := 0
+		var plans := {} ## Plan choisi par l'IA ennemie → [batailles, victoires du joueur]
+		var retreats := 0
 		for i in n_seeds:
 			var res := play(strat, first_seed + i)
+			var pk: String = res["plan"]
+			if not plans.has(pk):
+				plans[pk] = [0, 0]
+			plans[pk][0] += 1
+			if res["state"] == "VICTORY":
+				plans[pk][1] += 1
+			if res["retreat"]:
+				retreats += 1
 			if res["state"] == "VICTORY":
 				wins += 1
 			elif res["state"] == "BATTLE":
@@ -82,6 +92,10 @@ func run_strategies() -> void:
 		print("%-9s victoires %2d/%d  non finies %d  durée moy %5.0f s (min %4.0f, médiane %4.0f, max %4.0f)  survivants joueur %4.0f%%  ennemi %4.0f%%" % [
 			strat, wins, n_seeds, unfinished, mean, times[0], times[times.size() / 2], times[-1],
 			100.0 * surv[0] / n_seeds, 100.0 * surv[1] / n_seeds])
+		var parts: PackedStringArray = []
+		for pk in plans:
+			parts.append("%s %d (%d gagnées)" % [EnemyAI.PLAN_NAMES.get(pk, pk), plans[pk][0], plans[pk][1]])
+		print("          plans de l'IA : %s ; retraites en bon ordre %d" % [", ".join(parts), retreats])
 
 
 func play(strat: String, seed_value: int) -> Dictionary:
@@ -126,6 +140,8 @@ func play(strat: String, seed_value: int) -> Dictionary:
 		"state": b.State.keys()[b.state],
 		"time": b.battle_time,
 		"surv": [float(alive[0]) / b.initial_strength[0], float(alive[1]) / b.initial_strength[1]],
+		"plan": b.sim.ai.plan,
+		"retreat": b.sim.ai.withdrawing,
 	}
 	root.remove_child(b)
 	b.free()
