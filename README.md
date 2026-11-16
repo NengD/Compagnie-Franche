@@ -70,6 +70,7 @@ Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1
 | IA : carré des piquiers contre les charges | non | oui | oui |
 | Recrues / solde (campagne) | x0,8 | x1 | x1,2 |
 | Primes des contrats | x1,25 | x1 | x0,85 |
+| Vétérans des armées de contrat (les autres sont aguerris) | x0,4 | x0,7 | x1 |
 
 L'escarmouche prend la difficulté des Options ; la campagne garde celle choisie à sa création
 (enregistrée dans la sauvegarde, version 4 ; les sauvegardes plus anciennes sont relues en « normal »).
@@ -83,7 +84,7 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   le panneau) : faire de la compagnie la plus célèbre du comté. À **150 de renommée**, la faction qui vous
   estime le plus (parmi celles qui ne vous ferment pas leurs portes) vous convoque dans sa capitale
   (Saint-Aubin, Montfaucon ou Pontrieux, drapeau doré) pour la **bataille décisive** contre sa rivale :
-  11 régiments presque tous vétérans. Ce contrat n'expire pas. Le gagner termine la campagne
+  9 régiments, dont deux de chevaliers à pied, presque tous aguerris ou vétérans. Ce contrat n'expire pas. Le gagner termine la campagne
   (**écran de victoire** avec le bilan : jours, batailles, ennemis tués, pertes, or, vétérans). Le perdre
   coûte de la renommée : il faudra la regagner pour être rappelé.
 - **Game over** : si la compagnie n'a plus un homme et ne peut plus lever un seul régiment complet dans la
@@ -106,14 +107,16 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   | Cavaliers | 10 | charge (jusqu'à x2,8), archers (x2) | piques (x0,6), chevaliers à pied (x0,7) | 20 | 1 | Montfaucon, Castelroux, Hautemure | 2 |
   | Archers montés | 10 | **tirent en marchant**, **décrochent** seuls de la mêlée | faibles au contact, cavalerie (x1,5), piques (x1,5) | 18 | 0,9 | Montfaucon, Castelroux (la Baronnie) | 4 |
 - **Contrats** : les villes marquées d'un drapeau rouge proposent des contrats sur **5 niveaux** :
-  brigands (4 régiments), routiers (6), gens d'une faction ennemie (8), Grande Compagnie (9), ost d'une faction (10).
+  brigands (4 régiments), routiers (6), gens d'une faction ennemie (8), Grande Compagnie (8), ost d'une faction (9),
+  régiment aux couleurs de celui qui lève l'armée compris ; les régiments ennemis sont souvent entamés.
   Les arbalétriers apparaissent chez l'ennemi dès les routiers, les archers montés avec la Grande Compagnie,
   les chevaliers à pied dans l'ost de la faction rivale et dans la bataille décisive (deux régiments).
   Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi tué).
   Les contrats deviennent plus durs avec votre **renommée** (gagnée par les victoires : 5 + 5 x niveau,
   perdue par les défaites) : un niveau de plus tous les 25 points, le niveau 5 à 100. Chaque ville propose le
   niveau le plus haut ou celui d'en dessous. Plus le niveau est haut, plus l'ennemi est nombreux et aguerri
-  (niveau 3 : tous aguerris, 30 % de vétérans ; niveau 5 : 80 % de vétérans) et plus la prime est forte
+  (niveau 3 : un sur deux aguerri ; niveau 5 : 70 % d'aguerris ou de vétérans ; la part de vétérans dépend de la
+  difficulté) et plus la prime est forte
   (de 260 à 1350 écus, +0,2 % par point de renommée, même au-delà du niveau 5). Ils expirent après 14 jours.
   Réglages : `CONTRACT_KINDS`, `FINAL_CONTRACT`, `FAME_STEP` et `FINAL_FAME` dans `scripts/campaign_state.gd`.
 - **Contrats variés** : l'objectif ne se limite plus à détruire l'ennemi (la carte l'annonce, « Objectif : … ») :
@@ -430,6 +433,8 @@ tests/capture_dir.gd    Dossier de sortie commun des captures (--out=<dossier>, 
 tests/resolution_capture.gd Captures multi-résolution (menu, carte, fin, bataille, pause) dans user:// (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
 tests/test_player.gd    Joueurs simulés utilisés par les tests
+tests/campaign_balance.gd  Banc d'équilibrage de la campagne (campagnes entières jouées par un joueur simulé)
+tests/campaign_player.gd   Joueur de campagne simulé (recrute, marche, choisit ses contrats, joue les batailles)
 ```
 
 Pour ajouter à la bataille :
@@ -481,6 +486,8 @@ godot --path . -s tests/screenshot.gd                 # captures dans le dossier
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
 godot --headless --path . -s tests/balance.gd -- --seeds=20 --difficulty=all # idem, par difficulté
+godot --headless --path . -s tests/campaign_bench_test.gd  # mini-cas du banc de campagne (dans run_tests)
+godot --headless --path . -s tests/campaign_balance.gd -- --seeds=8 --difficulty=all   # campagnes entières (long)
 godot --path . -s tests/terrain_shots.gd              # terrain_*.png
 godot --headless --path . -s tests/effects_test.gd    # effets visuels : déterminisme, plafond, option
 godot --path . -s tests/effects_capture.gd            # effets_village.png, effets_gue.png, effets_melee.png, effets_charge.png
@@ -548,6 +555,63 @@ durée médiane) :
 « Normal » est la référence (tous les multiplicateurs à 1, même résultat qu'avant la difficulté).
 « Difficile » joue surtout sur le moral et les dégâts ennemis et une IA plus vive ; on ne peut pas
 dépasser l'effectif plein d'un régiment.
+
+### Campagne (banc `tests/campaign_balance.gd`)
+Un joueur de campagne simulé (`tests/campaign_player.gd`) joue des campagnes entières, sans fenêtre : il lève
+des régiments (4 fantassins, 3 tireurs, 1 cavalier visés ; le plus fort qu'il peut payer, en gardant 8 jours
+de solde), marche vers le contrat qui paie le mieux par jour de marche parmi ceux qu'il peut gagner (force
+estimée d'au moins 1,15 fois celle de l'ennemi, seuil qui baisse quand il reste sans contrat ou sans or),
+livre ou fuit les armées rencontrées et attend d'être prêt pour la bataille décisive. Les batailles sont
+jouées par la vraie simulation, en accéléré, par le joueur tactique de `tests/test_player.gd` (qui suit
+aussi l'objectif du contrat : tenir, prendre, escorter, poursuivre) ; il sonne la retraite quand la bataille
+est perdue. Une campagne dure de 3 à 10 minutes de calcul.
+```
+godot --headless --path . -s tests/campaign_balance.gd -- --seeds=8 --difficulty=all [--days=240] [--fast]
+godot --headless --path . -s tests/campaign_balance.gd -- --first=3 --seeds=1 --difficulty=hard --out=user://banc.jsonl
+godot --headless --path . -s tests/campaign_balance.gd -- --merge=<f1.jsonl>,<f2.jsonl>   # rapport commun
+```
+`--fast` résout les batailles ordinaires par un modèle calibré sur les vraies (la bataille décisive reste
+jouée) : 60 campagnes en 10 à 20 minutes, mais moins fidèle (réglages actuels, graines 1 à 20 : 19/20 en
+facile, 11/20 en normal, 1/20 en difficile, contre 19/20, 14/20 et 0/20 en vraies batailles). `--trace` raconte chaque décision. Pour aller vite,
+lancer un processus par graine et par difficulté avec `--out`, puis `--merge`. Le rapport donne, par
+difficulté : le taux de victoire, les causes d'échec, les jours jusqu'à l'offre et jusqu'à la bataille
+décisive, les courbes d'or, de renommée et d'effectifs (tous les 20 jours), et l'issue des vraies batailles
+selon le rapport de force estimé et selon leur sorte. `tests/campaign_bench_test.gd` (dans `run_tests.ps1`)
+en joue un mini-cas : 60 jours en mode rapide, puis une vraie bataille de contrat.
+
+Mesures (vraies batailles, limite de 240 jours ; avant : graines 1 à 8, après : graines 1 à 20, par difficulté) :
+
+| | Facile avant | Facile après | Normal avant | Normal après | Difficile avant | Difficile après |
+|---|---|---|---|---|---|---|
+| Campagnes gagnées | 2/8 (25 %) | **19/20 (95 %)** | 0/8 | **14/20 (70 %)** | 0/8 | **0/20** |
+| Causes d'échec | ruine 5, décisive perdue 1 | ruine 1 | ruine 8 | ruine 6 | ruine 8 | ruine 20 |
+| Bataille décisive proposée (jour médian) | 6/8 (50) | 20/20 (28) | 1/8 (37) | 16/20 (37) | 0/8 | 5/20 (48) |
+| Première décisive (jour médian) | 5/8 (72) | 19/20 (42) | 1/8 (55) | 16/20 (55) | — | 3/20 (72) |
+| Décisives gagnées / livrées | 2/15 | 19/22 | 0/1 | 14/29 | — | 0/5 |
+| Jour moyen de la victoire | 144 | 45 | — | 74 | — | — |
+
+Courbes en normal (moyenne des campagnes en cours) : avant, jour 20 : 1 384 écus, renommée 83, 127 hommes ;
+jour 40 : 708 écus, 104, 128 hommes ; jour 60 : 94 écus, 109, 57 hommes (la compagnie se ruine au pied du
+niveau 3). Après, jour 20 : 2 721 écus, 98, 122 hommes ; jour 40 : 4 806 écus, 157, 120 hommes ; jour 60 :
+4 097 écus, 163, 99 hommes. En difficile, l'or plafonne vers 1 100 écus et la compagnie fond après le
+jour 60 (78 hommes, puis 53 au jour 80).
+
+Ce qui bloquait : à 8 régiments au plus, la compagnie ne battait plus les armées de 9 régiments du niveau 3
+(70 % d'aguerris, 30 % de vétérans) ; elle errait sans contrat à sa portée et se ruinait en soldes. La
+bataille décisive (11 régiments, 90 % de vétérans) restait hors de portée, même en facile. Corrections (N6) :
+- armées plus petites, régiment de couleur compris : 6, 8, 8 et 9 régiments aux niveaux 2 à 5 (au lieu de 7,
+  9, 10 et 11), souvent entamées, et moins de vétérans (niveau 4 : 15 %, niveau 5 : 20 %, au lieu de 55 et 80 %) ;
+- bataille décisive : 9 régiments au lieu de 11 (dont deux de chevaliers à pied), entamés (75 à 90 %),
+  50 % d'aguerris et 30 % de vétérans au lieu de 90 % de vétérans ;
+- nouvelle valeur de difficulté `enemy_veterans` (facile 0,4, normal 0,7, difficile 1) : la part des
+  vétérans des armées de contrat qui le restent, les autres sont aguerris (`Difficulty.enemy_ranks`).
+L'économie ne bloque plus en facile et en normal : l'or monte jusqu'à la bataille décisive, qu'on peut
+retenter (une sur deux est gagnée en normal). Par rapport à la cible (la plupart en facile, une sur deux en
+normal, rarement en difficile), le normal reste un peu facile (70 %) et le difficile trop dur (0/20) : les
+compagnies s'y ruinent aux niveaux 3 et 4, avant même l'offre. Leviers suivants : `enemy_veterans` et les
+primes en difficile, ou une décisive un peu plus forte en normal. Le régiment allié prêté par le patron n'a
+pas été nécessaire. Sur 10 campagnes, le hasard fait varier le taux de victoire de 15 à 30 points (mêmes
+graines, réglages presque identiques : normal 6/10 puis 9/10) : mesurer sur 20 graines au moins.
 
 ## Pistes pour continuer
 - Sièges : brancher la prise de la place sur les objectifs de contrat, tours prenables, poix et
