@@ -318,6 +318,11 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		out["world_army"] = int(k["world_army"])
 	if str(k.get("siege", "")) in SIEGE_KINDS:
 		out["siege"] = str(k["siege"])
+		var target := int(k.get("target", -1)) # Assaut d'une ville de la carte (make_siege)
+		if out["siege"] == "assault" and target >= 0 and target < TOWNS.size():
+			out["target"] = target
+	if str(k.get("terrain", "")) in WorldSim.ROAD_TERRAINS: # Rencontre sur la route (make_battle)
+		out["terrain"] = str(k["terrain"])
 	return out
 
 
@@ -390,6 +395,8 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.men_lost = maxi(0, int(d.get("men_lost", 0)))
 	c.enemies_killed = maxi(0, int(d.get("enemies_killed", 0)))
 	c.gold_earned = maxi(0, int(d.get("gold_earned", 0)))
+	if c.ended == "":
+		c.keep_final_in_patron_town() # Sauvegarde d'avant le correctif : bataille décisive en ville ennemie
 	return c
 
 
@@ -524,11 +531,13 @@ func status_text() -> String:
 
 # ---------------------------------------------------------------- Factions et réputation
 
-static func town_faction(town: int) -> int:
+## Faction qui tenait la ville au début de la campagne (données de TOWNS). Pour les contrats,
+## utiliser town_owner : les villes changent de mains.
+static func initial_faction(town: int) -> int:
 	return int(TOWNS[town]["faction"])
 
 
-## Faction qui tient la ville aujourd'hui (town_faction : celle du début de la campagne).
+## Faction qui tient la ville aujourd'hui (initial_faction : celle du début de la campagne).
 func town_owner(town: int) -> int:
 	return world.owner_of(town)
 
@@ -921,7 +930,8 @@ func refresh_contracts(town: int) -> void:
 		contracts.append(world.adjust_contract(maybe_siege(make_contract(town))))
 	# Ville assiégée sur la carte (world_sim.gd) : elle embauche des défenseurs
 	if world.besieged(town) and contracts_at(town).filter(func(c): return c.has("siege")).is_empty():
-		contracts.append(world.adjust_contract(make_siege(make_contract(town), "defense")))
+		var besieger := int(world.siege_info(town)["faction"])
+		contracts.append(world.adjust_contract(make_siege(make_contract(town, besieger), "defense")))
 
 
 ## Niveau le plus élevé des contrats proposés : un de plus tous les FAME_STEP de renommée.
@@ -962,12 +972,15 @@ static func cap_first(s: String) -> String:
 
 ## Contrat proposé par une ville : niveau (d'après la renommée), faction ennemie et armée colorée
 ## par celui qui la lève, objectif (détruire, tenir, escorter, prendre, poursuivre) avec ses textes,
-## prime modulée par l'objectif.
-func make_contract(town: int) -> Dictionary:
+## prime modulée par l'objectif. La ville parle au nom de la faction qui la tient aujourd'hui
+## (town_owner) ; foe_override impose la faction ennemie (l'assiégeant d'une ville assiégée), sinon tirée.
+func make_contract(town: int, foe_override := -1) -> Dictionary:
 	var top := max_level()
 	var d := rng.randi_range(maxi(1, top - 1), top)
 	var kind: Dictionary = CONTRACT_KINDS[d - 1]
 	var foe_f := roll_enemy_faction(town)
+	if foe_override >= 0 and foe_override != town_owner(town):
+		foe_f = foe_override
 	var band := str(kind.get("band", "brigands"))
 	var enemy := flavor_army(roll_army(kind), band, foe_f, d)
 	var objective := roll_objective(town, d)
@@ -989,7 +1002,7 @@ func make_contract(town: int) -> Dictionary:
 		text = fill_objective_text(str(texts[rng.randi() % texts.size()]), objective, foe, town_name)
 	return {
 		"town": town,
-		"faction": town_faction(town),
+		"faction": town_owner(town),
 		"title": title,
 		"text": text,
 		"foe": foe,
@@ -1010,10 +1023,12 @@ const SIEGE_CHANCE := 0.12 ## Part des contrats de niveau 2 et plus qui sont des
 const SIEGE_REWARD := 1.6 ## Prime d'un siège par rapport à un contrat ordinaire du même niveau
 const SIEGE_TITLES := {
 	"assault": ["Assiéger la place forte de {rival} près de %s", "Prendre d'assaut le bourg rebelle de %s"],
+	"assault_town": ["Prendre {target} à {rival}", "Assiéger {target}, ville de {rival}"],
 	"defense": ["Défendre les murs de %s", "%s assiégée par {rival}"],
 }
 const SIEGE_TEXTS := {
 	"assault": "La ville paie cher pour qu'on prenne la place : bélier pour la porte, échelles pour le rempart. Il faudra tenir la place de la ville.",
+	"assault_town": "La ville paie cher pour qu'on prenne {target} : bélier pour la porte, échelles pour le rempart. Tenez la place de la ville, et {target} changera de maître.",
 	"defense": "L'ennemi vient avec des échelles et un bélier. Garnissez les murs et tenez jusqu'à ce qu'il lève le siège.",
 }
 
@@ -1033,22 +1048,74 @@ func maybe_siege(c: Dictionary) -> Dictionary:
 	return make_siege(c, "assault" if r.randf() < 0.5 else "defense")
 
 
-## Transforme le contrat c en siège (kind : « assault » ou « defense »).
+## Transforme le contrat c en siège (kind : « assault » ou « defense »), vu de la faction qui tient
+## la ville aujourd'hui. Défense d'une ville assiégée sur la carte : l'ennemi est l'assiégeant réel.
+## Assaut : si une ville voisine appartient à une faction en guerre avec la ville, c'est elle qu'on
+## prend (« target » : la victoire la donne au patron, voir WorldSim.after_battle) ; sinon une place
+## forte ou un bourg rebelle sans effet sur la carte.
 func make_siege(c: Dictionary, kind: String) -> Dictionary:
 	var town := int(c["town"])
-	var rival := str(FACTIONS[int(FACTIONS[town_faction(town)]["rival"])]["short"])
 	var r := RandomNumberGenerator.new()
 	r.seed = hash([int(c["seed"]), "siege_army"])
-	var titles: Array = SIEGE_TITLES[kind]
+	var foe_f := siege_foe(c, kind, r)
+	var key := kind
+	var target := -1
+	if kind == "assault":
+		target = assault_target(town, foe_f, r)
+		if target >= 0:
+			foe_f = town_owner(target)
+			key = "assault_town"
+			c["target"] = target
+	var rival := str(FACTIONS[foe_f]["short"])
+	var target_name := str(TOWNS[target]["name"]) if target >= 0 else ""
+	var titles: Array = SIEGE_TITLES[key]
+	var title := str(titles[r.randi() % titles.size()]).replace("{rival}", rival).replace("{target}", target_name)
 	c["siege"] = kind
 	c["objective"] = {"kind": "destroy"} # La victoire d'un siège est décidée par siege.gd
-	c["title"] = str(titles[r.randi() % titles.size()]).replace("{rival}", rival) % TOWNS[town]["name"]
-	c["text"] = SIEGE_TEXTS[kind]
+	c["title"] = title % TOWNS[town]["name"] if "%s" in title else title
+	c["text"] = str(SIEGE_TEXTS[key]).replace("{target}", target_name)
+	if target >= 0 or (kind == "defense" and world.besieged(town)):
+		c["enemy_faction"] = foe_f # Une vraie faction de la carte : l'armée porte ses couleurs
+		c["foe"] = "troupes de %s" % rival
 	c["reward"] = int(round(int(c["reward"]) * SIEGE_REWARD / 10.0)) * 10
 	var extra := "archer" if kind == "assault" else "spear"
 	var enemy: Array = c["enemy"]
 	enemy.append({"type": extra, "men": int(UnitTypes.STATS[extra]["count"]), "rank": 0})
 	return c
+
+
+## Faction ennemie d'un siège : l'assiégeant réel de la ville, sinon celle du contrat, sinon une
+## faction en guerre avec la ville (ou sa rivale). Jamais la faction qui tient la ville.
+func siege_foe(c: Dictionary, kind: String, r: RandomNumberGenerator) -> int:
+	var town := int(c["town"])
+	var own := town_owner(town)
+	if kind == "defense" and world.besieged(town):
+		return int(world.siege_info(town)["faction"])
+	var f := int(c.get("enemy_faction", -1))
+	if f >= 0 and f != own:
+		return f
+	var foes := world.enemies_of(own)
+	if not foes.is_empty():
+		return foes[r.randi() % foes.size()]
+	return int(FACTIONS[own]["rival"])
+
+
+## Ville voisine de town (par la route) qu'un assaut peut prendre : tenue par une faction en guerre
+## avec la ville, de préférence prefer. -1 s'il n'y en a pas (en paix, ou pas de voisine ennemie).
+func assault_target(town: int, prefer: int, r: RandomNumberGenerator) -> int:
+	var own := town_owner(town)
+	var all: Array[int] = []
+	var best: Array[int] = []
+	for t in WorldSim.neighbours_of(town):
+		var o := town_owner(t)
+		if world.at_war(own, o):
+			all.append(t)
+			if o == prefer:
+				best.append(t)
+	var pool := best if not best.is_empty() else all
+	return -1 if pool.is_empty() else pool[r.randi() % pool.size()]
+
+
 # ---------------------------------------------------------------- Objectifs des contrats
 
 ## Objectifs des contrats (voir battle_objectives.gd) : poids du tirage, niveau minimal, prime
@@ -1098,12 +1165,17 @@ const OBJECTIVE_VICTORY := {
 }
 
 
-## Faction ennemie d'un contrat : la rivale de la ville le plus souvent, sinon la troisième faction
-## (c'est ainsi que la Ligue des villes entre en guerre).
+## Faction ennemie d'un contrat, vue de la faction qui tient la ville aujourd'hui : une de celles
+## avec qui elle est en guerre ; en paix, sa rivale le plus souvent, sinon la troisième faction
+## (c'est ainsi que la Ligue des villes entre en guerre). Jamais la faction de la ville.
 func roll_enemy_faction(town: int) -> int:
-	var own := town_faction(town)
+	var own := town_owner(town)
 	var rival := int(FACTIONS[own]["rival"])
-	if rng.randf() < 0.7:
+	var x := rng.randf()
+	var foes := world.enemies_of(own)
+	if not foes.is_empty():
+		return foes[int(x * foes.size()) % foes.size()]
+	if x < 0.7:
 		return rival
 	for f in FACTIONS.size():
 		if f != own and f != rival:
@@ -1203,6 +1275,15 @@ static func objective_kind(contract: Dictionary) -> String:
 
 ## Ligne « Objectif : ... » de la carte de campagne.
 static func objective_line(contract: Dictionary) -> String:
+	match str(contract.get("siege", "")): # La victoire d'un siège est décidée par siege.gd
+		"assault":
+			var line := "Objectif : prendre la ville et tenir sa place %d s" % int(Siege.HOLD_TIME)
+			var target := int(contract.get("target", -1))
+			if target >= 0 and target < TOWNS.size():
+				line += " (%s change de maître)" % TOWNS[target]["name"]
+			return line
+		"defense":
+			return "Objectif : tenir les murs %s, ou repousser l'assaut" % BattleObjectives.duration_words(Siege.DEFENSE_TIME)
 	var v: Variant = contract.get("objective", {})
 	var o: Dictionary = v if v is Dictionary else {}
 	match objective_kind(contract):
@@ -1230,12 +1311,27 @@ func objective_bonus(contract: Dictionary, result: Dictionary, reward: int) -> A
 # ---------------------------------------------------------------- Objectif : la bataille décisive
 
 ## Faction qui convoquerait la compagnie : la mieux disposée parmi celles qui ne lui ferment pas
-## leurs portes (le Comté en cas d'égalité). -1 si toutes sont hostiles.
+## leurs portes et tiennent encore une ville (le Comté en cas d'égalité). -1 s'il n'y en a pas.
 func final_patron() -> int:
 	var best := -1
 	for f in FACTIONS.size():
-		if not faction_closed(f) and (best < 0 or reputation[f] > reputation[best]):
+		if faction_closed(f) or final_town(f) < 0:
+			continue
+		if best < 0 or reputation[f] > reputation[best]:
 			best = f
+	return best
+
+
+## Ville où le patron f convoque la compagnie : sa capitale s'il la tient encore, sinon sa ville
+## la mieux gardée. -1 si f n'a plus de ville.
+func final_town(f: int) -> int:
+	var capital := int(FACTIONS[f]["capital"])
+	if town_owner(capital) == f:
+		return capital
+	var best := -1
+	for t in world.towns_of(f):
+		if best < 0 or world.garrison[t] > world.garrison[best]:
+			best = t
 	return best
 
 
@@ -1262,17 +1358,14 @@ func objective_status() -> String:
 	return "Renommée %d / %d pour être appelé à la bataille décisive." % [fame, FINAL_FAME]
 
 
-## À FINAL_FAME de renommée, la faction la plus amie propose la bataille décisive dans sa capitale.
-## Ce contrat n'expire pas ; si la faction devient hostile, une autre le reprend.
+## À FINAL_FAME de renommée, la faction la plus amie propose la bataille décisive dans une de ses
+## villes (final_town). Ce contrat n'expire pas ; il suit son patron quand sa ville tombe, et si
+## le patron devient hostile ou perd toutes ses villes, une autre faction le reprend.
 func offer_final() -> void:
 	if ended != "":
 		return
-	var cur := final_contract()
-	if not cur.is_empty():
-		if not faction_closed(int(cur["faction"])):
-			return
-		contracts.erase(cur)
-	if fame < FINAL_FAME:
+	keep_final_in_patron_town()
+	if not final_contract().is_empty() or fame < FINAL_FAME:
 		return
 	var f := final_patron()
 	if f < 0:
@@ -1282,8 +1375,30 @@ func offer_final() -> void:
 	add_log("Jour %d : %s vous convoque à %s pour la bataille qui décidera de la guerre !" % [day, cap_first(str(FACTIONS[f]["short"])), TOWNS[int(k["town"])]["name"]])
 
 
+## Garde le contrat final signable : toujours dans une ville tenue par son patron (il s'y déplace
+## quand sa ville tombe), annulé si le patron ferme ses portes ou n'a plus de ville (offer_final le
+## repropose alors, au besoin par une autre faction). Sans hasard : appelé aussi par une prise de
+## ville (WorldSim.capture) et à la relecture d'une sauvegarde. La bataille en cours n'est pas touchée.
+func keep_final_in_patron_town() -> void:
+	var cur := final_contract()
+	if cur.is_empty() or is_same(cur, pending):
+		return
+	var f := int(cur["faction"])
+	var who := cap_first(str(FACTIONS[f]["short"]))
+	var town := final_town(f)
+	if faction_closed(f) or town < 0:
+		contracts.erase(cur)
+		if town < 0:
+			add_log("Jour %d : %s a perdu toutes ses villes : la bataille décisive n'aura pas lieu sous sa bannière." % [day, who])
+		return
+	var old := int(cur["town"])
+	if town_owner(old) != f:
+		cur["town"] = town
+		add_log("Jour %d : %s a perdu %s ; la bataille décisive se prépare désormais à %s." % [day, who, TOWNS[old]["name"], TOWNS[town]["name"]])
+
+
 func make_final(f: int) -> Dictionary:
-	var town := int(FACTIONS[f]["capital"])
+	var town := final_town(f)
 	var foe_f := int(FACTIONS[f]["rival"])
 	var foe := str(FACTIONS[foe_f]["short"])
 	return {
@@ -1427,7 +1542,9 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			end_note = "Au jour %d, la victoire de %s décide de la guerre. %s triomphe, et votre compagnie est la plus célèbre du comté." % [day, TOWNS[int(pending["town"])]["name"], cap_first(str(FACTIONS[f]["short"]))]
 			report += " La guerre est gagnée : la compagnie entre dans la légende !"
 		if f >= 0:
-			var rival := int(FACTIONS[f]["rival"])
+			var rival := int(pending.get("enemy_faction", -1)) # La faction battue, sinon la rivale du patron
+			if rival < 0 or rival == f:
+				rival = int(FACTIONS[f]["rival"])
 			change_reputation(f, REP_WIN)
 			change_reputation(rival, REP_RIVAL)
 			rep_note = " Réputation : %s %+d, %s %+d." % [FACTIONS[f]["short"], REP_WIN, FACTIONS[rival]["short"], REP_RIVAL]

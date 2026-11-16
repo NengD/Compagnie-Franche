@@ -83,7 +83,9 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   le panneau) : faire de la compagnie la plus célèbre du comté. À **150 de renommée**, la faction qui vous
   estime le plus (parmi celles qui ne vous ferment pas leurs portes) vous convoque dans sa capitale
   (Saint-Aubin, Montfaucon ou Pontrieux, drapeau doré) pour la **bataille décisive** contre sa rivale :
-  11 régiments presque tous vétérans. Ce contrat n'expire pas. Le gagner termine la campagne
+  11 régiments presque tous vétérans. Ce contrat n'expire pas, et se signe toujours dans une ville tenue par
+  son patron : si sa capitale tombe, il se déplace dans une autre de ses villes ; si le patron perd toutes
+  ses villes (ou vous ferme ses portes), il est annulé et une autre faction vous convoquera. Le gagner termine la campagne
   (**écran de victoire** avec le bilan : jours, batailles, ennemis tués, pertes, or, vétérans). Le perdre
   coûte de la renommée : il faudra la regagner pour être rappelé.
 - **Game over** : si la compagnie n'a plus un homme et ne peut plus lever un seul régiment complet dans la
@@ -204,6 +206,8 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     marchent sur la ville ennemie la plus proche. Arrivées, elles **l'assiègent** (anneau rouge et fumée) :
     chaque jour, assiégeants et garnison (180 hommes, 300 dans une capitale) s'usent ; quand la garnison tombe à
     zéro, la ville **change de mains**, ses contrats sont annulés et la nouvelle faction en propose d'autres.
+    Les contrats parlent toujours au nom de la faction qui tient la ville **aujourd'hui** : l'ennemi est une
+    faction en guerre avec elle (en paix, sa rivale ou la troisième), jamais elle-même.
     Deux armées ennemies qui se croisent **se livrent bataille** (résolue automatiquement, selon les effectifs
     et un peu de hasard) : le vaincu perd les trois quarts de ses hommes et se replie, ce qui peut lever un siège.
   - **Contrats de guerre** : une ville dont la faction est en guerre propose **un contrat de plus** et paie
@@ -214,7 +218,9 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     elle se méfie de vous (réputation négative) et que vous êtes ami (20 et plus) d'une faction qu'elle combat.
     En croiser une sur la route vous laisse le choix à l'arrivée : **livrer bataille** (pas de prime mais le
     butin ; la disperser coûte 5 de réputation auprès d'elle et en rapporte 5 auprès de ses ennemis) ou
-    **fuir** (un jour de détour, 8 % de l'or abandonné avec les bagages).
+    **fuir** (un jour de détour, 8 % de l'or abandonné avec les bagages). La bataille se livre en chemin : en
+    rase campagne, dans les bois ou sur des collines (le terrain de la ville s'il s'y prête), jamais sur la
+    palissade de Hautemure ou de Castelroux.
   - **Camper un jour** (section « Le pays ») : la solde est due, le monde avance d'un jour.
   - **Nouvelles du monde** : les dernières sont listées dans la section « Le pays ».
   - Réglages : constantes en tête de `scripts/world_sim.gd`.
@@ -315,7 +321,13 @@ tenue par l'ennemi) et **défense d'une ville** (`town_defense`, la ville est en
   garnison ne sort pas des murs, garde le débouché des échelles et charge ce qui entre.
 - **Campagne** : environ un contrat sur huit à partir du niveau 2 est un siège (« Assiéger la place
   forte… » ou « Défendre les murs de… »), payé 60 % de plus ; la garnison a des archers de plus, ou
-  l'assaillant un régiment de piquiers de plus.
+  l'assaillant un régiment de piquiers de plus. Sur la carte, la ligne d'objectif du contrat dit ce qu'il
+  faut faire (tenir la place 20 s, ou tenir les murs 5 minutes).
+  - Une ville **assiégée sur la carte** embauche des défenseurs contre l'assiégeant réel (« Saint-Aubin
+    assiégée par la Baronnie ») : gagner **lève le siège**, et l'armée assiégeante, réduite à 40 %, rentre chez elle.
+  - En guerre, un assaut vise une **ville voisine** tenue par l'ennemi (« Prendre Montfaucon à la Baronnie ») :
+    le gagner donne la ville au patron du contrat. Sans voisine ennemie, c'est une place forte ou un bourg
+    rebelle, sans effet sur la carte.
 
 ## IA ennemie
 L'IA (`scripts/enemy_ai.gd`) choisit au début de chaque bataille un **plan** d'après le rapport de forces
@@ -420,7 +432,9 @@ tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .b
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
 tests/world_test.gd     Test du monde vivant (saisons, 200 jours sur 5 graines, prise d'une ville, contrats de
-                        guerre, réputation, rencontre, sauvegarde, pluie en bataille, carte)
+                        guerre, réputation, rencontre, bataille décisive chez son patron, contrats au nom du
+                        maître actuel, sièges qui lèvent ou prennent une ville, terrain des rencontres,
+                        sauvegarde, pluie en bataille, carte)
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)

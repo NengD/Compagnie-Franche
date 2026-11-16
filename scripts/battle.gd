@@ -161,6 +161,8 @@ func choose_terrain() -> String:
 		t = terrain_override
 	elif campaign != null and str(campaign.pending.get("siege", "")) != "":
 		return Siege.terrain_for(str(campaign.pending["siege"])) # Contrat de siège
+	elif campaign != null and str(campaign.pending.get("terrain", "")) != "":
+		t = str(campaign.pending["terrain"]) # Rencontre sur la route (WorldSim.make_battle)
 	elif campaign != null:
 		t = Terrain.for_contract(int(campaign.pending.get("town", -1)), int(campaign.pending.get("difficulty", 1)), CampaignState.TOWNS)
 	return sim.objective.fit_terrain(t, sim.rng.seed)
