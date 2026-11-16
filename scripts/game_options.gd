@@ -1,13 +1,15 @@
 class_name GameOptions
 extends RefCounted
 ## Options du joueur : volumes, plein écran, taille de l'interface, vitesse du jeu,
-## difficulté de l'escarmouche et touches de bataille.
+## difficulté de l'escarmouche, aide de bataille, accessibilité (formes des camps, sous-titres)
+## et touches de bataille (caméra comprise).
 ## Sauvegardées dans user://options.cfg (ConfigFile) et appliquées au démarrage
 ## (ensure_loaded() est appelé par le menu, la carte et la bataille).
 ##
 ## Touches : on stocke le keycode logique (la lettre imprimée sur la touche), donc une touche
 ## choisie sur un clavier AZERTY reste la bonne. Les touches de caméra (ZQSD en AZERTY,
-## WASD en QWERTY) sont repérées par leur position physique et ne peuvent pas être prises.
+## WASD en QWERTY par défaut) sont repérées par leur position physique (CAMERA_ACTIONS) :
+## elles se reconfigurent aussi, mais une action ne peut pas prendre une touche de caméra.
 
 const DEFAULT_PATH := "user://options.cfg"
 const SPEEDS: Array[float] = [1.0, 1.5, 2.0]
@@ -30,6 +32,14 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "fire", "name": "Tir à volonté", "key": KEY_X},
 	{"id": "retreat", "name": "Retraite", "key": KEY_R},
 ]
+## Défilement de la caméra : touches repérées par leur position physique (« key » est un
+## physical_keycode : W = Z en AZERTY). Les flèches marchent toujours en plus.
+const CAMERA_ACTIONS: Array[Dictionary] = [
+	{"id": "cam_up", "name": "Caméra : haut", "key": KEY_W},
+	{"id": "cam_left", "name": "Caméra : gauche", "key": KEY_A},
+	{"id": "cam_down", "name": "Caméra : bas", "key": KEY_S},
+	{"id": "cam_right", "name": "Caméra : droite", "key": KEY_D},
+]
 
 ## Touches réservées (non reconfigurables) : keycode logique -> usage.
 const RESERVED := {
@@ -41,9 +51,9 @@ const RESERVED := {
 	KEY_UP: "caméra", KEY_DOWN: "caméra", KEY_LEFT: "caméra", KEY_RIGHT: "caméra",
 	KEY_SHIFT: "ajout à la sélection", KEY_CTRL: "Ctrl", KEY_ALT: "Alt", KEY_META: "Méta",
 }
-## Positions physiques réservées : caméra (ZQSD / WASD) et chiffres de sélection.
+## Positions physiques réservées : chiffres de sélection (la caméra est vérifiée à part,
+## puisqu'elle se reconfigure : voir camera_action_for_physical).
 const RESERVED_PHYSICAL := {
-	KEY_W: "caméra", KEY_A: "caméra", KEY_S: "caméra", KEY_D: "caméra",
 	KEY_1: "sélection", KEY_2: "sélection", KEY_3: "sélection", KEY_4: "sélection",
 	KEY_5: "sélection", KEY_6: "sélection", KEY_7: "sélection", KEY_8: "sélection",
 	KEY_9: "sélection",
@@ -59,6 +69,10 @@ static var ui_scale := 1.0 ## Taille de l'interface (une valeur de UI_SCALES)
 static var speed := 1.0 ## Vitesse de la simulation en bataille
 static var difficulty := Difficulty.NORMAL ## Difficulté de l'escarmouche (la campagne a la sienne)
 static var binds := {} ## id d'action -> keycode
+static var camera_binds := {} ## id d'action de caméra -> physical_keycode
+static var show_help := false ## Aide de bataille (F1) dépliée ; mémorisée d'une bataille à l'autre
+static var team_shapes := false ## Accessibilité : formes et motifs en plus du bleu et du rouge
+static var subtitles := false ## Accessibilité : sous-titres des évènements sonores importants
 
 
 ## Charge et applique les options une seule fois par lancement.
@@ -77,6 +91,9 @@ static func reset_all() -> void:
 	ui_scale = 1.0
 	speed = 1.0
 	difficulty = Difficulty.NORMAL
+	show_help = false
+	team_shapes = false
+	subtitles = false
 	reset_keys()
 
 
@@ -84,6 +101,9 @@ static func reset_keys() -> void:
 	binds.clear()
 	for a in ACTIONS:
 		binds[a["id"]] = int(a["key"])
+	camera_binds.clear()
+	for a in CAMERA_ACTIONS:
+		camera_binds[a["id"]] = int(a["key"])
 
 
 static func load_options() -> void:
@@ -101,16 +121,18 @@ static func load_options() -> void:
 	var sp := float(cfg.get_value("jeu", "vitesse", speed))
 	speed = sp if sp in SPEEDS else 1.0
 	difficulty = Difficulty.sanitize(str(cfg.get_value("jeu", "difficulte", difficulty)))
+	show_help = bool(cfg.get_value("interface", "aide", show_help))
+	team_shapes = bool(cfg.get_value("accessibilite", "formes_camps", team_shapes))
+	subtitles = bool(cfg.get_value("accessibilite", "sous_titres", subtitles))
 	for a in ACTIONS:
 		var id: String = a["id"]
 		binds[id] = int(cfg.get_value("touches", id, binds[id]))
+	for a in CAMERA_ACTIONS:
+		var id: String = a["id"]
+		camera_binds[id] = int(cfg.get_value("touches_camera", id, camera_binds[id]))
 	# Un fichier modifié à la main peut contenir deux fois la même touche : on revient au défaut.
-	var seen := {}
-	for id in binds:
-		if seen.has(binds[id]):
-			reset_keys()
-			break
-		seen[binds[id]] = true
+	if not conflicts().is_empty():
+		reset_keys()
 
 
 static func save_options() -> bool:
@@ -122,8 +144,13 @@ static func save_options() -> bool:
 	cfg.set_value("affichage", "taille_interface", ui_scale)
 	cfg.set_value("jeu", "vitesse", speed)
 	cfg.set_value("jeu", "difficulte", difficulty)
+	cfg.set_value("interface", "aide", show_help)
+	cfg.set_value("accessibilite", "formes_camps", team_shapes)
+	cfg.set_value("accessibilite", "sous_titres", subtitles)
 	for id in binds:
 		cfg.set_value("touches", id, binds[id])
+	for id in camera_binds:
+		cfg.set_value("touches_camera", id, camera_binds[id])
 	return cfg.save(path) == OK
 
 
@@ -233,23 +260,61 @@ static func speed_label(s: float = -1.0) -> String:
 
 # ---------------------------------------------------------------- Touches
 
+## Vrai pour une action de défilement de la caméra (touche physique).
+static func is_camera(id: String) -> bool:
+	return id.begins_with("cam_")
+
+
 static func action_name(id: String) -> String:
-	for a in ACTIONS:
+	for a in ACTIONS + CAMERA_ACTIONS:
 		if a["id"] == id:
 			return a["name"]
 	return id
 
 
 static func default_key(id: String) -> int:
-	for a in ACTIONS:
+	for a in ACTIONS + CAMERA_ACTIONS:
 		if a["id"] == id:
 			return int(a["key"])
 	return KEY_NONE
 
 
+## Touche d'une action : keycode logique, ou physical_keycode pour la caméra.
 static func key_for(id: String) -> int:
 	ensure_loaded()
+	if is_camera(id):
+		return int(camera_binds.get(id, default_key(id)))
 	return int(binds.get(id, default_key(id)))
+
+
+## Touche logique (lettre imprimée) à une position physique, selon la disposition du clavier.
+static func logical_of_physical(physical: int) -> int:
+	if DisplayServer.get_name() == "headless":
+		return physical # Pas de disposition clavier sans affichage (tests)
+	var code := int(DisplayServer.keyboard_get_keycode_from_physical(physical))
+	return code if code != KEY_NONE else physical
+
+
+## Action de caméra liée à une position physique (ou "").
+static func camera_action_for_physical(physical: int) -> String:
+	ensure_loaded()
+	for id in camera_binds:
+		if int(camera_binds[id]) == physical:
+			return id
+	return ""
+
+
+## Vrai si la touche de caméra id est enfoncée (lu à chaque image par battle_camera.gd).
+static func camera_pressed(id: String) -> bool:
+	return Input.is_physical_key_pressed(key_for(id) as Key)
+
+
+## « ZQSD » en AZERTY, « WASD » en QWERTY : les quatre touches de caméra, pour l'aide.
+static func camera_keys_label() -> String:
+	var s := ""
+	for id in ["cam_up", "cam_left", "cam_down", "cam_right"]:
+		s += key_label(id)
+	return s
 
 
 ## Nom lisible d'une touche (« H », « F1 »…).
@@ -261,6 +326,8 @@ static func key_name(keycode: int) -> String:
 
 ## Nom de la touche d'une action, pour l'aide affichée.
 static func key_label(id: String) -> String:
+	if is_camera(id):
+		return key_name(logical_of_physical(key_for(id)))
 	return key_name(key_for(id))
 
 
@@ -305,6 +372,9 @@ static func reserved_reason(keycode: int, physical: int) -> String:
 		return RESERVED[keycode]
 	if RESERVED_PHYSICAL.has(physical):
 		return RESERVED_PHYSICAL[physical]
+	var cam := camera_action_for_physical(physical)
+	if cam != "":
+		return action_name(cam).to_lower()
 	return ""
 
 
@@ -316,6 +386,8 @@ static func bind_event(id: String, k: InputEventKey) -> String:
 
 static func bind_key(id: String, keycode: int, physical: int = KEY_NONE) -> String:
 	ensure_loaded()
+	if is_camera(id):
+		return bind_camera(id, keycode, physical)
 	if keycode == KEY_NONE:
 		return "Touche non reconnue."
 	var why := reserved_reason(keycode, physical)
@@ -330,7 +402,33 @@ static func bind_key(id: String, keycode: int, physical: int = KEY_NONE) -> Stri
 	return "%s : %s." % [action_name(id), key_name(keycode)]
 
 
+## Touche de caméra : on garde la position physique (ZQSD reste ZQSD en AZERTY). Refusée si elle
+## est réservée ou prise par une action de bataille ; échange avec une autre touche de caméra.
+static func bind_camera(id: String, keycode: int, physical: int) -> String:
+	if physical == KEY_NONE:
+		physical = keycode # Évènement sans position physique (tests) : même code
+	if physical == KEY_NONE:
+		return "Touche non reconnue."
+	var logical := keycode if keycode != KEY_NONE else logical_of_physical(physical)
+	var shown := key_name(logical)
+	if RESERVED.has(logical) or RESERVED.has(physical):
+		return "%s est réservée (%s)." % [shown, RESERVED.get(logical, RESERVED.get(physical))]
+	if RESERVED_PHYSICAL.has(physical):
+		return "%s est réservée (%s)." % [shown, RESERVED_PHYSICAL[physical]]
+	var act := action_for_key(logical)
+	if act != "":
+		return "%s est déjà utilisée par « %s » : changez d'abord cette action." % [shown, action_name(act)]
+	var old := key_for(id)
+	var other := camera_action_for_physical(physical)
+	camera_binds[id] = physical
+	if other != "" and other != id:
+		camera_binds[other] = old
+		return "%s était déjà utilisée par « %s » : cette action passe sur %s." % [shown, action_name(other), key_name(logical_of_physical(old))]
+	return "%s : %s." % [action_name(id), shown]
+
+
 ## Actions qui partagent une même touche (ne devrait jamais arriver ; pour les tests).
+## La caméra compte aussi : une touche de caméra ne doit être ni doublée ni prise par une action.
 static func conflicts() -> Array[String]:
 	var out: Array[String] = []
 	var seen := {}
@@ -339,4 +437,15 @@ static func conflicts() -> Array[String]:
 		if seen.has(code):
 			out.append("%s / %s" % [seen[code], id])
 		seen[code] = id
+	var seen_cam := {}
+	for id in camera_binds:
+		var phys: int = camera_binds[id]
+		if seen_cam.has(phys):
+			out.append("%s / %s" % [seen_cam[phys], id])
+		seen_cam[phys] = id
+		var logical := logical_of_physical(phys)
+		if seen.has(logical):
+			out.append("%s / %s" % [seen[logical], id])
+		if RESERVED_PHYSICAL.has(phys) or RESERVED.has(logical):
+			out.append("%s réservée" % id)
 	return out

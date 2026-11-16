@@ -209,6 +209,9 @@ func _draw() -> void:
 
 	draw_arrows()
 
+	if GameOptions.team_shapes:
+		draw_team_marks()
+
 	for r in sim.regiments:
 		if r.is_dead() or (r.team == ENEMY and r.hidden):
 			continue
@@ -450,11 +453,32 @@ func draw_arrows() -> void:
 
 
 ## Étendard au-dessus du régiment (dessiné en code, agrandi PX fois).
+## Option « formes des camps » : rond (joueur) ou losange (ennemi) à côté du drapeau.
 func draw_banner(r: Regiment) -> void:
 	var lift := 34.0 if r.stats["mounted"] else 26.0
-	draw_set_transform((r.center + Vector2(0, -lift)).round(), 0.0, Vector2(PX, PX))
+	var at := (r.center + Vector2(0, -lift)).round()
+	draw_set_transform(at, 0.0, Vector2(PX, PX))
 	draw_banner_shape(r, Vector2.ZERO)
 	draw_set_transform(Vector2.ZERO)
+	if GameOptions.team_shapes:
+		Hud.draw_team_shape(self, r.team, at + Vector2(-9, -15), 4.5)
+
+
+## Option « formes des camps » : petite marque sous chaque soldat visible, anneau clair pour le
+## joueur, croix pour l'ennemi (distinguables sans voir le bleu et le rouge).
+func draw_team_marks() -> void:
+	for s in sim.soldiers:
+		if not s.alive:
+			continue
+		var r: Regiment = s.regiment
+		if r.team == ENEMY and r.hidden:
+			continue
+		var p: Vector2 = s.pos.round() + Vector2(0, 3)
+		if r.team == PLAYER:
+			draw_arc(p, 2.5, 0, TAU, 8, Color(0.85, 0.92, 1, 0.9), 1.0)
+		else:
+			draw_line(p + Vector2(-2.5, -2.5), p + Vector2(2.5, 2.5), Color(1, 0.85, 0.6, 0.9), 1.0)
+			draw_line(p + Vector2(2.5, -2.5), p + Vector2(-2.5, 2.5), Color(1, 0.85, 0.6, 0.9), 1.0)
 
 
 func draw_banner_shape(r: Regiment, base: Vector2) -> void:
