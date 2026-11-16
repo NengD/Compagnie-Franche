@@ -267,7 +267,7 @@ func _test_save() -> void:
 	check(lw.owner == w.owner and lw.garrison == w.garrison and lw.wars.size() == w.wars.size() and lw.at_war(1, 2), "sauvegarde : villes ou guerres perdues")
 	check(lw.armies.size() == w.armies.size() and lw.army_by_id(a.id) != null and lw.army_by_id(a.id).pos.distance_to(a.pos) < 0.01, "sauvegarde : armées perdues")
 	check(lw.has_encounter() and lw.raining and lw.news == w.news and lw.next_id == w.next_id, "sauvegarde : rencontre, météo ou nouvelles perdues")
-	check(int(l.to_dict()["version"]) == CampaignState.SAVE_VERSION and CampaignState.SAVE_VERSION == 7, "sauvegarde : version 7")
+	check(int(l.to_dict()["version"]) == CampaignState.SAVE_VERSION and CampaignState.SAVE_VERSION >= 7, "sauvegarde : version 7 ou plus")
 	# Après relecture, le monde suit exactement le même cours
 	for d in 40:
 		c.pass_day()

@@ -164,6 +164,8 @@ func _draw() -> void:
 
 	draw_dust()
 	effects.draw_ground(self)
+	sim.objective.draw(self, sim) # Zone à tenir ou à prendre, chariots du convoi, ligne de fuite
+
 
 	# Ordres des régiments sélectionnés
 	for r in sim.regiments:

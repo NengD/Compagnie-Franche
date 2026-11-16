@@ -78,6 +78,16 @@ func build_header(box: VBoxContainer) -> void:
 	var sub := UiTheme.label(" · ".join(parts), 15, UiTheme.TEXT)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(sub)
+	# Objectif du contrat (sauf « détruire l'ennemi », que l'issue dit déjà)
+	var obj: Dictionary = report.get("objective", {})
+	if not obj.is_empty() and str(obj.get("kind", "destroy")) != "destroy":
+		var line := "Objectif : %s" % str(obj["label"])
+		if str(obj.get("summary", "")) != "":
+			line += " — " + str(obj["summary"])
+		var ol := UiTheme.label(line, 15, GOOD if bool(obj.get("success", false)) else BAD)
+		ol.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ol.name = "Objectif" # Repérable par les tests
+		box.add_child(ol)
 
 
 static func duration_text(t: float) -> String:
@@ -186,6 +196,9 @@ func build_totals(box: VBoxContainer) -> void:
 		if not bool(c["ambush"]):
 			money.append("Prime %d écus" % int(c["reward"]))
 		money.append("Butin %d écus" % int(c["loot"]))
+		if int(c.get("bonus", 0)) > 0:
+			money.append("%s %d écus" % [str(c.get("bonus_label", "Prime d'objectif")), int(c["bonus"])])
+
 	elif int(c["pillage"]) > 0:
 		money.append(("Bagages abandonnés -%d écus" if bool(c["retreat"]) else "Bagages pillés -%d écus") % int(c["pillage"]))
 	if float(c["wage"]) > 0.0:

@@ -54,6 +54,7 @@ func _initialize() -> void:
 	_test_plurals()
 	_test_endings()
 	_test_new_units()
+	_test_objectives()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
 	CampaignState.current = camp
@@ -442,6 +443,9 @@ func _test_save() -> void:
 func _start_contract_battle() -> void:
 	camp.refresh_contracts(camp.location)
 	var k: Dictionary = camp.contracts_at(camp.location)[0]
+	# Ces batailles jouées par le joueur simulé visent l'armée ennemie : les autres objectifs
+	# (tenir, escorter, prendre, poursuivre) sont testés dans objectives_test.gd et _test_objectives.
+	k["objective"] = {"kind": "destroy"}
 	var err := camp.accept(k)
 	check(err == "", "contrat refusé : " + err)
 	if phase == "battle1":
@@ -601,7 +605,8 @@ func _check_end_report(victory: bool) -> void:
 	check(is_equal_approx(float(c["gold_after"]), camp.gold) and int(c["fame_after"]) == camp.fame and c["reputation_after"] == camp.reputation,
 		"%s : bilan : or, renommée ou réputation différents de la campagne" % phase)
 	check(is_equal_approx(float(c["gold_before"]), float(battle.get_meta("gold_before"))), "%s : bilan : or avant %.1f" % [phase, float(c["gold_before"])])
-	var money := float(c["reward"]) + float(c["loot"]) - float(c["pillage"]) - float(c["wage"])
+	var money := float(c["reward"]) + float(c["loot"]) + float(c.get("bonus", 0)) - float(c["pillage"]) - float(c["wage"])
+
 	check(absf(float(c["gold_before"]) + money - camp.gold) < 0.01, "%s : bilan : prime, butin, pillage et solde ne font pas l'or final" % phase)
 	check((int(c["pillage"]) == 0) if victory else (int(c["reward"]) == 0 and int(c["loot"]) == 0), "%s : bilan : prime ou pillage incohérents" % phase)
 	var t: Dictionary = rep["totals"]
@@ -793,6 +798,95 @@ func _test_progression() -> void:
 	var stars: String = load("res://scripts/campaign_map.gd").stars(4)
 	check(stars == "★★★★☆", "progression : étoiles « %s »" % stars)
 	print("Progression : hommes par niveau %s, primes %s" % [str(men.map(func(x): return int(x))), str(rewards.map(func(x): return int(x)))])
+
+
+## Contrats variés : objectifs tirés selon le niveau, textes remplis, primes adaptées, armées ennemies
+## colorées par faction (routiers : plus de cavalerie ; Ligue : arbalétriers), sauvegarde de l'objectif,
+## supplément de l'escorte.
+func _test_objectives() -> void:
+	var c := CampaignState.new_game(88)
+	var seen := {}
+	var titles := {}
+	var rewards := {}
+	for level in [1, 3]:
+		c.fame = (level - 1) * CampaignState.FAME_STEP
+		for i in 300:
+			var town := i % CampaignState.TOWNS.size()
+			var k := c.make_contract(town)
+			var kind := CampaignState.objective_kind(k)
+			var d := int(k["difficulty"])
+			seen[kind] = true
+			titles[k["title"]] = true
+			check(kind in BattleObjectives.KINDS, "objectifs : sorte inconnue %s" % kind)
+			var words := str(k["title"]) + str(k["text"]) + str(k["foe"]) + CampaignState.objective_line(k)
+			check(not "{" in words and not "%" in words, "objectifs : texte mal rempli : %s / %s" % [k["title"], k["text"]])
+			check(not (kind == "capture" and d < 2), "objectifs : prise de village au niveau 1")
+			if d >= 3 and str(CampaignState.TOWNS[town]["name"]) in Terrain.SIEGE_TOWNS:
+				check(kind == "destroy", "objectifs : une ville fortifiée doit défendre sa palissade (%s)" % kind)
+			if d == 1:
+				if not rewards.has(kind):
+					rewards[kind] = [0.0, 0]
+				rewards[kind][0] += int(k["reward"])
+				rewards[kind][1] += 1
+			var template: Array = CampaignState.CONTRACT_KINDS[d - 1]["army"]
+			var types: Array = k["enemy"].map(func(e): return e["type"])
+			match str(CampaignState.CONTRACT_KINDS[d - 1]["band"]):
+				"routiers":
+					check(types.count("cavalry") == template.count("cavalry") + 1, "objectifs : les routiers n'ont pas plus de cavalerie")
+					check(k["enemy"].size() == template.size() + 1, "objectifs : armée de routiers sans son régiment de plus")
+
+				"faction":
+					var f := int(k["enemy_faction"])
+					check(f >= 0 and f != CampaignState.town_faction(town), "objectifs : faction ennemie %d pour une ville de la faction %d" % [f, CampaignState.town_faction(town)])
+					check(str(CampaignState.FACTIONS[f]["short"]) in str(k["foe"]), "objectifs : ennemi « %s » sans sa faction" % k["foe"])
+					if f == 2:
+						seen["ligue"] = true
+						check(not "archer" in types and types.count("crossbow") > template.count("crossbow"), "objectifs : la Ligue sans arbalétriers en plus %s" % str(types))
+			check(k["enemy"].size() <= 11, "objectifs : armée démesurée")
+	for kind in BattleObjectives.KINDS:
+		check(seen.has(kind), "objectifs : aucun contrat « %s » en 600 tirages" % kind)
+	check(seen.has("ligue"), "objectifs : la Ligue n'est jamais l'ennemie")
+	check(titles.size() >= 12, "objectifs : titres peu variés (%d)" % titles.size())
+	var avg := func(kind: String) -> float: return float(rewards[kind][0]) / maxf(rewards[kind][1], 1)
+	check(avg.call("hold") > avg.call("destroy") and avg.call("destroy") > avg.call("escort"), "objectifs : primes mal modulées %s" % str(rewards))
+	# Objectif sauvegardé avec le contrat ; une sauvegarde version 6 donne « détruire »
+	var k := c.make_contract(1)
+	k["objective"] = {"kind": "hold", "time": 240.0, "loss": 30.0}
+	c.contracts = [k]
+	var back := CampaignState.from_dict(JSON.parse_string(JSON.stringify(c.to_dict())))
+	check(back != null and back.contracts[0]["objective"] == k["objective"], "objectifs : objectif perdu à la sauvegarde")
+	var v6 := c.to_dict()
+	v6["version"] = 6
+	for x in v6["contracts"]:
+		x.erase("objective")
+		x.erase("enemy_faction")
+	var old := CampaignState.from_dict(JSON.parse_string(JSON.stringify(v6)))
+	check(old != null and CampaignState.objective_kind(old.contracts[0]) == "destroy" and int(old.contracts[0]["enemy_faction"]) == -1, "objectifs : sauvegarde version 6 mal relue")
+	var bad := c.to_dict()
+	bad["contracts"][0]["objective"] = {"kind": "dragon"}
+	var b2 := CampaignState.from_dict(JSON.parse_string(JSON.stringify(bad)))
+	check(b2 != null and CampaignState.objective_kind(b2.contracts[0]) == "destroy", "objectifs : objectif inconnu non ramené à « détruire »")
+	# Escorte gagnée : un supplément par chariot sauvé, payé et compté au bilan
+	var e := CampaignState.new_game(89)
+	var ek := e.make_contract(e.location)
+	ek["objective"] = {"kind": "escort", "wagons": 4, "need": 2}
+	e.contracts = [ek]
+	check(e.accept(ek) == "", "objectifs : escorte refusée")
+	e.gold = 100.0
+	var res := e.finish_battle(true, e.battle_army().map(func(r): return int(r["men"])), [], false, {"kind": "escort", "saved": 3, "summary": "Chariots sauvés : 3 sur 4"})
+	var bonus := int(round(int(res["reward"]) * float(CampaignState.OBJECTIVES["escort"]["bonus"]) * 3))
+	check(bonus > 0 and int(res["bonus"]) == bonus, "objectifs : supplément d'escorte %d au lieu de %d" % [int(res["bonus"]), bonus])
+	check(absf(100.0 + int(res["reward"]) + int(res["loot"]) + bonus - float(res["wage"]) - e.gold) < 0.01, "objectifs : supplément d'escorte non payé")
+	check(str(res["text"]).begins_with("Convoi escorté") and "prime du convoi" in str(res["text"]), "objectifs : compte rendu « %s »" % res["text"])
+	# Échec d'un objectif : le compte rendu dit pourquoi
+	var p := CampaignState.new_game(90)
+	var pk := p.make_contract(p.location)
+	pk["objective"] = {"kind": "pursue", "escape": 0.5}
+	p.contracts = [pk]
+	p.accept(pk)
+	var lost := p.finish_battle(false, p.battle_army().map(func(r): return int(r["men"])), [], false, {"kind": "pursue", "summary": "Pillards échappés : 40 sur 60 (limite 30)"})
+	check("Pillards échappés" in str(lost["text"]) and int(lost["bonus"]) == 0, "objectifs : défaite sans explication « %s »" % lost["text"])
+	print("Objectifs : primes au niveau 1 %s" % str(rewards.keys().map(func(x): return "%s %d" % [x, int(avg.call(x))])))
 
 
 ## Pluriels : « 1 archer », « 2 archers », « 1 homme d'armes ».

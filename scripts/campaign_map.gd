@@ -481,7 +481,9 @@ func refresh_ui() -> void:
 			add_label("★ CONTRAT FINAL ★", 13, GOLD_COL)
 		add_label(str(c["title"]), 14, Color(1, 0.9, 0.7))
 		add_label(str(c["text"]), 12, Color(0.8, 0.77, 0.7))
+		add_label(CampaignState.objective_line(c), 12, Color(0.95, 0.85, 0.6))
 		add_label("Ennemi : %s" % CampaignState.army_summary(c["enemy"]), 12)
+
 		add_label("Prime : %d écus   ·   difficulté %s   ·   jusqu'au jour %d" % [state.contract_reward(c), stars(int(c["difficulty"])), int(c["expires"])], 12, GOLD_COL)
 		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not state.is_over() and not walking and not ambushed and closed == "" and not state.world.has_encounter())
 

@@ -73,36 +73,38 @@ const ROADS := [[0, 1], [0, 3], [1, 2], [1, 3], [1, 4], [2, 4], [3, 6], [4, 6], 
 
 ## Modèles de contrats, du niveau 1 au niveau MAX_LEVEL : composition de l'ennemi, effectifs
 ## (part du plein), prime de base et expérience des régiments ennemis (« ranks » : chance d'être
-## aguerri, chance d'être vétéran). « {rival} » : la faction rivale de celle de la ville.
+## aguerri, chance d'être vétéran). « {rival} » : la faction ennemie tirée pour le contrat
+## (roll_enemy_faction, le plus souvent la rivale de celle de la ville). « band » : qui lève
+## l'armée, ce qui la colore (flavor_army) : brigands, routiers (plus de cavalerie) ou faction.
 ## Nouvelles unités : arbalétriers dès le niveau 2, archers montés au niveau 4, chevaliers à pied
 ## au niveau 5 et dans la bataille décisive (ils remplacent des régiments, l'effectif ne grossit pas).
 const CONTRACT_KINDS := [
 	{
-		"difficulty": 1, "foe": "brigands", "reward": 260, "fill": [0.6, 0.85], "ranks": [0.0, 0.0],
+		"difficulty": 1, "foe": "brigands", "band": "brigands", "reward": 260, "fill": [0.6, 0.85], "ranks": [0.0, 0.0],
 		"army": ["spear", "spear", "men_at_arms", "archer"],
 		"titles": ["Brigands sur la route de %s", "Des coupe-jarrets près de %s"],
 		"text": "Une bande de brigands rançonne les marchands. Le bourg paie pour qu'on l'en débarrasse.",
 	},
 	{
-		"difficulty": 2, "foe": "routiers", "reward": 450, "fill": [0.75, 1.0], "ranks": [0.4, 0.0],
+		"difficulty": 2, "foe": "routiers", "band": "routiers", "reward": 450, "fill": [0.75, 1.0], "ranks": [0.4, 0.0],
 		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "crossbow", "cavalry"],
 		"titles": ["Routiers aux portes de %s", "Une compagnie rivale menace %s"],
 		"text": "Des routiers sans contrat pillent la campagne. Ils sont aguerris et ont quelques cavaliers.",
 	},
 	{
-		"difficulty": 3, "foe": "ost du baron", "reward": 720, "fill": [0.9, 1.0], "ranks": [0.7, 0.3],
+		"difficulty": 3, "foe": "gens de {rival}", "band": "faction", "reward": 720, "fill": [0.9, 1.0], "ranks": [0.7, 0.3],
 		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry"],
-		"titles": ["La querelle du baron de %s", "Défendre %s contre l'ost du baron"],
-		"text": "Un baron voisin lève son ost. La ville engage des lances pour lui tenir tête en rase campagne.",
+		"titles": ["Querelle de frontière devant %s", "Défendre %s contre {rival}"],
+		"text": "Un seigneur de {rival} lève son ost contre la ville, qui engage des lances pour lui tenir tête en rase campagne.",
 	},
 	{
-		"difficulty": 4, "foe": "routiers de la Grande Compagnie", "reward": 1000, "fill": [0.9, 1.0], "ranks": [0.45, 0.55],
+		"difficulty": 4, "foe": "routiers de la Grande Compagnie", "band": "routiers", "reward": 1000, "fill": [0.9, 1.0], "ranks": [0.45, 0.55],
 		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry", "horse_archer"],
 		"titles": ["La Grande Compagnie marche sur %s", "Chevauchée de routiers autour de %s"],
 		"text": "Plusieurs bandes se sont unies sous un même capitaine. Nombreuse et aguerrie, la Grande Compagnie rançonne des provinces entières.",
 	},
 	{
-		"difficulty": 5, "foe": "armées de {rival}", "reward": 1350, "fill": [0.95, 1.0], "ranks": [0.2, 0.8],
+		"difficulty": 5, "foe": "armées de {rival}", "band": "faction", "reward": 1350, "fill": [0.95, 1.0], "ranks": [0.2, 0.8],
 		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "foot_knight", "archer", "crossbow", "cavalry", "horse_archer"],
 		"titles": ["L'ost de {rival} menace %s", "Bataille rangée devant %s"],
 		"text": "{Rival} lève son ost et marche sur la ville. Ses chevaliers sont des vétérans de toutes les guerres.",
@@ -198,14 +200,15 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 8 : objectif des contrats (« objective ») et faction ennemie (« enemy_faction »).
 ## Version 7 : monde vivant (villes conquises, guerres, armées, météo ; voir world_sim.gd).
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée), 2, 3, 4, 5 et 6 restent lisibles
+## Les versions 1 (sans expérience, réputation ni renommée), 2, 3, 4, 5, 6 et 7 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
-## monde neuf et en paix).
-const SAVE_VERSION := 7
+## monde neuf et en paix, contrats « détruire l'ennemi »).
+const SAVE_VERSION := 8
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -303,6 +306,9 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		"foe": str(k.get("foe", "ennemis")), "difficulty": clampi(int(k.get("difficulty", 1)), 1, MAX_LEVEL),
 		"enemy": enemy, "reward": int(k.get("reward", 0)), "expires": int(k.get("expires", 0)),
 		"seed": str(k.get("seed", "1")).to_int(),
+		# Version 6 et avant : détruire l'ennemi, faction ennemie inconnue
+		"objective": objective_from_dict(k.get("objective", {})),
+		"enemy_faction": clampi(int(k.get("enemy_faction", -1)), -1, FACTIONS.size() - 1),
 	}
 	if bool(k.get("final", false)):
 		out["final"] = true
@@ -859,6 +865,7 @@ func make_ambush(to: int) -> Dictionary:
 		"text": "Des brigands surgissent des fourrés.",
 		"foe": "brigands", "difficulty": 1, "enemy": enemy, "reward": 0,
 		"expires": day, "seed": rng.randi_range(1, 1 << 30),
+		"objective": {"kind": "destroy"}, "enemy_faction": -1,
 	}
 
 
@@ -953,26 +960,46 @@ static func cap_first(s: String) -> String:
 	return s if s == "" else s[0].to_upper() + s.substr(1)
 
 
+## Contrat proposé par une ville : niveau (d'après la renommée), faction ennemie et armée colorée
+## par celui qui la lève, objectif (détruire, tenir, escorter, prendre, poursuivre) avec ses textes,
+## prime modulée par l'objectif.
 func make_contract(town: int) -> Dictionary:
 	var top := max_level()
 	var d := rng.randi_range(maxi(1, top - 1), top)
 	var kind: Dictionary = CONTRACT_KINDS[d - 1]
-	var enemy := roll_army(kind)
-	var titles: Array = kind["titles"]
-	var reward := roll_reward(int(kind["reward"]))
-	var rival := str(FACTIONS[int(FACTIONS[town_faction(town)]["rival"])]["short"])
-	var title := str(titles[rng.randi() % titles.size()]).replace("{rival}", rival) % TOWNS[town]["name"]
+	var foe_f := roll_enemy_faction(town)
+	var band := str(kind.get("band", "brigands"))
+	var enemy := flavor_army(roll_army(kind), band, foe_f, d)
+	var objective := roll_objective(town, d)
+	var spec: Dictionary = OBJECTIVES[objective["kind"]]
+	var reward := roll_reward(int(round(int(kind["reward"]) * float(spec["reward"]))))
+	var rival := str(FACTIONS[foe_f]["short"])
+	var foe := str(kind["foe"]).replace("{rival}", rival)
+	var town_name := str(TOWNS[town]["name"])
+	var title: String
+	var text: String
+	if objective["kind"] == "destroy":
+		var titles: Array = kind["titles"]
+		title = str(titles[rng.randi() % titles.size()]).replace("{rival}", rival) % town_name
+		text = str(kind["text"]).replace("{Rival}", cap_first(rival)).replace("{rival}", rival)
+	else:
+		var titles: Array = spec["titles"]
+		var texts: Array = spec["texts"]
+		title = fill_objective_text(str(titles[rng.randi() % titles.size()]), objective, foe, town_name)
+		text = fill_objective_text(str(texts[rng.randi() % texts.size()]), objective, foe, town_name)
 	return {
 		"town": town,
 		"faction": town_faction(town),
 		"title": title,
-		"text": str(kind["text"]).replace("{Rival}", cap_first(rival)).replace("{rival}", rival),
-		"foe": str(kind["foe"]).replace("{rival}", rival),
+		"text": text,
+		"foe": foe,
 		"difficulty": d,
 		"enemy": enemy,
 		"reward": reward,
 		"expires": day + CONTRACT_DAYS,
 		"seed": rng.randi_range(1, 1 << 30),
+		"objective": objective,
+		"enemy_faction": foe_f if band == "faction" else -1,
 	}
 
 
@@ -997,6 +1024,8 @@ const SIEGE_TEXTS := {
 func maybe_siege(c: Dictionary) -> Dictionary:
 	if int(c.get("difficulty", 1)) < 2 or c.get("final", false) or c.has("siege"):
 		return c
+	if str((c.get("objective", {}) as Dictionary).get("kind", "destroy")) != "destroy":
+		return c # Contrat à objectif (tenir, escorter...) : pas un siège
 	var r := RandomNumberGenerator.new()
 	r.seed = hash([int(c["seed"]), "siege"])
 	if r.randf() >= SIEGE_CHANCE:
@@ -1012,6 +1041,7 @@ func make_siege(c: Dictionary, kind: String) -> Dictionary:
 	r.seed = hash([int(c["seed"]), "siege_army"])
 	var titles: Array = SIEGE_TITLES[kind]
 	c["siege"] = kind
+	c["objective"] = {"kind": "destroy"} # La victoire d'un siège est décidée par siege.gd
 	c["title"] = str(titles[r.randi() % titles.size()]).replace("{rival}", rival) % TOWNS[town]["name"]
 	c["text"] = SIEGE_TEXTS[kind]
 	c["reward"] = int(round(int(c["reward"]) * SIEGE_REWARD / 10.0)) * 10
@@ -1019,6 +1049,182 @@ func make_siege(c: Dictionary, kind: String) -> Dictionary:
 	var enemy: Array = c["enemy"]
 	enemy.append({"type": extra, "men": int(UnitTypes.STATS[extra]["count"]), "rank": 0})
 	return c
+# ---------------------------------------------------------------- Objectifs des contrats
+
+## Objectifs des contrats (voir battle_objectives.gd) : poids du tirage, niveau minimal, prime
+## (x la prime de base du niveau) et textes. Dans les textes : %s = la ville, {foe} = l'ennemi,
+## {Foe} = l'ennemi avec majuscule, {time} = durée, {wagons} / {need} = chariots du convoi.
+## « bonus » (escorte) : part de la prime payée en plus pour chaque chariot sauvé.
+const OBJECTIVES := {
+	"destroy": {"weight": 3.0, "min_level": 1, "reward": 1.0},
+	"hold": {
+		"weight": 2.0, "min_level": 1, "reward": 1.1,
+		"titles": ["Tenir la position devant %s", "Le poste avancé de %s", "Barrer la route de %s"],
+		"texts": [
+			"Les {foe} marchent sur %s. Tenez la position marquée pendant {time}, le temps que la milice prenne les armes.",
+			"La ville veut garder la hauteur qui commande la route. Tenez-la {time} face aux {foe} : les renforts suivront.",
+		],
+	},
+	"escort": {
+		"weight": 2.0, "min_level": 1, "reward": 0.85, "bonus": 0.08,
+		"titles": ["Escorter le convoi de %s", "Les chariots de %s", "Le sel et le grain de %s"],
+		"texts": [
+			"Un convoi de {wagons} chariots quitte %s, et les {foe} l'attendent sur la route. Il en faut {need} au moins à bon port ; chaque chariot sauvé rapporte un supplément.",
+			"Les marchands de %s paient une escorte pour leurs {wagons} chariots. Des {foe} rôdent : protégez la route d'un bout à l'autre ({need} chariots au moins).",
+		],
+	},
+	"capture": {
+		"weight": 1.5, "min_level": 2, "reward": 1.2,
+		"titles": ["Reprendre un village de %s", "Chasser les {foe} d'un hameau de %s"],
+		"texts": [
+			"Les {foe} se sont retranchés dans un village du pays de %s. Occupez la place du village avant la nuit ({time}).",
+			"Un village qui doit l'impôt à %s est tenu par les {foe}. Prenez la place avant la nuit ({time}) : la garnison ne lâchera pas facilement les maisons.",
+		],
+	},
+	"pursue": {
+		"weight": 2.0, "min_level": 1, "reward": 0.95,
+		"titles": ["Rattraper les pillards de %s", "Poursuite autour de %s"],
+		"texts": [
+			"Les {foe} ont pillé les fermes de %s et s'enfuient, chargés de butin. Rattrapez-les avant que la moitié d'entre eux ne quitte le pays.",
+			"Des {foe} ont rançonné un marché de %s et filent vers le nord. Leur butin les ralentit : rattrapez-les avant que la moitié ne s'échappe.",
+		],
+	},
+}
+## Textes de victoire du journal, selon l'objectif (%s = l'ennemi).
+const OBJECTIVE_VICTORY := {
+	"destroy": "Victoire contre les %s !", "hold": "Position tenue face aux %s !",
+	"escort": "Convoi escorté malgré les %s !", "capture": "Village pris aux %s !",
+	"pursue": "Les %s sont rattrapés !",
+}
+
+
+## Faction ennemie d'un contrat : la rivale de la ville le plus souvent, sinon la troisième faction
+## (c'est ainsi que la Ligue des villes entre en guerre).
+func roll_enemy_faction(town: int) -> int:
+	var own := town_faction(town)
+	var rival := int(FACTIONS[own]["rival"])
+	if rng.randf() < 0.7:
+		return rival
+	for f in FACTIONS.size():
+		if f != own and f != rival:
+			return f
+	return rival
+
+
+## Couleur de l'armée selon qui la lève (un régiment de plus, jamais de moins : la taille de l'armée
+## suit toujours le niveau) : les routiers ont plus de cavalerie, la Ligue des villes arme ses milices
+## d'arbalètes, la Baronnie a des archers montés, le Comté des chevaliers à pied.
+func flavor_army(enemy: Array[Dictionary], band: String, foe_f: int, _level: int) -> Array[Dictionary]:
+	var extra := ""
+	match band:
+		"routiers":
+			extra = "cavalry"
+		"faction":
+			match foe_f:
+				0:
+					extra = "foot_knight"
+				1:
+					extra = "horse_archer"
+				2:
+					extra = "crossbow"
+					for e in enemy:
+						if e["type"] == "archer":
+							swap_type(e, "crossbow") # Arbalètes partout
+	if extra != "":
+		var men := maxi(3, int(round(int(UnitTypes.STATS[extra]["count"]) * rng.randf_range(0.75, 1.0))))
+		enemy.append({"type": extra, "men": men, "rank": int(enemy[0]["rank"])})
+	return enemy
+
+
+## Change le type d'un régiment ennemi (effectif ramené au plein du nouveau type).
+static func swap_type(e: Dictionary, type: String) -> void:
+	e["type"] = type
+	e["men"] = mini(int(e["men"]), int(UnitTypes.STATS[type]["count"]))
+
+
+
+## Tire l'objectif d'un contrat et ses réglages ({"kind", ...}). Les villes fortifiées défendent
+## leur palissade (détruire l'assaillant) dès le niveau 3.
+func roll_objective(town: int, level: int) -> Dictionary:
+	if level >= 3 and str(TOWNS[town]["name"]) in Terrain.SIEGE_TOWNS:
+		return {"kind": "destroy"}
+	var total := 0.0
+	for k in OBJECTIVES:
+		if level >= int(OBJECTIVES[k]["min_level"]):
+			total += float(OBJECTIVES[k]["weight"])
+	var roll := rng.randf() * total
+	var kind := "destroy"
+	for k in OBJECTIVES:
+		if level < int(OBJECTIVES[k]["min_level"]):
+			continue
+		roll -= float(OBJECTIVES[k]["weight"])
+		if roll < 0.0:
+			kind = k
+			break
+	match kind:
+		"hold":
+			return {"kind": "hold", "time": 180.0 if level <= 2 else (240.0 if level <= 4 else 300.0), "loss": 30.0}
+		"escort":
+			return {"kind": "escort", "wagons": 4, "need": 3 if level >= 4 else 2}
+		"capture":
+			return {"kind": "capture", "time": 360.0, "hold": 25.0}
+		"pursue":
+			return {"kind": "pursue", "escape": 0.5}
+	return {"kind": "destroy"}
+
+
+## Remplit un texte de contrat (voir OBJECTIVES).
+static func fill_objective_text(s: String, objective: Dictionary, foe: String, town_name: String) -> String:
+	var out := s.replace("{Foe}", cap_first(foe)).replace("{foe}", foe)
+	out = out.replace("{time}", BattleObjectives.duration_words(float(objective.get("time", 0.0))))
+	out = out.replace("{wagons}", str(int(objective.get("wagons", 0)))).replace("{need}", str(int(objective.get("need", 0))))
+	return out % town_name if "%s" in out else out
+
+
+## Relit l'objectif d'un contrat sauvegardé (inconnu ou absent : détruire l'ennemi).
+static func objective_from_dict(v: Variant) -> Dictionary:
+	if not v is Dictionary or not str(v.get("kind", "")) in BattleObjectives.KINDS:
+		return {"kind": "destroy"}
+	var out := {"kind": str(v["kind"])}
+	for key in ["time", "loss", "hold", "escape"]:
+		if v.has(key):
+			out[key] = float(v[key])
+	for key in ["wagons", "need"]:
+		if v.has(key):
+			out[key] = int(v[key])
+	return out
+
+
+## Sorte d'objectif d'un contrat (« destroy » par défaut).
+static func objective_kind(contract: Dictionary) -> String:
+	var o: Variant = contract.get("objective", {})
+	return str(o.get("kind", "destroy")) if o is Dictionary else "destroy"
+
+
+## Ligne « Objectif : ... » de la carte de campagne.
+static func objective_line(contract: Dictionary) -> String:
+	var v: Variant = contract.get("objective", {})
+	var o: Dictionary = v if v is Dictionary else {}
+	match objective_kind(contract):
+		"hold":
+			return "Objectif : tenir la position %s" % BattleObjectives.duration_words(float(o.get("time", 180.0)))
+		"escort":
+			return "Objectif : escorter %d chariots (%d au moins doivent arriver, supplément par chariot sauvé)" % [int(o.get("wagons", 4)), int(o.get("need", 2))]
+		"capture":
+			return "Objectif : prendre la place du village avant la nuit (%s)" % BattleObjectives.duration_words(float(o.get("time", 360.0)))
+		"pursue":
+			return "Objectif : rattraper la bande avant que la moitié ne s'échappe"
+	return "Objectif : détruire l'armée ennemie"
+
+
+## Supplément d'objectif payé après une victoire : pour l'escorte, une part de la prime par chariot sauvé.
+## result : bilan de l'objectif (BattleObjectives.Objective.result). Renvoie [écus, libellé].
+func objective_bonus(contract: Dictionary, result: Dictionary, reward: int) -> Array:
+	if objective_kind(contract) == "escort" and str(result.get("kind", "")) == "escort":
+		var saved := maxi(0, int(result.get("saved", 0)))
+		var gold_bonus := int(round(reward * float(OBJECTIVES["escort"]["bonus"]) * saved))
+		return [gold_bonus, "Prime du convoi (%s)" % plural(saved, "chariot sauvé", "chariots sauvés")]
+	return [0, ""]
 
 
 # ---------------------------------------------------------------- Objectif : la bataille décisive
@@ -1090,7 +1296,9 @@ func make_final(f: int) -> Dictionary:
 		"reward": roll_reward(int(FINAL_CONTRACT["reward"])),
 		"expires": 1 << 30,
 		"seed": rng.randi_range(1, 1 << 30),
+		"objective": {"kind": "destroy"}, "enemy_faction": foe_f,
 	}
+
 
 
 ## Résumé lisible d'une armée : « 2 piquiers, 1 archer... » (en régiments et en hommes).
@@ -1149,14 +1357,16 @@ func battle_army() -> Array[Dictionary]:
 ## kills[i] = ennemis qu'il a tués. Les pertes et l'expérience sont reportées sur la compagnie.
 ## retreat : défaite par retraite ordonnée (pénalités réduites).
 ## Renvoie le bilan structuré (voir finish_report) ; son « text » est le compte rendu du journal.
-func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false) -> Dictionary:
+## objective : bilan de l'objectif de la bataille (BattleObjectives.Objective.result ; vide = détruire),
+## pour le supplément de prime (escorte) et le compte rendu.
+func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false, objective: Dictionary = {}) -> Dictionary:
 	var army := battle_army()
 	var lost := 0
 	var healed := 0
 	var promoted: Array[String] = []
 	var killed := 0
 	var out := {"gold_before": gold, "fame_before": fame, "reputation_before": reputation.duplicate(),
-		"regiments": [], "reward": 0, "loot": 0, "pillage": 0}
+		"regiments": [], "reward": 0, "loot": 0, "pillage": 0, "bonus": 0, "bonus_label": "", "objective": objective.duplicate(true)}
 	for i in army.size():
 		var r := army[i]
 		var before: int = r["men"]
@@ -1195,16 +1405,22 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		victories += 1
 		var reward := contract_reward(pending)
 		var loot := killed * LOOT_PER_KILL + Traits.extra_loot(army, kills)
+		var extra := objective_bonus(pending, objective, reward)
 		out["reward"] = reward
 		out["loot"] = loot
-		gold += reward + loot
-		gold_earned += reward + loot
+		out["bonus"] = int(extra[0])
+		out["bonus_label"] = str(extra[1])
+		gold += reward + loot + int(extra[0])
+		gold_earned += reward + loot + int(extra[0])
 		fame += 5 + 5 * int(pending.get("difficulty", 1))
 		var healed_s := plural(healed, "blessé relevé", "blessés relevés")
 		if pending.get("ambush", false):
 			report = "Embuscade repoussée ! Butin %d écus. %s (%s)." % [loot, losses, healed_s]
 		else:
-			report = "Victoire contre les %s ! Prime %d écus, butin %d écus. %s (%s)." % [pending["foe"], reward, loot, losses, healed_s]
+			var won := str(OBJECTIVE_VICTORY.get(objective_kind(pending), OBJECTIVE_VICTORY["destroy"])) % pending["foe"]
+			report = "%s Prime %d écus, butin %d écus. %s (%s)." % [won, reward, loot, losses, healed_s]
+			if int(extra[0]) > 0:
+				report = report.replace(", butin", ", %s %d écus, butin" % [str(extra[1]).to_lower(), int(extra[0])])
 		if pending.get("final", false):
 			ended = "victory"
 			end_day = day
@@ -1226,6 +1442,9 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			report = "Retraite face aux %s. %s. Bagages abandonnés : -%d écus." % [pending["foe"], losses, pillage]
 		else:
 			report = "Défaite face aux %s... %s. L'ennemi pille vos bagages : -%d écus." % [pending["foe"], losses, pillage]
+		if objective_kind(pending) != "destroy" and str(objective.get("summary", "")) != "":
+			report += " (%s)" % str(objective["summary"])
+
 		if f >= 0:
 			var loss := REP_RETREAT if retreat else REP_LOSS
 			change_reputation(f, loss)

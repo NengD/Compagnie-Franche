@@ -49,6 +49,7 @@ var rank := 0
 var kills := 0 ## Ennemis tués pendant la bataille (mêlée et flèches)
 var morale_mult := 1.0 ## Difficulté : multiplicateur du moral maximal (régiments ennemis)
 var damage_mult := 1.0 ## Difficulté : multiplicateur des dégâts (régiments ennemis)
+var speed_mult := 1.0 ## Objectif : multiplicateur de vitesse (bande chargée de butin, voir battle_objectives.gd)
 
 
 ## Fixe le rang d'expérience : le moral maximal monte avec le rang.

@@ -10,6 +10,10 @@ extends RefCounted
 ## Dans tous les plans : formations (colonne pour marcher, ligne pour combattre, carré contre la cavalerie),
 ## course, passage par les gués, et retraite en bon ordre quand la bataille est perdue.
 ##
+## Objectif de contrat (battle_objectives.gd) : il peut imposer le plan (agressif pour prendre une position
+## ou attaquer un convoi, défensif pour garder un village, « fuite » pour une bande poursuivie), un point
+## à gagner (ai_point) et un poste à défendre (ai_anchor). Voir la section « Objectifs ».
+##
 ## Ajouter un type d'unité : une branche dans think_regiment() qui appelle sa propre fonction ; à défaut,
 ## le type est joué d'après ses capacités (« ranged » → archers, « mounted » → cavalerie, sinon infanterie).
 
@@ -17,7 +21,10 @@ const AGGRESSIVE := "aggressive"
 const DEFENSIVE := "defensive"
 const FLANK := "flank"
 const PLANS: Array[String] = [AGGRESSIVE, DEFENSIVE, FLANK]
-const PLAN_NAMES := {AGGRESSIVE: "agressif", DEFENSIVE: "défensif", FLANK: "débordement"}
+const PLAN_NAMES := {AGGRESSIVE: "agressif", DEFENSIVE: "défensif", FLANK: "débordement", "flee": "fuite"}
+const FLEE := "flee" ## Plan imposé par l'objectif « poursuivre » : la bande fuit vers son bord du champ
+const REAR_GUARD_TIME := 40.0 ## Fuite : l'arrière-garde tient ce délai avant de suivre la bande
+const TURN_AT_BAY := 90.0 ## Fuite : un fantassin rattrapé à cette distance fait face et se bat
 
 var timer := 0.0
 var advance := false
@@ -109,6 +116,11 @@ func think(b: BattleSim, dt: float) -> void:
 		return
 	if plan == "":
 		choose_plan(b, mine, all_theirs)
+
+	if plan == FLEE:
+		for r in mine:
+			flee(b, r, theirs)
+		return
 
 	var p_mine := power(mine)
 	var p_theirs := power(all_theirs)
@@ -242,7 +254,9 @@ func choose_plan(b: BattleSim, mine: Array[Regiment], theirs: Array[Regiment]) -
 				w[FLANK] = 0.0 # Pas de contournement : la palissade ne s'ouvre qu'aux brèches
 			else:
 				w[DEFENSIVE] += 3.0
-	if plan_override in PLANS:
+	if objective_plan(b) != "":
+		plan = objective_plan(b) # Imposé par l'objectif du contrat
+	elif plan_override in PLANS:
 		plan = plan_override
 	elif ratio < MUCH_WEAKER and not attacker:
 		plan = DEFENSIVE # Bien trop faible pour attaquer : on attend l'ennemi sur la meilleure position
@@ -263,6 +277,9 @@ func choose_plan(b: BattleSim, mine: Array[Regiment], theirs: Array[Regiment]) -
 		plan = AGGRESSIVE if b.siege.attacker == team else DEFENSIVE # Vrai siège : voir think_siege
 
 	posts.clear()
+	if plan == FLEE:
+		choose_rear_guard(mine, their_c)
+		return
 	if plan == DEFENSIVE:
 		setup_defense(b, mine, my_c)
 	elif hill.is_finite():
@@ -336,7 +353,12 @@ func setup_defense(b: BattleSim, mine: Array[Regiment], my_c: Vector2) -> void:
 		for r in mine:
 			posts[r.id] = r.dest
 		return
-	if hill.is_finite():
+	var held := objective_anchor(b)
+	if held.is_finite():
+		anchor_kind = "objective" # Garder la place de l'objectif (le village à prendre)
+		foot_at = held + face * 70.0
+		archers_at = held - face * 50.0
+	elif hill.is_finite():
 		anchor_kind = "hill"
 		foot_at = hill + face * 110.0
 		archers_at = hill - face * 15.0
@@ -393,7 +415,8 @@ func update_posture(b: BattleSim, mine: Array[Regiment], theirs: Array[Regiment]
 	if plan == DEFENSIVE and not counter:
 		var gain := (p_mine / maxf(p_theirs, 1.0)) / maxf(start_power[0] / maxf(start_power[1], 1.0), 0.01)
 		var bled := contact_time <= 0.0 and p_mine < start_power[0] * BLED
-		if contact_time > COUNTER_CONTACT or gain > COUNTER_GAIN or bled or b.battle_time > DEFEND_PATIENCE:
+		var may := objective_counterattacks(b) # Une garnison ne quitte sa place que saignée par les flèches
+		if bled or (may and (contact_time > COUNTER_CONTACT or gain > COUNTER_GAIN or b.battle_time > DEFEND_PATIENCE)):
 			counter = true
 			advance = true
 			melee_started = true
@@ -520,6 +543,8 @@ func hold_archer_post(r: Regiment, theirs: Array[Regiment], range_px: float) -> 
 func think_cavalry(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
 	if ambush.has(r.id) and lie_in_ambush(b, r, theirs):
 		return
+	if advance and seek_objective(b, r, theirs):
+		return # Raid sur le convoi
 	if holding_posts() or not advance:
 		# En réserve (derrière la ligne ou à son poste), sauf si une cavalerie ennemie vient la chercher
 		var raider := nearest_of_type(r, theirs, "cavalry")
@@ -678,6 +703,8 @@ func think_infantry(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
 		if cav != null and r.center.distance_to(cav.center) < 300.0 and not must_wade(b, r, cav):
 			r.target = cav
 			return
+	if advance and seek_objective(b, r, theirs):
+		return # Marche sur la position, ou sur le convoi
 	if d < 340.0 and not must_wade(b, r, near):
 		r.target = near
 	elif advance:
@@ -876,7 +903,87 @@ func withdraw(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
 	r.facing = post_facing
 
 
+# ---------------------------------------------------------------- Objectifs
+
+## Plan imposé par l'objectif de la bataille ("" : libre).
+func objective_plan(b: BattleSim) -> String:
+	return b.objective.ai_plan() if b.objective != null else ""
+
+
+## Poste à défendre imposé par l'objectif (Vector2.INF : aucun).
+func objective_anchor(b: BattleSim) -> Vector2:
+	return b.objective.ai_anchor(b) if b.objective != null else Vector2.INF
+
+
+## Faux si l'objectif veut que la défense garde sa place plutôt que de contre-attaquer.
+func objective_counterattacks(b: BattleSim) -> bool:
+	return b.objective == null or b.objective.ai_counterattacks()
+
+
+## Gagne le point de l'objectif (position à prendre, chariot à piller) tant qu'aucun ennemi n'est
+## plus près que ai_engage. Renvoie vrai si le régiment a reçu cet ordre.
+func seek_objective(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> bool:
+	if b.objective == null:
+		return false
+	var p := b.objective.ai_point(b, r)
+	if not p.is_finite():
+		return false
+	if r.target != null and not r.target.is_dead() and not r.target.routing and not r.target.hidden:
+		return false # Déjà au combat
+	var near := nearest(r, theirs)
+	if near != null and r.center.distance_to(near.center) < b.objective.ai_engage and not must_wade(b, r, near):
+		return false # Un ennemi barre la route : on le combat
+	var wp := go_to(b, r.center, p)
+	r.dest = wp
+	if wp.distance_to(r.center) > 1.0:
+		r.facing = (wp - r.center).normalized()
+	if r.stats["mounted"] and r.center.distance_to(p) < CHARGE_RUN_DIST and r.stamina > 0.5 and not r.engaged:
+		r.running = true # La cavalerie fond sur le convoi
+	return true
+
+
+## Fuite (objectif « poursuivre ») : l'arrière-garde tient un moment, les autres marchent vers leur
+## bord du champ en colonne ; un fantassin rattrapé fait face et se bat.
+func choose_rear_guard(mine: Array[Regiment], their_c: Vector2) -> void:
+	var best: Regiment = null
+	for r in mine:
+		if is_foot(r) and r.stats["braces"] and (best == null or r.center.distance_to(their_c) < best.center.distance_to(their_c)):
+			best = r
+	if best != null:
+		posts[best.id] = best.center
+
+
+func flee(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
+	var near := nearest(r, theirs)
+	var d := r.center.distance_to(near.center) if near != null else INF
+	if posts.has(r.id) and b.battle_time < REAR_GUARD_TIME:
+		# Arrière-garde : piques plantées face aux poursuivants
+		r.formation = Regiment.Formation.LINE
+		if d < POST_CHARGE and near != null:
+			r.target = near
+		else:
+			r.target = null
+			r.dest = posts[r.id]
+			r.facing = (near.center - r.center).normalized() if near != null else -post_facing
+		return
+	if is_foot(r) and d < TURN_AT_BAY:
+		r.formation = Regiment.Formation.LINE
+		r.target = near # Rattrapé : on fait face
+		return
+	if r.engaged and not r.stats["mounted"]:
+		return # Au contact : on ne tourne pas le dos
+	r.target = null
+	r.running = false
+	if is_foot(r):
+		r.formation = Regiment.Formation.COLUMN
+	var edge_y := -200.0 if team == 1 else BattleSim.WORLD_SIZE.y + 200.0
+	var wp := go_to(b, r.center, Vector2(r.center.x, edge_y))
+	r.dest = r.center + (wp - r.center).limit_length(240.0)
+	r.facing = (r.dest - r.center).normalized()
+
+
 # ---------------------------------------------------------------- Outils
+
 
 func nearest(r: Regiment, list: Array[Regiment]) -> Regiment:
 	var best: Regiment = null
