@@ -402,6 +402,7 @@ func refresh_ui() -> void:
 	add_label("COMPAGNIE FRANCHE", 19, GOLD_COL)
 	add_label("Jour %d   ·   %d écus   ·   solde %d écus / jour" % [state.day, int(state.gold), ceili(state.daily_wage())], 14)
 	add_label("Victoires %d   ·   défaites %d   ·   %s   ·   renommée %d" % [state.victories, state.defeats, CampaignState.plural(state.total_men(), "homme", "hommes"), state.fame], 12, Color(0.75, 0.72, 0.65))
+	add_label("Ennemis tués %d   ·   hommes perdus %d   ·   or gagné %d écus" % [state.enemies_killed, state.men_lost, state.gold_earned], 12, Color(0.75, 0.72, 0.65))
 	if notice != "":
 		add_label(notice, 13, Color(1, 0.62, 0.3))
 

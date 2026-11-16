@@ -12,7 +12,7 @@ const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée
-var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté) ou "options"
+var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "options" ou "stats"
 var notice := ""
 var target_slot := 1 ## Emplacement visé par « nouvelle campagne » ou « supprimer »
 var lenient_choice := false ## Case « Mode indulgent » de la nouvelle campagne
@@ -93,6 +93,9 @@ func refresh() -> void:
 	match page:
 		"options":
 			build_options()
+		"stats":
+			Achievements.build_page(box)
+			focus_later(add_button("Retour", back_to_main))
 		"new_campaign":
 			build_new_campaign()
 		"slots":
@@ -156,6 +159,7 @@ func build_main() -> void:
 	add_button("Escarmouche", start_skirmish)
 	box.add_child(UiTheme.label("Escarmouche en difficulté %s (Options)" % Difficulty.display_name(GameOptions.difficulty).to_lower(), 13, UiTheme.DIM))
 	add_button("Options", open_options)
+	add_button("Statistiques et succès", open_stats)
 	add_button("Quitter", quit_game)
 	add_notice(300)
 
@@ -535,6 +539,12 @@ func open_options() -> void:
 	page = "options"
 	notice = ""
 	waiting_action = ""
+	refresh()
+
+
+func open_stats() -> void:
+	page = "stats"
+	notice = ""
 	refresh()
 
 

@@ -22,6 +22,7 @@ signal cries_played(at: Vector2, count: int) ## Cris d'un régiment qui fuit
 signal impact(at: Vector2, amount: float) ## Choc visible (charge) : secousse de caméra
 signal hit(at: Vector2, from: Vector2) ## Soldat touché en at, depuis from (from == at : flèche) : effets visuels
 signal ended ## La bataille vient de se terminer (state vaut VICTORY ou DEFEAT)
+signal feat(kind: String, by: Regiment, against: Regiment) ## Fait d'armes pour les succès (« ambush », « charge_on_square »)
 
 const WORLD_SIZE := Vector2(3200, 2000)
 const PLAYER := 0
@@ -789,6 +790,7 @@ func strike(a: Soldier, b: Soldier) -> void:
 		ar.revealed = 5.0
 		br.morale -= UnitTypes.MORALE_AMBUSH
 		message("Embuscade !")
+		feat.emit("ambush", ar, br)
 
 	# Attaque de flanc ou de dos (un carré n'a ni flanc ni dos) ; les inébranlables s'en émeuvent moins
 	var calm := 0.5 if br.stats["steadfast"] else 1.0
@@ -804,6 +806,8 @@ func strike(a: Soldier, b: Soldier) -> void:
 	if ar.stats["mounted"] and not ar.stats["skirmish"]:
 		dmg *= 1.0 + a.momentum * UnitTypes.CHARGE_BONUS
 		if a.momentum > 0.5:
+			if br.formation == Regiment.Formation.SQUARE:
+				feat.emit("charge_on_square", ar, br)
 			br.morale -= UnitTypes.MORALE_CHARGE_HIT * (0.5 if br.stats["braces"] else 1.0) * calm
 			if not br.stats["steadfast"]:
 				b.pos += (b.pos - a.pos).normalized() * 6.0 # Le choc fait reculer (sauf les inébranlables)
