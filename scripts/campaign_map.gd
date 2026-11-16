@@ -451,6 +451,8 @@ func refresh_ui() -> void:
 			var cost := state.recruit_cost(type, missing)
 			add_button("Compléter : +%d, %d écus" % [missing, cost], do_refill.bind(i), state.gold >= cost and closed == "", row)
 
+	CompanyPanel.build(self) # Capitaine, traits et équipement
+
 	# Recrutement
 	add_section("Lever un régiment")
 	for t in TYPE_ORDER:

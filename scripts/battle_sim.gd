@@ -59,6 +59,7 @@ var ai := EnemyAI.new()
 
 var retreated := false ## La bataille s'est terminée par une retraite
 var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
+var captain: Captain = null ## Capitaine du joueur sur le champ (voir captain.gd), null sans capitaine
 
 
 ## Casse les références croisées régiments ↔ soldats (RefCounted) pour éviter les fuites.
@@ -247,6 +248,7 @@ func spawn_army(team: int, list: Array) -> void:
 		placed[wings[k]] = Vector2(clampf(x, 120, WORLD_SIZE.x - 120), front_y + back * 0.45)
 	for i in list.size():
 		var r := add_regiment(team, str(list[i]["type"]), placed[i], face, int(list[i]["men"]))
+		Traits.apply_to(r, list[i]) # Traits et équipement, avant le rang (moral maximal)
 		r.set_rank(CampaignState.rank_of(list[i]))
 		if team == PLAYER:
 			r.company_index = i
@@ -299,6 +301,8 @@ func step(dt: float) -> void:
 	for s in soldiers:
 		if s.alive:
 			update_soldier(s, dt)
+	if captain != null:
+		captain.step(self, dt)
 	update_arrows(dt)
 	update_dust(dt)
 	cleanup_timer -= dt

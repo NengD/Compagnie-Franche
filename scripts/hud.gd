@@ -492,6 +492,7 @@ static func help_lines() -> Array[String]:
 		"%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain"),
 		"Déploiement : zone bleue, aucun combat",
 		"%s deux fois : sonner la retraite (défaite limitée)" % GameOptions.key_label("retreat"),
+		"Clic : capitaine   %s : il rejoint la sélection" % GameOptions.key_label("captain"),
 		"%s : couper / remettre le son   %s : vitesse" % [GameOptions.key_label("sound"), GameOptions.key_label("speed")],
 		"Alt+Entrée / F11 : plein écran",
 		"Échap : menu pause (options, abandon)",

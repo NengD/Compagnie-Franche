@@ -138,6 +138,8 @@ func handle_key(k: InputEventKey) -> void:
 			toggle_fire_at_will()
 		KEY_R:
 			request_retreat()
+		KEY_C:
+			Captain.order_join(battle)
 		KEY_M:
 			battle.audio.set_enabled(not battle.audio.enabled)
 			battle.add_message("Son activé." if battle.audio.enabled else "Son coupé.")
@@ -176,8 +178,12 @@ func finish_selection(a: Vector2, b: Vector2, add: bool) -> void:
 	if not add:
 		for r in sim.regiments:
 			r.selected = false
+		if sim.captain != null:
+			sim.captain.selected = false
 	var rect := Rect2(a, Vector2.ZERO).expand(b)
 	if rect.size.length() < 8.0:
+		if sim.captain != null and sim.captain.pick(b):
+			return # Clic sur le capitaine : lui et son escorte
 		var r := sim.regiment_at(b, PLAYER)
 		if r != null:
 			r.selected = true

@@ -124,7 +124,18 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
 - **Évènements de route** (environ une chance sur huit par jour de marche, inscrits au journal) :
   **embuscade** de brigands (bataille forcée à l'arrivée, sans prime mais avec butin), **marchand** à escorter
   (40 à 90 écus), **épidémie** (8 % des hommes), **déserteurs** qui complètent un régiment (un peu aguerris),
-  **intempéries** (un jour de marche perdu).
+  **intempéries** (un jour de marche perdu), **hameau abandonné** (un régiment le pille et devient « pillards »).
+- **Capitaine** : la compagnie a un capitaine nommé (panneau « Capitaine » de la carte). Il gagne de
+  l'expérience à chaque bataille (30 xp, +30 en cas de victoire) et un niveau tous les 100 xp. Chaque niveau donne un
+  point de compétence à dépenser sur la carte : **aura** (rayon +25 % par niveau), **ralliement** (les fuyards
+  proches se rallient, même plusieurs fois), **solde réduite** (-5 % par niveau), 3 niveaux chacune.
+  S'il tombe au combat, il n'est que **blessé** : il manque les batailles des 5 jours suivants.
+- **Traits de régiment** : un trait à chaque promotion (dans un ordre propre au type), d'autres en route.
+  **Tenaces** (moral +20 %), **rapides** (vitesse +10 %), **adroits** (dégâts +10 %), **pillards** (+1 écu
+  de butin par ennemi tué), **frugaux** (solde -20 %).
+- **Équipement** (panneau « Traits et équipement », acheté dans n'importe quelle ville ouverte, au prix
+  local) : **armure** (brigandines, dégâts des flèches -30 %, 3 écus par homme du régiment complet) et
+  **meilleures armes** (dégâts +15 %, 4 écus par homme). L'équipement reste au régiment tant qu'il existe.
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
   tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
 - **Bilan de fin de bataille** : après quelques secondes de ralenti, un panneau résume la bataille par-dessus
@@ -171,6 +182,7 @@ Les touches marquées * se changent dans **Options**.
 | Lancer la bataille / pause | Espace (pendant le déploiement, aucun combat : les ordres restent dans la zone bleue et on ne peut pas attaquer) |
 | Couper / remettre le son | M * |
 | Sonner la retraite | R * deux fois |
+| Capitaine | Clic sur le capitaine : le sélectionner avec son escorte (son aura s'affiche) ; C * : il rejoint le régiment sélectionné |
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
 | Aide (repliée par défaut, état mémorisé) | F1 * |
 | Fin de bataille | Entrée : afficher le bilan, puis carte de campagne (contrat) ou rejouer (escarmouche, tutoriel) |
@@ -189,6 +201,9 @@ Les touches marquées * se changent dans **Options**.
 - **Flancs et dos** : frapper un régiment sur le côté (x1,4) ou dans le dos (x2) fait plus de dégâts et casse son moral.
 - **Charge** : la cavalerie lancée à pleine vitesse fait de gros dégâts et repousse l'ennemi… mais s'empale sur les piques.
 - **Moral** : un régiment qui subit trop de pertes fuit (une seule chance de se rallier). Une déroute fait paniquer les voisins.
+- **Capitaine** : visible derrière le régiment qu'il escorte (fanion doré). Son **aura** (180 px) rend du moral
+  aux régiments proches, même en mêlée. Les ennemis au contact le blessent ; s'il tombe, chaque régiment perd
+  40 points de moral, mais la bataille continue. Si son escorte fuit, il rejoint le régiment le plus proche.
 - **Forêts** : ralentissent (surtout les chevaux), arrêtent la moitié des flèches, et **cachent** les troupes. Une attaque sortie d'une forêt déclenche une **embuscade** (gros choc moral).
 - **Pluie** : les archers tirent moins loin et moins juste, tout le monde avance plus lentement.
 - **Course et endurance** : le double clic droit fait courir le régiment (x1,6), mais la course vide l'endurance en une douzaine de secondes ; la mêlée fatigue aussi, lentement. Sous 60 % d'endurance, la vitesse et les dégâts baissent (jusqu'à x0,6 pour un régiment épuisé). La marche et surtout le repos font récupérer. La barre jaune de la carte du régiment montre l'endurance.
@@ -244,6 +259,10 @@ scripts/battle_camera.gd    Caméra (BattleCamera) : défilement (touches des Op
                             la taille de l'interface, bornes, secousse
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
 scripts/regiment.gd     Régiment : formation, moral, ordres
+scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
+scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
+scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures armes
+scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » du panneau de la carte
 scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques et capacités des unités (seule source lue par la simulation)
 scripts/enemy_ai.gd     IA ennemie
@@ -271,6 +290,7 @@ tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le
 tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge) (avec fenêtre ; option --out)
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
+tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)

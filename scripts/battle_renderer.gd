@@ -216,6 +216,8 @@ func _draw() -> void:
 
 	if GameOptions.team_shapes:
 		draw_team_marks()
+	if sim.captain != null:
+		sim.captain.draw(self, sim.state == BattleSim.State.DEPLOY)
 
 	for r in sim.regiments:
 		if r.is_dead() or (r.team == ENEMY and r.hidden):
