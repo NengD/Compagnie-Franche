@@ -29,7 +29,7 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 - **Affichage** : toute fenêtre ou écran (16:9, 16:10, 21:9, petites fenêtres) ; la base 1280×720
   s'agrandit selon la hauteur et les formats plus larges ou plus hauts montrent plus de surface.
 - **Options** : volumes général / musique / effets, plein écran (aussi **Alt+Entrée** ou **F11**, partout),
-  **taille de l'interface** (90 %, 100 %, 125 %, 150 %), vitesse du jeu (x1, x1,5, x2 ; touche V
+  **taille de l'interface** (90 %, 100 %, 125 %, 150 %), **effets visuels** (complets, réduits, aucun), vitesse du jeu (x1, x1,5, x2 ; touche V
   en bataille), **difficulté de l'escarmouche**, **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
   si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, F11, chiffres
   et flèches sont réservés ; bouton « Touches par défaut »). Les touches sont enregistrées
@@ -173,6 +173,7 @@ Les touches marquées * se changent dans **Options**.
 - **Course et endurance** : le double clic droit fait courir le régiment (x1,6), mais la course vide l'endurance en une douzaine de secondes ; la mêlée fatigue aussi, lentement. Sous 60 % d'endurance, la vitesse et les dégâts baissent (jusqu'à x0,6 pour un régiment épuisé). La marche et surtout le repos font récupérer. La barre jaune de la carte du régiment montre l'endurance.
 - **Formations** (touche F) : la **ligne** (par défaut) ; la **colonne** (3 de front) avance 15 % plus vite ; le **carré** creux est lent (x0,55) mais n'a ni flanc ni dos : il annule les bonus de flanc et de dos.
 - **Ressenti** : une charge de cavalerie qui percute fait trembler la caméra (moins si elle est loin), les chevaux au galop soulèvent de la poussière, un régiment qui fuit pousse des cris, et la fin de la bataille passe quelques secondes au ralenti.
+- **Effets visuels** (option complets / réduits / aucun) : gouttes et taches de sang aux coups portés, étincelles sur les armures, mottes de terre des flèches perdues, éclat blanc d'une charge de cavalerie qui percute, traînées des flèches, fumée des cheminées du village, gerbes d'eau dans les gués et la rivière, pluie au sol (impacts, flaques qui se remplissent puis sèchent) et étendards qui flottent au vent. Aucun effet ne trahit un ennemi en embuscade.
 - **Tir ami** : les flèches touchent ce qu'elles trouvent… évitez de tirer dans une mêlée.
 
 ## Terrains
@@ -216,6 +217,8 @@ scripts/battle_sim.gd   Simulation sans rendu (BattleSim) : monde, armées, dép
                         flèches, endurance, retraite, fin ; prévient le reste par des signaux
 scripts/battle_renderer.gd  Rendu pixel art (BattleRenderer, nœud enfant) : sol, soldats, arbres, effets
 scripts/battle_orders.gd    Saisie et ordres du joueur (BattleOrders) : sélection, groupes, ligne de front
+scripts/battle_effects.gd   Effets visuels (BattleEffects) : sang, étincelles, éclat des charges, traînées des
+                            flèches, fumée, éclaboussures, pluie au sol, étendards ; hasard à part, plafond
 scripts/battle_camera.gd    Caméra (BattleCamera) : défilement (touches des Options), zoom entier compensant
                             la taille de l'interface, bornes, secousse
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
@@ -243,6 +246,8 @@ tests/interface_capture.gd Captures de l'interface de bataille dans user://captu
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
+tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le niveau, plafond, option)
+tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge) (avec fenêtre ; option --out)
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
@@ -261,8 +266,10 @@ Pour ajouter à la bataille :
   `forest_speed`), une ligne dans `UnitTypes.bonus()`, ses sprites ; la simulation ne teste jamais le
   nom d'un type (l'IA et la campagne, si) ;
 - un objectif de contrat : dans `BattleSim.check_end()` ;
-- un effet visuel ou sonore : un signal de `BattleSim` branché dans `battle.gd`, ou une liste
-  d'effets dans `BattleRenderer` (comme les repères d'ordres) ;
+- un effet sonore : un signal de `BattleSim` branché dans `battle.gd` ;
+- un effet visuel : une sorte de particule dans `BattleEffects` (`battle_effects.gd`), déclenchée par
+  un signal de `BattleSim` (`hit`, `sound_played`, `impact`) ; son hasard vient de `fx_rng`, jamais
+  du `rng` de la simulation (les graines fixes doivent donner la même bataille) ;
 - un ordre : une touche dans `BattleOrders.handle_key()`.
 
 ## Tests
@@ -298,9 +305,11 @@ godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
 godot --headless --path . -s tests/balance.gd -- --seeds=20 --difficulty=all # idem, par difficulté
 godot --path . -s tests/terrain_shots.gd              # terrain_*.png
+godot --headless --path . -s tests/effects_test.gd    # effets visuels : déterminisme, plafond, option
+godot --path . -s tests/effects_capture.gd            # effets_village.png, effets_gue.png, effets_melee.png, effets_charge.png
 godot --path . -s tests/menu_capture.gd -- --out=captures   # met à jour les captures versionnées du dépôt
 ```
-Les scripts de capture (`menu_capture`, `report_capture`, `terrain_shots`) écrivent par défaut dans
+Les scripts de capture (`menu_capture`, `report_capture`, `terrain_shots`, `effects_capture`) écrivent par défaut dans
 `user://captures` (sous Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\captures\`), donc hors
 du dépôt. `--out=<dossier>` choisit un autre dossier ; un chemin relatif part de la racine du projet,
 et `--out=captures` remplace les images versionnées de `captures/`.
@@ -308,6 +317,9 @@ et `--out=captures` remplace les images versionnées de `captures/`.
 Le test de performance écrit ses résultats en JSON dans `user://perf/perf_results.json`. Lancé sans
 `--headless`, il mesure aussi le vrai coût du rendu. `--max-step-ms=X` le fait échouer si l'étape
 moyenne dépasse X ms (aucun seuil par défaut, car les chiffres dépendent de la machine).
+`--effects=full|reduced|none` choisit le niveau des effets visuels (complets par défaut). Mesure avec
+fenêtre (Radeon RX 7800 XT, 513 soldats) : environ 21 à 23 ms par image en mêlée avec ou sans
+effets, l'écart restant dans le bruit de mesure ; l'étape de simulation est inchangée (~8 ms).
 
 ## Exporter le jeu
 Produit un exécutable Windows autonome `build/CompagnieFranche.exe` (pck intégré, ~110 Mo),

@@ -8,7 +8,7 @@ extends Node2D
 ## Points d'extension :
 ## - nouvelle unité : ses sprites viennent de sprite_bank.gd ; sans sprite, ajouter son dessin de
 ##   repli dans draw_soldier_code() et son pictogramme dans draw_banner_shape() ;
-## - nouvel effet visuel : une liste ici (comme markers), mise à jour dans update_effects(),
+## - nouvel effet visuel : de préférence dans BattleEffects (battle_effects.gd) ; sinon une liste ici (comme markers), mise à jour dans update_effects(),
 ##   dessinée dans _draw() ; ou une liste de la simulation (comme dust) si elle suit le temps simulé.
 
 const WORLD_SIZE := BattleSim.WORLD_SIZE
@@ -32,12 +32,14 @@ var ground_tex: ImageTexture
 var ground_scale := 1.0 ## Taille d'un pixel de ground_tex dans le monde
 var terrain_tex: ImageTexture = null ## Couche du relief et de l'eau posée sur le sol
 var markers: Array = [] ## Repères d'ordres : [position, couleur, vie restante]
+var effects: BattleEffects ## Sang, fumée, éclaboussures, pluie au sol… (battle_effects.gd)
 
 
 func _init(b: Battle) -> void:
 	battle = b
 	sim = b.sim
 	name = "Renderer"
+	effects = BattleEffects.new(sim)
 
 
 ## Repère d'ordre (cercle qui s'élargit et s'efface) en p.
@@ -50,6 +52,7 @@ func update_effects(delta: float) -> void:
 	for m in markers:
 		m[2] -= delta
 	markers = markers.filter(func(m): return m[2] > 0.0)
+	effects.update(delta, self)
 
 
 # ---------------------------------------------------------------- Sol
@@ -158,6 +161,7 @@ func _draw() -> void:
 		draw_corpse(c)
 
 	draw_dust()
+	effects.draw_ground(self)
 
 	# Ordres des régiments sélectionnés
 	for r in sim.regiments:
@@ -207,6 +211,7 @@ func _draw() -> void:
 		else:
 			draw_soldier(it[1])
 
+	effects.draw_air(self)
 	draw_arrows()
 
 	if GameOptions.team_shapes:
@@ -459,6 +464,7 @@ func draw_banner(r: Regiment) -> void:
 	var at := (r.center + Vector2(0, -lift)).round()
 	draw_set_transform(at, 0.0, Vector2(PX, PX))
 	draw_banner_shape(r, Vector2.ZERO)
+	effects.draw_banner_tail(self, r, (TEAM_COLORS[r.team] as Color).darkened(0.5 if r.routing else 0.0))
 	draw_set_transform(Vector2.ZERO)
 	if GameOptions.team_shapes:
 		Hud.draw_team_shape(self, r.team, at + Vector2(-9, -15), 4.5)

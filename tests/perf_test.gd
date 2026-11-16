@@ -11,6 +11,7 @@ extends SceneTree
 ##                           --frames=N          images mesurées en mêlée (défaut 300)
 ##                           --out=<fichier>     résultats JSON (défaut user://perf/perf_results.json)
 ##                           --max-step-ms=X     échec si l'étape moyenne dépasse X ms (défaut : pas de seuil)
+##                           --effects=full|reduced|none  niveau des effets visuels (défaut full)
 ## Code de sortie : 0 si la bataille tourne sans erreur (et sous le seuil éventuel), 1 sinon.
 
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -63,6 +64,9 @@ func _initialize() -> void:
 			frames_wanted = maxi(10, int(a.trim_prefix("--frames=")))
 		elif a.begins_with("--out="):
 			out_path = a.trim_prefix("--out=")
+		elif a.begins_with("--effects="):
+			GameOptions.ensure_loaded()
+			GameOptions.effects = a.trim_prefix("--effects=")
 		elif a.begins_with("--max-step-ms="):
 			max_step_ms = float(a.trim_prefix("--max-step-ms="))
 	Engine.max_fps = 0 # Images aussi vite que possible : on mesure le coût, pas la synchro
@@ -183,6 +187,7 @@ func _finish() -> void:
 		"frame": frames,
 		"fps_avg": snappedf(1000.0 / frames["avg_ms"], 0.1) if frames["avg_ms"] > 0.0 else 0.0,
 		"battle_time": snappedf(battle.battle_time, 0.1),
+		"effects": GameOptions.effects,
 	}
 	print("Étape de simulation (0,05 s) : approche %.2f ms (p95 %.2f), mêlée %.2f ms (p95 %.2f, max %.2f)" % [
 		approach["avg_ms"], approach["p95_ms"], melee["avg_ms"], melee["p95_ms"], melee["max_ms"]])
