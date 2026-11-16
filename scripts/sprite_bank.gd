@@ -3,6 +3,8 @@ extends RefCounted
 ## Sprites pixel art « MiniWorld Sprites » de Shade (CC0, voir CREDITS.md).
 ## Si un fichier manque, has_unit() / has_trees() renvoient false et le jeu
 ## revient au dessin en code.
+## Les unités sans planche à elles (arbalétriers, chevaliers à pied, archers montés) reprennent
+## celle d'un type proche, teintée (« tint ») ; battle_renderer.gd y ajoute leurs détails en code.
 
 const DOWN := 0
 const UP := 1
@@ -35,6 +37,25 @@ const UNITS := {
 		"walk": [1, 10, 4, 7], "walk_n": 4,
 		"idle": [0, 9, 3, 6],
 		"attack": [2, 11, 5, 8], "attack_n": 4,
+	},
+	"crossbow": {
+		"file": "Bowman%s.png", "cell": 16, "foot": Vector2(8, 15),
+		"walk": [0, 1, 2, 3], "walk_n": 5,
+		"attack": [4, 5, 7, 6], "attack_n": 3,
+		"tint": Color(0.92, 0.82, 0.68), # Gambison de toile écrue
+	},
+	"foot_knight": {
+		"file": "Swordsman%s.png", "cell": 16, "foot": Vector2(8, 15),
+		"walk": [0, 1, 2, 3], "walk_n": 5,
+		"attack": [4, 5, 6, 7], "attack_n": 4,
+		"tint": Color(0.78, 0.84, 0.98), # Armure de plates
+	},
+	"horse_archer": {
+		"file": "%sKnight.png", "cell": 32, "foot": Vector2(16, 25),
+		"walk": [1, 10, 4, 7], "walk_n": 4,
+		"idle": [0, 9, 3, 6],
+		"attack": [2, 11, 5, 8], "attack_n": 4,
+		"tint": Color(1.0, 0.9, 0.7), # Harnachement de cuir
 	},
 }
 
@@ -90,7 +111,12 @@ static func dir_of(v: Vector2) -> int:
 	return DOWN if v.y > 0.0 else UP
 
 
-## Image à afficher : {"tex", "src" (zone de la planche), "foot" (point des pieds)}.
+## Teinte à appliquer à la planche d'un type (blanc = telle quelle).
+static func tint(type: String) -> Color:
+	return UNITS[type].get("tint", Color.WHITE)
+
+
+## Image à afficher : {"tex", "src" (zone de la planche), "foot" (point des pieds), "tint"}.
 ## anim : "idle", "walk" ou "attack" ; t : temps d'animation (images) ou progression (0..1) pour l'attaque.
 func frame(type: String, team: int, dir: int, anim: String, t: float) -> Dictionary:
 	var d: Dictionary = UNITS[type]
@@ -117,6 +143,7 @@ func frame(type: String, team: int, dir: int, anim: String, t: float) -> Diction
 		"tex": unit_tex["%s/%d" % [type, team]],
 		"src": Rect2(col * cell, row * cell, cell, cell),
 		"foot": d["foot"],
+		"tint": d.get("tint", Color.WHITE),
 	}
 
 

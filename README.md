@@ -68,12 +68,25 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   ville où elle se trouve (pas assez d'or, ou faction hostile), elle est dissoute : écran de fin avec le
   bilan, puis menu. Une compagnie anéantie mais encore riche peut recruter et repartir.
 - **Marcher** : cliquez sur une ville reliée par une route à la vôtre. Chaque jour de marche coûte la **solde**
-  (par homme et par jour : piquier 0,3 écu, archer 0,35, homme d'armes 0,6, cavalier 1).
+  (par homme et par jour : voir la colonne « solde » du tableau des unités ci-dessous).
   Si les caisses sont vides, une partie des hommes **déserte** chaque jour.
 - **Recruter** : chaque ville lève certains types de troupes, à son prix (de -15 % à Brévannes à +25 %
   à Hautemure). On peut lever un régiment complet (8 régiments au plus) ou **compléter** un régiment entamé.
+- **Unités** : sept types, chacun levé dans certaines villes (le prix est par homme, avant le prix de la ville).
+
+  | Unité | Hommes | Points forts | Points faibles | Prix | Solde / jour | Où la lever | Ennemis dès le niveau |
+  |---|---|---|---|---|---|---|---|
+  | Piquiers | 20 | piques plantées contre la cavalerie (x2) | hommes d'armes, flèches | 6 | 0,3 | Valombre, Saint-Aubin, Brévannes, Pontrieux | 1 |
+  | Hommes d'armes | 16 | blindés, bons contre les piquiers (x1,4) | lents en forêt | 12 | 0,6 | Saint-Aubin, Castelroux, Hautemure, Pontrieux | 1 |
+  | Chevaliers à pied | 12 | élite très solide (80 PV, armure de plates), **inébranlables** | très lents, très chers | 30 | 1,4 | Saint-Aubin, Hautemure | 5 |
+  | Archers | 16 | tir rapide à longue portée (340 px) | cavalerie (x2), mêlée | 7 | 0,35 | Valombre, Montfaucon, Brévannes, Hautemure, Pontrieux | 1 |
+  | Arbalétriers | 16 | carreaux **perçants**, **pavois** quand ils tiennent | rechargent lentement (5 s), portée moyenne (270 px), cavalerie (x2) | 10 | 0,45 | Brévannes, Pontrieux (la Ligue) | 2 |
+  | Cavaliers | 10 | charge (jusqu'à x2,8), archers (x2) | piques (x0,6), chevaliers à pied (x0,7) | 20 | 1 | Montfaucon, Castelroux, Hautemure | 2 |
+  | Archers montés | 10 | **tirent en marchant**, **décrochent** seuls de la mêlée | faibles au contact, cavalerie (x1,5), piques (x1,5) | 18 | 0,9 | Montfaucon, Castelroux (la Baronnie) | 4 |
 - **Contrats** : les villes marquées d'un drapeau rouge proposent des contrats sur **5 niveaux** :
   brigands (4 régiments), routiers (6), ost du baron (8), Grande Compagnie (9), ost de la faction rivale (10).
+  Les arbalétriers apparaissent chez l'ennemi dès les routiers, les archers montés avec la Grande Compagnie,
+  les chevaliers à pied dans l'ost de la faction rivale et dans la bataille décisive (deux régiments).
   Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi tué).
   Les contrats deviennent plus durs avec votre **renommée** (gagnée par les victoires : 5 + 5 x niveau,
   perdue par les défaites) : un niveau de plus tous les 25 points, le niveau 5 à 100. Chaque ville propose le
@@ -149,7 +162,15 @@ Les touches marquées * se changent dans **Options**.
 | Menu pause (reprendre, aide, options, abandonner, menu principal) | Échap ; sur l'écran de fin d'escarmouche : retour au menu |
 
 ## Règles de combat
-- **Pierre-feuille-ciseaux** : piquiers > cavalerie > archers ; hommes d'armes > piquiers.
+- **Pierre-feuille-ciseaux** : piquiers > cavalerie > archers et arbalétriers ; hommes d'armes et chevaliers à pied > piquiers ;
+  carreaux d'arbalète > armures ; archers montés > infanterie lente ; cavalerie et piques > archers montés.
+- **Arbalétriers** : leurs carreaux ignorent 60 % de l'armure (redoutables contre hommes d'armes et chevaliers). Quand ils
+  tiennent leur place (à l'arrêt, hors mêlée), leur **pavois** arrête 60 % des dégâts des traits reçus de face et la moitié
+  du choc moral. En marche, ils sont à découvert.
+- **Chevaliers à pied** : **inébranlables** — moitié moins de moral perdu sur un flanc, dans le dos ou sous une charge, et
+  le choc d'une charge ne les fait pas reculer.
+- **Archers montés** : ils tirent en marchant (moins juste) et, quand une troupe de mêlée approche à moins de 170 px, ils
+  **décrochent** seuls au galop en continuant de tirer. L'ordre « tenir la position » (G) les en empêche. Ils ne chargent pas.
 - **Flancs et dos** : frapper un régiment sur le côté (x1,4) ou dans le dos (x2) fait plus de dégâts et casse son moral.
 - **Charge** : la cavalerie lancée à pleine vitesse fait de gros dégâts et repousse l'ennemi… mais s'empale sur les piques.
 - **Moral** : un régiment qui subit trop de pertes fuit (une seule chance de se rallier). Une déroute fait paniquer les voisins.
@@ -335,4 +356,5 @@ dépasser l'effectif plein d'un régiment.
 
 ## Pistes pour continuer
 - Sièges plus complets (échelles, portes, assaut d'une ville).
-- Nouveaux types d'unités (arbalétriers, chevaliers démontés).
+- D'autres types d'unités (piquiers suisses, vétérans d'élite par faction) ; vrais sprites pour les arbalétriers,
+  chevaliers à pied et archers montés (ils reprennent aujourd'hui une planche MiniWorld teintée).

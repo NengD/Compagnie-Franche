@@ -99,6 +99,12 @@ func _process(_delta: float) -> bool:
 			_finish(order_fails)
 			return true
 		print("Ordres (tenir la position, cesser le tir, groupes) : OK")
+		var unit_fails := _test_new_units()
+		if not unit_fails.is_empty() or not counter.errors.is_empty():
+			unit_fails.append("échec pendant le test des nouvelles unités")
+			_finish(unit_fails)
+			return true
+		print("Nouvelles unités (pavois, carreaux, chevaliers, archers montés) : OK")
 		var asset_fails := _check_assets()
 		if not asset_fails.is_empty():
 			_finish(asset_fails)
@@ -689,6 +695,133 @@ func _test_orders() -> Array[String]:
 	battle.ai.team = 1
 	battle.state = battle.State.DEPLOY
 	battle.battle_time = 0.0
+	return fails
+
+
+## Mécaniques des arbalétriers (pavois, carreaux perçants), des chevaliers à pied (inébranlables)
+## et des archers montés (tir en marchant, décrochage devant la mêlée).
+func _test_new_units() -> Array[String]:
+	var fails: Array[String] = []
+	var sim: BattleSim = battle.sim
+	battle.state = battle.State.BATTLE
+	battle.ai.team = 2
+	var spot := _clear_spot()
+
+	# --- Arbalétriers : pavois quand ils tiennent, pas en marche ; carreaux perçants
+	var xb: Regiment = battle.add_regiment(0, "crossbow", spot, Vector2.UP)
+	var maa: Regiment = battle.add_regiment(1, "men_at_arms", spot + Vector2(0, -230), Vector2.DOWN)
+	maa.hold_position = true
+	battle.simulate(STEP)
+	var still := sim.pavise_factor(xb)
+	xb.dest = spot + Vector2(300, 0)
+	var walking := sim.pavise_factor(xb)
+	_teleport(xb, spot, Vector2.UP)
+	if not (still < 1.0 and is_equal_approx(walking, 1.0)):
+		fails.append("pavois : facteur %.2f au repos, %.2f en marche" % [still, walking])
+	if not is_equal_approx(sim.pavise_factor(maa), 1.0):
+		fails.append("pavois : les hommes d'armes n'en ont pas")
+	xb.target = maa
+	battle.arrows.clear()
+	var bolts := 0
+	var pierce := 0.0
+	var hp0 := _total_hp(maa)
+	for i in 160:
+		battle.simulate(STEP)
+		for a in battle.arrows:
+			pierce = maxf(pierce, float(a.get("pierce", 0.0)))
+		bolts += battle.arrows.size()
+	print("Arbalétriers : carreaux en vol cumulés %d, perce %.1f, dégâts aux hommes d'armes %.0f" % [bolts, pierce, hp0 - _total_hp(maa)])
+	if bolts <= 0 or not is_equal_approx(pierce, 0.6) or not (_total_hp(maa) < hp0):
+		fails.append("arbalétriers : pas de carreaux perçants sur la cible")
+	# Même trait reçu de face : un archer abrité derrière son pavois souffre moins qu'à découvert
+	var victim: Soldier = xb.alive_soldiers()[0]
+	var hit := {"to": victim.pos, "from": victim.pos + Vector2(0, -200), "dmg": 10.0, "pierce": 0.0}
+	_teleport(xb, spot, Vector2.UP)
+	xb.target = null
+	xb.holding = true
+	sim.rebuild_grid()
+	var h0 := victim.hp
+	sim.arrow_impact(hit)
+	var sheltered := h0 - victim.hp
+	victim.hp = h0
+	xb.holding = false
+	xb.dest = spot + Vector2(300, 0)
+	sim.arrow_impact(hit)
+	var exposed := h0 - victim.hp
+	victim.hp = h0
+	print("Pavois : trait de face %.1f abrité, %.1f à découvert" % [sheltered, exposed])
+	if not (sheltered < exposed * 0.8):
+		fails.append("pavois : le trait abrité fait %.1f contre %.1f à découvert" % [sheltered, exposed])
+	_remove_test_regiment(xb)
+	_remove_test_regiment(maa)
+
+	# --- Chevaliers à pied : une charge ne les fait pas reculer et les ébranle deux fois moins
+	var knights: Regiment = battle.add_regiment(0, "foot_knight", spot, Vector2.UP)
+	var men: Regiment = battle.add_regiment(0, "men_at_arms", spot + Vector2(200, 0), Vector2.UP)
+	var cav: Regiment = battle.add_regiment(1, "cavalry", spot + Vector2(0, -300), Vector2.DOWN)
+	var rider: Soldier = cav.alive_soldiers()[0]
+	var losses := []
+	var moved := []
+	for r in [knights, men]:
+		var b: Soldier = r.alive_soldiers()[0]
+		rider.pos = b.pos + Vector2(0, -10)
+		rider.momentum = 1.0
+		rider.hp = rider.max_hp
+		var m0: float = r.morale
+		var p0: Vector2 = b.pos
+		sim.strike(rider, b)
+		losses.append(m0 - r.morale)
+		moved.append(b.pos.distance_to(p0))
+	print("Chevaliers à pied : moral perdu %.1f (hommes d'armes %.1f), recul %.1f px (%.1f)" % [losses[0], losses[1], moved[0], moved[1]])
+	if not (moved[0] < 0.5 and moved[1] > 3.0 and losses[0] < losses[1]):
+		fails.append("chevaliers à pied : la charge les fait reculer ou les ébranle autant que des hommes d'armes")
+	if not (float(UnitTypes.STATS["foot_knight"]["hp"]) > float(UnitTypes.STATS["men_at_arms"]["hp"]) and float(UnitTypes.STATS["foot_knight"]["speed"]) < float(UnitTypes.STATS["men_at_arms"]["speed"])):
+		fails.append("chevaliers à pied : ils devraient être plus solides et plus lents que les hommes d'armes")
+	_remove_test_regiment(knights)
+	_remove_test_regiment(men)
+	_remove_test_regiment(cav)
+
+	# --- Archers montés : décrochent devant l'infanterie en tirant, et tiennent sur ordre
+	var ha: Regiment = battle.add_regiment(0, "horse_archer", spot, Vector2.UP)
+	var foot: Regiment = battle.add_regiment(1, "spear", spot + Vector2(0, -140), Vector2.DOWN)
+	foot.target = ha
+	ha.target = foot
+	battle.arrows.clear()
+	var shots := 0
+	var moving_shot := false
+	var closest := INF
+	for i in 120:
+		battle.simulate(STEP)
+		closest = minf(closest, ha.center.distance_to(foot.center))
+		for a in battle.arrows:
+			if a["t"] == 0.0 or a["t"] <= STEP:
+				shots += 1
+		for s in ha.alive_soldiers():
+			if s.moving and s.attack_anim > 0.3:
+				moving_shot = true
+	var gap := ha.center.distance_to(foot.center)
+	print("Archers montés : distance finale %.0f px (plus proche %.0f), flèches %d, tir en marchant %s, pertes %d" % [gap, closest, shots, "oui" if moving_shot else "non", int(UnitTypes.STATS["horse_archer"]["count"]) - ha.alive_n])
+	if not (gap > 160.0 and shots > 0 and moving_shot):
+		fails.append("archers montés : ils ne décrochent pas en tirant (distance %.0f, flèches %d)" % [gap, shots])
+	if ha.alive_n < int(UnitTypes.STATS["horse_archer"]["count"]) - 3:
+		fails.append("archers montés : rattrapés par des piquiers (%d survivants)" % ha.alive_n)
+	# Ordre de tenir : ils ne décrochent plus
+	_teleport(ha, spot, Vector2.UP)
+	_teleport(foot, spot + Vector2(0, -140), Vector2.DOWN)
+	foot.hold_position = true
+	ha.hold_position = true
+	ha.evading = 0.0
+	for i in 20:
+		battle.simulate(STEP)
+	if ha.evading > 0.0 or ha.center.distance_to(spot) > 6.0:
+		fails.append("archers montés : ils décrochent malgré l'ordre de tenir")
+	_remove_test_regiment(ha)
+	_remove_test_regiment(foot)
+
+	battle.ai.team = 1
+	battle.state = battle.State.DEPLOY
+	battle.battle_time = 0.0
+	battle.arrows.clear()
 	return fails
 
 

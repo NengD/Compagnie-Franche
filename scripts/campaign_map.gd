@@ -16,7 +16,7 @@ const TOWN_RADIUS := 24.0
 const GOLD_COL := Color(1, 0.84, 0.4)
 const BLUE := Color(0.22, 0.38, 0.85)
 const WOOD := Color(0.48, 0.32, 0.17)
-const TYPE_ORDER := ["spear", "men_at_arms", "archer", "cavalry"]
+const TYPE_ORDER := UnitTypes.ORDER
 
 var state: CampaignState
 var font: Font

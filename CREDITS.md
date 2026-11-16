@@ -52,4 +52,6 @@ Les licences CC0 n'exigent aucun crédit ; on les cite quand même par politesse
 - Le vent est un extrait de 30 s du fichier d'origine (256 s, 74 Mo), passé en mono 16 bits à 24 kHz,
   avec un fondu enchaîné d'une seconde entre la fin et le début pour boucler sans clic.
 - Les autres fichiers sont utilisés tels quels (renommés).
+- Les arbalétriers, chevaliers à pied et archers montés n'ont pas de planche à eux : le jeu reprend les planches
+  MiniWorld des archers, des épéistes et des cavaliers, teintées en code, et y dessine pavois, plumet et arc.
 - L'herbe des forêts est assombrie et le sol est assemblé par le jeu à partir des tuiles MiniWorld.
