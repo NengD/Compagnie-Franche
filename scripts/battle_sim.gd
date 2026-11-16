@@ -11,7 +11,7 @@ extends RefCounted
 ## - nouvelle unité : ses statistiques et ses capacités (« mounted », « braces », « armored »,
 ##   « forest_speed », « ranged »…) se lisent uniquement dans UnitTypes.STATS ; la simulation
 ##   ne teste jamais le nom d'un type ;
-## - objectif de contrat : ajouter un test dans check_end() (ou un objet branché dessus) ;
+## - objectif de contrat : une classe de battle_objectives.gd (objective), que check_end() interroge ;
 ## - nouvel effet (son, secousse, particules) : émettre un signal ici, le brancher dans battle.gd.
 ##
 ## Attention : l'ordre des tirages de rng compte (graines fixes des tests et du banc).
@@ -61,6 +61,7 @@ var ai := EnemyAI.new()
 var retreated := false ## La bataille s'est terminée par une retraite
 var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
 var captain: Captain = null ## Capitaine du joueur sur le champ (voir captain.gd), null sans capitaine
+var objective: BattleObjectives.Objective = BattleObjectives.create("destroy") ## Condition de victoire (battle_objectives.gd)
 
 
 ## Casse les références croisées régiments ↔ soldats (RefCounted) pour éviter les fuites.
@@ -306,6 +307,8 @@ func step(dt: float) -> void:
 		captain.step(self, dt)
 	update_arrows(dt)
 	update_dust(dt)
+	if state == State.BATTLE:
+		objective.step(self, dt) # Chronomètre, zone tenue, chariots, fuyards
 	cleanup_timer -= dt
 	if cleanup_timer <= 0.0:
 		cleanup_timer = 1.0
@@ -620,7 +623,7 @@ func update_soldier(s: Soldier, dt: float) -> void:
 	s.attack_anim = maxf(s.attack_anim - dt, 0.0)
 	s.moving = false
 
-	var speed: float = r.stats["speed"] * UnitTypes.FORMATION_SPEED[r.formation]
+	var speed: float = r.stats["speed"] * UnitTypes.FORMATION_SPEED[r.formation] * r.speed_mult
 	speed *= UnitTypes.fatigue_factor(r.stamina, UnitTypes.EXHAUSTED_SPEED)
 	if r.running:
 		speed *= UnitTypes.RUN_SPEED
@@ -926,28 +929,19 @@ func start() -> void:
 	message("La bataille commence !")
 
 
-## Victoire quand l'ennemi n'a plus de régiment debout, défaite dans le cas inverse.
-## Un objectif de contrat (tenir X secondes, protéger un convoi…) se brancherait ici.
+## Fin de bataille d'après l'objectif (battle_objectives.gd) : par défaut, victoire quand l'ennemi
+## n'a plus de régiment debout, défaite dans le cas inverse ; sinon tenir, escorter, prendre, poursuivre.
 func check_end() -> void:
 	if state != State.BATTLE:
 		return
-	var p_alive := false
-	var e_alive := false
-	for r in regiments:
-		if r.is_dead() or r.routing:
-			continue
-		if r.team == PLAYER:
-			p_alive = true
-		else:
-			e_alive = true
-	if not e_alive:
-		state = State.VICTORY
-		message("L'ennemi est en déroute. Victoire !")
-	elif not p_alive:
-		state = State.DEFEAT
-		message("Votre compagnie est brisée...")
-	else:
-		return
+	match objective.check(self):
+		BattleObjectives.WON:
+			state = State.VICTORY
+		BattleObjectives.LOST:
+			state = State.DEFEAT
+		_:
+			return
+	message(objective.end_message)
 	ended.emit()
 
 

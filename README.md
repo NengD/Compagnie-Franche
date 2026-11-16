@@ -105,7 +105,7 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   | Cavaliers | 10 | charge (jusqu'à x2,8), archers (x2) | piques (x0,6), chevaliers à pied (x0,7) | 20 | 1 | Montfaucon, Castelroux, Hautemure | 2 |
   | Archers montés | 10 | **tirent en marchant**, **décrochent** seuls de la mêlée | faibles au contact, cavalerie (x1,5), piques (x1,5) | 18 | 0,9 | Montfaucon, Castelroux (la Baronnie) | 4 |
 - **Contrats** : les villes marquées d'un drapeau rouge proposent des contrats sur **5 niveaux** :
-  brigands (4 régiments), routiers (6), ost du baron (8), Grande Compagnie (9), ost de la faction rivale (10).
+  brigands (4 régiments), routiers (6), gens d'une faction ennemie (8), Grande Compagnie (9), ost d'une faction (10).
   Les arbalétriers apparaissent chez l'ennemi dès les routiers, les archers montés avec la Grande Compagnie,
   les chevaliers à pied dans l'ost de la faction rivale et dans la bataille décisive (deux régiments).
   Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi tué).
@@ -115,6 +115,27 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   (niveau 3 : tous aguerris, 30 % de vétérans ; niveau 5 : 80 % de vétérans) et plus la prime est forte
   (de 260 à 1350 écus, +0,2 % par point de renommée, même au-delà du niveau 5). Ils expirent après 14 jours.
   Réglages : `CONTRACT_KINDS`, `FINAL_CONTRACT`, `FAME_STEP` et `FINAL_FAME` dans `scripts/campaign_state.gd`.
+- **Contrats variés** : l'objectif ne se limite plus à détruire l'ennemi (la carte l'annonce, « Objectif : … ») :
+  - **Détruire l'ennemi** (le plus courant) : briser toute son armée ;
+  - **Tenir une position** 3 à 5 minutes (prime x1,1) : une zone marquée au sol (colline, place du village ou
+    milieu de la route). Si l'ennemi l'occupe seul 30 s (cumulées), le contrat est perdu ; son infanterie y marche ;
+  - **Escorter un convoi** (prime x0,85, **+8 % par chariot sauvé**) : 4 chariots suivent la route d'ouest en est ;
+    2 (3 dès le niveau 4) doivent arriver. Un ennemi au contact abîme le chariot et arrête tout le convoi ;
+    l'infanterie et la cavalerie ennemies vont aux chariots ;
+  - **Prendre un village** (dès le niveau 2, prime x1,2, toujours sur un village) : la garnison est postée sur la
+    place et ne contre-attaque pas (sauf saignée par les flèches) ; l'occuper seul 25 s avant la nuit (6 minutes) ;
+  - **Poursuivre** (prime x0,95) : la bande, chargée de butin (vitesse x0,55, cavaliers x0,7), part du milieu du
+    champ et fuit vers le nord derrière une arrière-garde de piquiers ; si la moitié de ses hommes quitte la carte,
+    c'est perdu.
+  En bataille : zone ou ligne de fuite au sol, panneau sous la barre du haut (chronomètre ou état, barre de
+  progression, jauge rouge du danger) ; le bilan de fin dit si l'objectif est atteint. Un objectif qui ne va pas
+  avec le terrain de la ville en change (escorte et poursuite : rase campagne, bois ou collines). Les villes
+  fortifiées défendent leur palissade (détruire) dès le niveau 3. Réglages : `OBJECTIVES` dans
+  `scripts/campaign_state.gd`, règles dans `scripts/battle_objectives.gd`.
+- **Armées par faction** : l'ennemi des niveaux 3 et 5 est le plus souvent la rivale de la ville, sinon la troisième
+  faction. Chacun ajoute un régiment à son armée : les **routiers** un de cavalerie, la **Ligue des villes** des
+  arbalétriers (et ses archers prennent l'arbalète), la **Baronnie** des archers montés, le **Comté** des
+  chevaliers à pied.
 - **Réputation** : un contrat gagné rapporte +10 auprès de la faction qui paie et -5 auprès de sa rivale
   (le Comté et la Baronnie se haïssent ; la Ligue est rivale de la Baronnie). La prime varie de x0,5 à x1,5
   selon la réputation. À -30, la faction vous ferme ses portes : ni contrat ni recrutement dans ses villes.
@@ -301,7 +322,10 @@ scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures a
 scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » du panneau de la carte
 scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques et capacités des unités (seule source lue par la simulation)
+scripts/battle_objectives.gd Objectifs de bataille (détruire, tenir, escorter, prendre, poursuivre) : victoire,
+                        défaite, zone et chariots au sol, panneau du HUD, consignes à l'IA, bilan
 scripts/enemy_ai.gd     IA ennemie
+
 scripts/hud.gd          Interface
 scripts/pause_menu.gd   Menu pause de la bataille (Échap)
 scripts/battle_report.gd  Panneau du bilan de fin de bataille (données : battle.build_end_report)
@@ -315,6 +339,10 @@ tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, d
                         niveaux 1 à 5, pluriels, objectif et fin (victoire, ruine), deux batailles de
                         contrat, une retraite, bilan de fin de bataille, carte et embuscade, écrans de fin et menu)
 tests/ai_test.gd        Test de l'IA (formations, course, colline, gués, défense, retraite, embuscade)
+tests/objectives_test.gd Test des objectifs (détruire, tenir, escorter, prendre, poursuivre : IA, victoire,
+                        défaite, panneau, bilan ; contrats de campagne et supplément de l'escorte)
+tests/objectives_capture.gd Captures de chaque objectif en bataille (avec fenêtre ; option --out)
+
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/interface_test.gd Test de l'interface de bataille : numéros fixes, aide, info-bulle, sous-titres,
                         touches de caméra, zoom et taille de l'interface, HUD et bilan à 150 %
@@ -342,7 +370,9 @@ Pour ajouter à la bataille :
 - une unité : une entrée dans `UnitTypes.STATS` (capacités `ranged`, `mounted`, `braces`, `armored`,
   `forest_speed`), une ligne dans `UnitTypes.bonus()`, ses sprites ; la simulation ne teste jamais le
   nom d'un type (l'IA et la campagne, si) ;
-- un objectif de contrat : dans `BattleSim.check_end()` ;
+- un objectif de contrat : une classe qui étend `BattleObjectives.Objective` (`battle_objectives.gd` :
+  `setup`, `step`, `check`, affichage, consignes à l'IA), une entrée dans `BattleObjectives.create()`, puis
+  ses contrats dans `CampaignState.OBJECTIVES` ; `BattleSim.check_end()` l'interroge à chaque pas ;
 - un effet sonore : un signal de `BattleSim` branché dans `battle.gd` ;
 - un effet visuel : une sorte de particule dans `BattleEffects` (`battle_effects.gd`), déclenchée par
   un signal de `BattleSim` (`hit`, `sound_played`, `impact`) ; son hasard vient de `fx_rng`, jamais

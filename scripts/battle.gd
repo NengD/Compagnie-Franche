@@ -48,6 +48,8 @@ var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-
 
 var seed_override := 0 ## Graine fixe pour les tests (0 = aléatoire)
 var terrain_override := "" ## Terrain imposé (tests) ; vide = au hasard ou d'après le contrat
+var objective_override := "" ## Objectif imposé hors campagne (tests) : clé de BattleObjectives.NAMES
+var objective_params: Dictionary = {} ## Réglages de l'objectif imposé (tests)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
 var campaign_report := "" ## Compte rendu de fin de bataille en campagne (texte du journal)
 var campaign_result: Dictionary = {} ## Bilan structuré renvoyé par CampaignState.finish_battle
@@ -87,6 +89,7 @@ func _ready() -> void:
 	sim.cries_played.connect(_on_cries)
 	sim.impact.connect(_on_impact)
 	sim.ended.connect(_on_battle_ended)
+	sim.objective = choose_objective()
 	stats_watch = Achievements.watch(self) # Après _on_battle_ended : lit le bilan de fin
 
 	renderer = BattleRenderer.new(self)
@@ -99,6 +102,7 @@ func _ready() -> void:
 		spawn_armies()
 	if sim.terrain.kind == "siege":
 		sim.setup_siege()
+	sim.objective.setup(sim) # Zone, convoi, garnison ou bande en fuite
 	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
 
 	camera = BattleCamera.new()
@@ -121,6 +125,8 @@ func _ready() -> void:
 		add_message("Contrat : %s" % campaign.pending["title"])
 	if sim.terrain.kind != "plain":
 		add_message("Terrain : %s. %s" % [sim.terrain.display_name(), sim.terrain.hint()])
+	if sim.objective.briefing() != "":
+		add_message(sim.objective.briefing())
 	add_message("Placez vos troupes, puis appuyez sur Espace pour lancer la bataille.")
 
 
@@ -141,13 +147,24 @@ func generate_world() -> void:
 
 
 ## Terrain de la bataille : imposé par les tests, d'après la ville du contrat, sinon vide
-## (tiré au sort par la simulation, après la graine de la route).
+## (tiré au sort par la simulation, après la graine de la route). L'objectif peut l'écarter :
+## on prend alors un terrain qui lui convient (un village pour « prendre le village »...).
 func choose_terrain() -> String:
+	var t := ""
 	if terrain_override != "":
-		return terrain_override
+		t = terrain_override
+	elif campaign != null:
+		t = Terrain.for_contract(int(campaign.pending.get("town", -1)), int(campaign.pending.get("difficulty", 1)), CampaignState.TOWNS)
+	return sim.objective.fit_terrain(t, sim.rng.seed)
+
+
+## Objectif de la bataille : celui du contrat, imposé par les tests, sinon détruire l'ennemi.
+func choose_objective() -> BattleObjectives.Objective:
 	if campaign != null:
-		return Terrain.for_contract(int(campaign.pending.get("town", -1)), int(campaign.pending.get("difficulty", 1)), CampaignState.TOWNS)
-	return ""
+		return BattleObjectives.from_contract(campaign.pending)
+	if objective_override != "":
+		return BattleObjectives.create(objective_override, objective_params)
+	return BattleObjectives.create("destroy")
 
 
 ## Armées de l'escarmouche (le tutoriel remplace cette fonction).
@@ -282,7 +299,7 @@ func order_retreat() -> void:
 ## Reporte les pertes sur la compagnie : les hommes debout et ceux qui ont fui survivent.
 func finish_campaign() -> void:
 	var tally := sim.company_tally(campaign.battle_army().size())
-	campaign_result = campaign.finish_battle(sim.state == State.VICTORY, tally["survivors"], tally["kills"], sim.retreated)
+	campaign_result = campaign.finish_battle(sim.state == State.VICTORY, tally["survivors"], tally["kills"], sim.retreated, sim.objective.result(sim))
 	campaign_report = str(campaign_result["text"])
 	campaign.save()
 
@@ -320,7 +337,8 @@ func build_end_report() -> Dictionary:
 		t["player_fled"] += row["fled"]
 		t["player_healed"] += row["healed"]
 	return {"outcome": outcome, "title": title, "terrain": sim.terrain.display_name(), "duration": sim.battle_time,
-		"tutorial": is_tutorial, "rows": rows, "totals": t, "campaign": campaign_result}
+		"tutorial": is_tutorial, "rows": rows, "totals": t, "campaign": campaign_result, "objective": sim.objective.result(sim)}
+
 
 
 ## Fin de bataille : calcule le bilan et prépare son panneau (affiché après REPORT_DELAY).

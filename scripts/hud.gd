@@ -14,6 +14,7 @@ const CARD_GAP := 6.0
 const CARD_MAX_W := 140.0
 const CARD_MIN_W := 84.0
 const MSG_SIZE := 15
+const OBJ_H := 46.0 ## Hauteur du panneau d'objectif (sous la barre du haut)
 const HELP_SIZE := 13
 const CAPTION_LIFE := 3.5 ## Durée d'un sous-titre (secondes)
 const CAPTION_COOLDOWN := 6.0 ## Délai avant de répéter le même sous-titre
@@ -261,6 +262,7 @@ func _draw() -> void:
 	# Le bilan de fin de bataille masque messages, aide et info-bulle (il les résume)
 	var report_shown: bool = battle.report_panel != null and battle.report_panel.visible
 	if not report_shown:
+		draw_objective(vs)
 		draw_messages()
 		draw_help(vs)
 		draw_captions(vs)
@@ -418,9 +420,41 @@ func draw_cards(vs: Vector2) -> void:
 
 
 ## Messages en haut à gauche, chacun sur un fond sombre.
+## Rectangle du panneau d'objectif (vide si l'objectif n'en affiche pas : « détruire l'ennemi »).
+func objective_rect(vs: Vector2) -> Rect2:
+	if not battle.sim.objective.shows_panel():
+		return Rect2()
+	var w := clampf(vs.x * 0.42, 260.0, 520.0)
+	return Rect2(vs.x * 0.5 - w * 0.5, BAR_H + 4.0, w, OBJ_H)
+
+
+## Panneau d'objectif : nom, état (chronomètre, chariots, fuyards), progression et jauge de danger.
+func draw_objective(vs: Vector2) -> void:
+	var r := objective_rect(vs)
+	if not r.has_area():
+		return
+	var o := battle.sim.objective
+	draw_rect(r, Color(0.05, 0.04, 0.03, 0.78))
+	draw_rect(r, Color(0.55, 0.47, 0.3), false, 1.0)
+	text(r.position + Vector2(8, 16), fit(o.label().to_upper(), 14, r.size.x - 16.0), 14, Color(1, 0.86, 0.5))
+	text(r.position + Vector2(8, 32), fit(o.status(battle.sim), 13, r.size.x - 16.0), 13, Color(0.92, 0.9, 0.82))
+	var bar := Rect2(r.position.x + 8.0, r.end.y - 10.0, r.size.x - 16.0, 5.0)
+	var p := o.progress(battle.sim)
+	if p >= 0.0:
+		draw_rect(bar, Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * p, bar.size.y)), Color(1, 0.84, 0.4))
+	var dg := o.danger(battle.sim)
+	if dg > 0.0:
+		draw_rect(Rect2(bar.position + Vector2(0, 6), Vector2(bar.size.x * dg, 2.0)), ENEMY_COL.lightened(0.2))
+
+
 func draw_messages() -> void:
 	var vs := get_viewport_rect().size
 	var y := BAR_H + 22.0
+	var obj := objective_rect(vs)
+	if obj.has_area() and obj.position.x < minf(vs.x * 0.6, free_width(vs) - 12.0):
+		y += OBJ_H + 8.0 # Sous le panneau d'objectif
+
 	var maxw := minf(vs.x * 0.6, free_width(vs) - 12.0) # Jamais sous l'aide dépliée
 	for m in battle.messages:
 		var a := clampf(m[1], 0.0, 1.0)
