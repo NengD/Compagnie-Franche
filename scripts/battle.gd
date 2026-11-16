@@ -100,6 +100,8 @@ func _ready() -> void:
 	if sim.terrain.kind == "siege":
 		sim.setup_siege()
 	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
+	if campaign != null:
+		sim.raining = campaign.world.raining # La météo du jour s'impose à la bataille (world_sim.gd)
 
 	camera = BattleCamera.new()
 	add_child(camera)
@@ -119,6 +121,8 @@ func _ready() -> void:
 
 	if campaign != null:
 		add_message("Contrat : %s" % campaign.pending["title"])
+		if sim.raining:
+			add_message("Il pleut aujourd'hui : les archers tirent moins loin et moins juste.")
 	if sim.terrain.kind != "plain":
 		add_message("Terrain : %s. %s" % [sim.terrain.display_name(), sim.terrain.hint()])
 	add_message("Placez vos troupes, puis appuyez sur Espace pour lancer la bataille.")

@@ -225,7 +225,9 @@ func _unhandled_input(event: InputEvent) -> void:
 func click_town(t: int) -> void:
 	if walking or ambushed or t == state.location:
 		return
-	if state.is_over():
+	if state.world.has_encounter():
+		notice = "Une armée vous barre la route : livrez bataille ou fuyez d'abord."
+	elif state.is_over():
 		notice = "La campagne est terminée."
 	elif state.is_destroyed():
 		notice = "Sans troupes, la compagnie ne peut plus marcher."
@@ -405,14 +407,17 @@ func refresh_ui() -> void:
 	add_label("Ennemis tués %d   ·   hommes perdus %d   ·   or gagné %d écus" % [state.enemies_killed, state.men_lost, state.gold_earned], 12, Color(0.75, 0.72, 0.65))
 	if notice != "":
 		add_label(notice, 13, Color(1, 0.62, 0.3))
+	WorldView.build_encounter(self) # Armée rencontrée en route : bataille ou fuite
 
 	add_section("Objectif")
 	add_label(state.objective_status(), 12, Color(1, 0.9, 0.7))
 	if state.is_over():
 		add_button("Voir le bilan de la campagne", show_end_now)
 
+	WorldView.build_world(self) # Saison, météo, guerres, sièges, nouvelles
+
 	add_section("À %s" % town["name"])
-	var fac := CampaignState.town_faction(state.location)
+	var fac := state.town_owner(state.location)
 	add_label("%s — réputation %+d (%s)" % [CampaignState.faction_name(fac), state.reputation[fac], state.reputation_label(fac)], 12, CampaignState.FACTIONS[fac]["color"])
 	var closed := state.closed_message(state.location)
 	if closed != "":
@@ -478,7 +483,7 @@ func refresh_ui() -> void:
 		add_label(str(c["text"]), 12, Color(0.8, 0.77, 0.7))
 		add_label("Ennemi : %s" % CampaignState.army_summary(c["enemy"]), 12)
 		add_label("Prime : %d écus   ·   difficulté %s   ·   jusqu'au jour %d" % [state.contract_reward(c), stars(int(c["difficulty"])), int(c["expires"])], 12, GOLD_COL)
-		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not state.is_over() and not walking and not ambushed and closed == "")
+		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not state.is_over() and not walking and not ambushed and closed == "" and not state.world.has_encounter())
 
 	# Réputation
 	add_section("Réputation")
@@ -503,7 +508,7 @@ func refresh_ui() -> void:
 	elif not state.is_ruined():
 		add_button("Nouvelle campagne", do_new_campaign)
 	add_label("Sauvegarde automatique après chaque marche, recrutement et bataille.", 11, Color(0.6, 0.58, 0.52))
-	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent. En route : marchands, déserteurs, épidémies, intempéries… et brigands.", 11, Color(0.6, 0.58, 0.52))
+	add_label("Cliquez sur une ville voisine pour y marcher. Chaque jour coûte la solde ; sans or, des hommes désertent. En route : marchands, déserteurs, épidémies, intempéries… et brigands. Les armées des factions marchent sur la carte (cerclées de rouge si elles vous sont hostiles) ; en hiver, on marche plus lentement et le froid tue.", 11, Color(0.6, 0.58, 0.52))
 
 
 func show_end_now() -> void:
@@ -556,6 +561,7 @@ func _draw() -> void:
 
 	for i in CampaignState.TOWNS.size():
 		draw_town(i, i == state.location, i in near)
+	WorldView.draw_world(self) # Sièges et armées des factions
 
 	# Jours de marche sur les routes partant d'ici
 	for t in near:
@@ -570,15 +576,21 @@ func _draw() -> void:
 		var k := clampf(walk_t / walk_dur, 0.0, 1.0)
 		at = town_pos(state.location).lerp(town_pos(walk_to), k)
 	draw_company(at + Vector2(-38, -14))
+	WorldView.draw_weather(self) # Voile de saison, pluie ou neige
 
 	# Cartouche
 	draw_rect(Rect2(12, 12, 210, 30), Color(0.12, 0.08, 0.05, 0.8))
 	draw_rect(Rect2(12, 12, 210, 30), Color(0.6, 0.47, 0.25), false, 1.0)
 	draw_string(font, Vector2(22, 33), "Pays de Valfrène", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, GOLD_COL)
 	draw_objective(Vector2(12, 48))
+	WorldView.draw_calendar(self)
 
 	if hover >= 0 and not walking:
 		draw_tooltip(hover)
+	elif not walking:
+		var army := WorldView.army_at(state, get_local_mouse_position())
+		if army != null:
+			WorldView.draw_army_tooltip(self, army)
 
 
 ## Encart d'objectif : renommée et barre de progression vers la bataille décisive.
@@ -648,11 +660,11 @@ func draw_town(i: int, here: bool, near: bool) -> void:
 		draw_rect(Rect2(f, Vector2(10, 7)), GOLD_COL if final_here else Color(0.8, 0.15, 0.12))
 		draw_string(font, f + Vector2(2, 6), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color(0.2, 0.1, 0.02) if final_here else Color.WHITE)
 	# Liseré aux couleurs de la faction sous le nom (rayé si elle nous ferme ses portes)
-	var fcol: Color = CampaignState.FACTIONS[CampaignState.town_faction(i)]["color"]
+	var fcol: Color = CampaignState.FACTIONS[state.town_owner(i)]["color"]
 	var bar := Rect2(p + Vector2(-22, 38), Vector2(44, 4))
 	draw_rect(bar.grow(1), Color(0, 0, 0, 0.7))
 	draw_rect(bar, fcol)
-	if state.faction_closed(CampaignState.town_faction(i)):
+	if state.faction_closed(state.town_owner(i)):
 		for k in 4:
 			draw_rect(Rect2(bar.position + Vector2(4 + k * 11, 0), Vector2(5, 4)), Color(0.55, 0.08, 0.06))
 	var name: String = CampaignState.TOWNS[i]["name"]
@@ -676,7 +688,7 @@ func draw_company(base: Vector2) -> void:
 
 func draw_tooltip(i: int) -> void:
 	var lines: Array[String] = [str(CampaignState.TOWNS[i]["name"])]
-	var fi := CampaignState.town_faction(i)
+	var fi := state.town_owner(i)
 	lines.append("%s (%s)" % [CampaignState.faction_name(fi), state.reputation_label(fi)])
 	if i == state.location:
 		lines.append("Vous êtes ici")
