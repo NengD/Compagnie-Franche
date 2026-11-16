@@ -11,7 +11,7 @@ extends SceneTree
 const TestPlayer := preload("res://tests/test_player.gd")
 const OPTIONS_TEST := "user://test_effets_options.cfg"
 const STEP := 0.05
-const STEPS := 900 ## 45 s de bataille simulée
+const STEPS := 2400 ## 120 s de bataille simulée (l'IA peut attendre en défense avant le contact)
 const SEED := 4242
 
 var scene: PackedScene
@@ -40,7 +40,8 @@ func _process(_delta: float) -> bool:
 		var ref: String = sigs["full/%s" % kind]
 		for level in ["reduced", "none"]:
 			check(sigs["%s/%s" % [level, kind]] == ref, "%s : la bataille diffère avec les effets « %s »" % [kind, level])
-	print("Déterminisme avec ou sans effets : %s" % ("OK" if fails.is_empty() else "ÉCHEC"))
+	var same := fails.filter(func(f: String): return "diffère" in f).is_empty()
+	print("Déterminisme avec ou sans effets : %s" % ("OK" if same else "ÉCHEC"))
 	check_options()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(OPTIONS_TEST))
 	GameOptions.path = GameOptions.DEFAULT_PATH
