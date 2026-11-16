@@ -18,6 +18,7 @@ const LEVELS := {
 		"enemy_men": 0.85, ## Effectif de chaque régiment ennemi (part de l'effectif prévu)
 		"enemy_morale": 0.85, ## Moral maximal des ennemis
 		"enemy_damage": 0.9, ## Dégâts des ennemis (mêlée et flèches)
+		"enemy_veterans": 0.4, ## Part des vétérans des armées de contrat (le reste devient aguerri)
 		"ai_think": 1.6, ## Intervalle de réflexion de l'IA, en secondes (plus long = moins réactive)
 		"ai_advance": 25.0, ## Délai avant que l'IA ne marche sur le joueur, en secondes
 		"ai_cavalry_wait": 40.0, ## Délai avant que la cavalerie ennemie ne quitte la réserve
@@ -32,6 +33,7 @@ const LEVELS := {
 		"enemy_men": 1.0,
 		"enemy_morale": 1.0,
 		"enemy_damage": 1.0,
+		"enemy_veterans": 0.7,
 		"ai_think": 0.8,
 		"ai_advance": 12.0,
 		"ai_cavalry_wait": 20.0,
@@ -46,6 +48,7 @@ const LEVELS := {
 		"enemy_men": 1.0,
 		"enemy_morale": 1.15,
 		"enemy_damage": 1.1,
+		"enemy_veterans": 1.0,
 		"ai_think": 0.5,
 		"ai_advance": 8.0,
 		"ai_cavalry_wait": 15.0,
@@ -81,3 +84,10 @@ static func hint(id: String) -> String:
 ## Effectif d'un régiment ennemi après application de la difficulté (au moins un homme).
 static func enemy_men(id: String, men: int) -> int:
 	return maxi(1, int(round(men * value(id, "enemy_men"))))
+
+
+## Rangs d'une armée de contrat après la difficulté : ranks = [chance d'être aguerri, chance d'être
+## vétéran] ; une part « enemy_veterans » des vétérans le reste, les autres deviennent aguerris.
+static func enemy_ranks(id: String, ranks: Array) -> Array:
+	var vet := float(ranks[1]) * value(id, "enemy_veterans")
+	return [float(ranks[0]) + float(ranks[1]) - vet, vet]

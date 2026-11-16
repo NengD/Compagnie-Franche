@@ -184,17 +184,20 @@ func _test_veterans() -> void:
 	reg.set_rank(2)
 	check(is_equal_approx(reg.max_morale, float(UnitTypes.STATS["spear"]["morale"]) * (1.0 + 2 * Regiment.RANK_MORALE)) and is_equal_approx(reg.rank_damage(), 1.0 + 2 * Regiment.RANK_DAMAGE), "vétérans : bonus de rang")
 	check(CampaignState.rank_of({"type": "spear", "rank": 2}) == 2 and CampaignState.rank_of({"xp": 260.0}) == 2, "vétérans : rang mal lu")
-	# Contrats difficiles : ennemis classés
+	# Contrats difficiles : la plupart des ennemis sont classés (N6 : plus tous, voir campaign_balance.gd)
 	c.fame = 200
 	var ranked := 0
+	var regs := 0
 	for i in 20:
 		var k := c.make_contract(0)
+		var in_contract := 0
 		for e in k["enemy"]:
-			if int(k["difficulty"]) >= 3:
-				check(int(e["rank"]) >= 1, "vétérans : contrat de niveau %d sans expérience" % int(k["difficulty"]))
+			regs += 1
 			if int(e["rank"]) > 0:
 				ranked += 1
-	check(ranked > 0, "vétérans : aucun ennemi aguerri")
+				in_contract += 1
+		check(in_contract > 0, "vétérans : contrat de niveau %d sans expérience" % int(k["difficulty"]))
+	check(ranked * 2 > regs, "vétérans : trop peu d'ennemis aguerris aux niveaux 4 et 5 (%d sur %d)" % [ranked, regs])
 	print("Vétérans : OK")
 
 
