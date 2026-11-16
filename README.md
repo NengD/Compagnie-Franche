@@ -238,6 +238,33 @@ Le terrain est affiché en haut de l'écran et annoncé au début de la bataille
   campagne ; les contrats de difficulté 3 et plus à **Hautemure** et **Castelroux** sont des défenses de palissade.
   Table modifiable dans `scripts/terrain.gd` (`TOWN_TERRAINS`, `SIEGE_TOWNS`).
 
+## IA ennemie
+L'IA (`scripts/enemy_ai.gd`) choisit au début de chaque bataille un **plan** d'après le rapport de forces
+(effectif × solidité × dégâts) et le terrain. Le tirage dépend de la graine : même bataille, même plan.
+- **Agressif** : l'infanterie marche en colonne, se déploie en ligne et avance d'un même pas ; les archers
+  tirent, depuis une colline s'il y en a une de leur côté ; la cavalerie contourne pour prendre à revers.
+  Plus probable quand l'IA est la plus forte. À l'assaut d'une palissade, l'infanterie s'arrête à
+  portée le temps que les archers tirent sur les défenseurs, puis donne l'assaut par les brèches.
+- **Défensif** : l'armée tient une position (le sommet d'une **colline** avec l'infanterie sur le versant
+  en avant, la lisière du **village**, sa **rive** de la rivière, sa palissade ou sa ligne de départ),
+  ses archers tirent sans quitter leur poste et chaque régiment contre-charge ce qui l'approche sans
+  poursuivre loin. Elle **contre-attaque** après quelques secondes de mêlée, si l'ennemi s'est affaibli,
+  si les flèches lui coûtent trop sans combat, ou au bout d'environ 1 min 35 s sans assaut.
+  Plus probable quand l'IA est la plus faible ; obligatoire si elle l'est nettement (rapport sous 0,65).
+- **Débordement** : l'infanterie s'arrête à distance pour fixer l'ennemi, la cavalerie part tôt et large,
+  ou s'**embusque dans un bois** sur le flanc adverse et en sort pour charger ce qui passe à portée.
+  Choisi surtout s'il y a un bois propice ou si l'IA a plus de cavaliers.
+- **Gués** : pour franchir la rivière, chaque régiment rejoint le gué le plus avantageux en colonne,
+  sauf si le détour est bien plus long que de traverser à la nage.
+- **Retraite en bon ordre** : quand il lui reste moins de 40 % de sa force et moins de 60 % de celle du
+  joueur, l'IA sonne la retraite. Ses régiments reculent face à l'ennemi, la cavalerie couvre l'infanterie,
+  et chacun quitte le champ par son bord au lieu de se faire détruire. La bataille est alors gagnée.
+- Toujours : carré des piquiers contre une charge, course des hommes d'armes sur les derniers mètres,
+  galop de la cavalerie en fin de charge, archers qui reculent derrière l'infanterie.
+- Ajouter un type d'unité : une branche dans `think_regiment()` ; à défaut, le type est joué d'après
+  ses capacités (tireur, monté, ou infanterie). Les requêtes de terrain (sommets, rives, gués) sont dans
+  `terrain.gd`.
+
 ## Structure
 ```
 scenes/menu.tscn        Menu principal (scène de départ)
@@ -287,7 +314,7 @@ tests/smoke_test.gd     Test automatique sans fenêtre
 tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, défaite, économie, évènements,
                         niveaux 1 à 5, pluriels, objectif et fin (victoire, ruine), deux batailles de
                         contrat, une retraite, bilan de fin de bataille, carte et embuscade, écrans de fin et menu)
-tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
+tests/ai_test.gd        Test de l'IA (formations, course, colline, gués, défense, retraite, embuscade)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
 tests/interface_test.gd Test de l'interface de bataille : numéros fixes, aide, info-bulle, sous-titres,
                         touches de caméra, zoom et taille de l'interface, HUD et bilan à 150 %
@@ -339,7 +366,7 @@ godot --headless --path . -s tests/smoke_test.gd      # bataille accélérée, c
 godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur un terrain imposé
                                                       # (plain, forest, hills, river, village, siege, random)
 godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, niveaux, fin, batailles, sauvegarde, carte
-godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
+godot --headless --path . -s tests/ai_test.gd         # IA : formations, carré, colline, gués, défense, retraite, embuscade
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --headless --path . -s tests/interface_test.gd  # interface de bataille, accessibilité, caméra
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
@@ -403,6 +430,12 @@ Banc d'essai par terrain (10 à 20 graines, victoires du joueur « tactique » /
 4/10 et 4/10 ; rase campagne 2/10 et 2/10 ; bois 4/10 et 4/10 ; collines 6/10 et 3/10 ; rivière 3/10 et 2/10 ;
 village 6/10 et 3/10 ; palissade 11/20 et 10/20. Toutes les batailles se terminent (aucune bloquée).
 Les écarts restent dans le bruit d'une série de 10 batailles.
+
+IA qui utilise le terrain (`balance.gd -- --seeds=10 --terrain=all`, normal, joueur « tactique ») : avant 29/60
+(48 %) : plaine 4, bois 5, collines 5, rivière 6, village 1, palissade 8. Après 22/60 (37 %) : plaine 4,
+bois 1, collines 6, rivière 4, village 2, palissade 5. Le banc affiche aussi les plans choisis et les retraites :
+le plan défensif est le plus dur à battre pour ce joueur simulé, l'embuscade en forêt aussi (il ne voit pas
+les troupes cachées). L'objectif est de garder le joueur tactique entre 25 et 40 % en normal.
 
 Par difficulté (`balance.gd -- --seeds=20 --first=101 --difficulty=…`, terrain tiré au sort ; victoires du joueur,
 durée médiane) :
