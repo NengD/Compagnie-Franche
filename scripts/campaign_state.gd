@@ -87,34 +87,39 @@ const CONTRACT_KINDS := [
 	},
 	{
 		"difficulty": 2, "foe": "routiers", "band": "routiers", "reward": 450, "fill": [0.75, 1.0], "ranks": [0.4, 0.0],
-		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "crossbow", "cavalry"],
+		"army": ["spear", "spear", "men_at_arms", "crossbow", "cavalry"],
 		"titles": ["Routiers aux portes de %s", "Une compagnie rivale menace %s"],
 		"text": "Des routiers sans contrat pillent la campagne. Ils sont aguerris et ont quelques cavaliers.",
 	},
 	{
-		"difficulty": 3, "foe": "gens de {rival}", "band": "faction", "reward": 720, "fill": [0.9, 1.0], "ranks": [0.7, 0.3],
-		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry"],
+		"difficulty": 3, "foe": "gens de {rival}", "band": "faction", "reward": 720, "fill": [0.8, 0.95], "ranks": [0.5, 0.0],
+		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry"],
 		"titles": ["Querelle de frontière devant %s", "Défendre %s contre {rival}"],
 		"text": "Un seigneur de {rival} lève son ost contre la ville, qui engage des lances pour lui tenir tête en rase campagne.",
 	},
 	{
-		"difficulty": 4, "foe": "routiers de la Grande Compagnie", "band": "routiers", "reward": 1000, "fill": [0.9, 1.0], "ranks": [0.45, 0.55],
-		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry", "horse_archer"],
+		"difficulty": 4, "foe": "routiers de la Grande Compagnie", "band": "routiers", "reward": 1000, "fill": [0.85, 1.0], "ranks": [0.45, 0.15],
+		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "horse_archer"],
 		"titles": ["La Grande Compagnie marche sur %s", "Chevauchée de routiers autour de %s"],
 		"text": "Plusieurs bandes se sont unies sous un même capitaine. Nombreuse et aguerrie, la Grande Compagnie rançonne des provinces entières.",
 	},
 	{
-		"difficulty": 5, "foe": "armées de {rival}", "band": "faction", "reward": 1350, "fill": [0.95, 1.0], "ranks": [0.2, 0.8],
-		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "foot_knight", "archer", "crossbow", "cavalry", "horse_archer"],
+		"difficulty": 5, "foe": "armées de {rival}", "band": "faction", "reward": 1350, "fill": [0.8, 0.95], "ranks": [0.5, 0.2],
+		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "foot_knight", "archer", "crossbow", "cavalry"],
 		"titles": ["L'ost de {rival} menace %s", "Bataille rangée devant %s"],
 		"text": "{Rival} lève son ost et marche sur la ville. Ses chevaliers sont des vétérans de toutes les guerres.",
 	},
 ]
 const MAX_LEVEL := 5 ## Niveau de contrat le plus élevé (atteint à FAME_STEP * 4 de renommée)
-## Bataille décisive (objectif de la campagne) : la plus grande armée du jeu, presque toute vétérane.
+## Bataille décisive (objectif de la campagne) : 9 régiments contre 8 au plus pour la compagnie, dont
+## deux de chevaliers à pied, presque tous aguerris ou vétérans.
+## Équilibrage (N6, mesuré par le banc tests/campaign_balance.gd) : régiments entamés (« fill ») et plus
+## petits qu'avant (régiment de couleur compris : 6, 8, 8 et 9 aux niveaux 2 à 5 au lieu de 7, 9, 10 et
+## 11 ; décisive : 9 au lieu de 11), moins de vétérans, et leur part dépend de la difficulté
+## (Difficulty.enemy_ranks : en facile et en normal, une partie des vétérans ne sont qu'aguerris).
 const FINAL_CONTRACT := {
-	"difficulty": 5, "reward": 2500, "fill": [0.95, 1.0], "ranks": [0.1, 0.9],
-	"army": ["spear", "spear", "spear", "men_at_arms", "foot_knight", "foot_knight", "archer", "crossbow", "crossbow", "cavalry", "horse_archer"],
+	"difficulty": 5, "reward": 2500, "fill": [0.75, 0.9], "ranks": [0.5, 0.3],
+	"army": ["spear", "spear", "men_at_arms", "foot_knight", "foot_knight", "archer", "archer", "crossbow", "cavalry"],
 }
 
 var day := 1
@@ -947,7 +952,7 @@ func roll_army(kind: Dictionary) -> Array[Dictionary]:
 	for t in kind["army"]:
 		var full: int = UnitTypes.STATS[t]["count"]
 		var men := maxi(3, int(round(full * rng.randf_range(fill[0], fill[1]))))
-		enemy.append({"type": t, "men": men, "rank": roll_rank(kind["ranks"])})
+		enemy.append({"type": t, "men": men, "rank": roll_rank(Difficulty.enemy_ranks(difficulty, kind["ranks"]))})
 	return enemy
 
 

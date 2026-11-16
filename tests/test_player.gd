@@ -11,6 +11,9 @@ var strategy := "tactical"
 var next_order := 0.0
 var ai_clock := 0.0
 var ai: EnemyAI ## Pour la stratégie "ai" : l'IA ennemie joue le camp du joueur
+## Vrai : le joueur tactique suit aussi l'objectif de la bataille (tenir, prendre, escorter,
+## poursuivre) ; faux (défaut) : il ne vise que l'armée ennemie (banc d'escarmouche, tests).
+var objectives := false
 
 
 func _init(s: String = "tactical") -> void:
@@ -34,6 +37,8 @@ func update(b) -> void:
 			naive(b)
 		"tactical":
 			tactical(b)
+			if objectives:
+				follow_objective(b)
 
 
 func visible_enemies(b) -> Array[Regiment]:
@@ -139,3 +144,75 @@ func tactical(b) -> void:
 						prey = nearest(r, enemies, func(o): return o.type != "spear" and o.engaged)
 					if prey != null:
 						order_attack(r, prey)
+
+
+## Objectif de contrat : l'infanterie tient ou prend la position, escorte le convoi, et tout le
+## monde court après une bande qui fuit (appelé après tactical, dont il corrige les ordres).
+func follow_objective(b) -> void:
+	var o = b.sim.objective
+	var enemies := visible_enemies(b)
+	if o == null or enemies.is_empty():
+		return
+	var foot: Array[Regiment] = []
+	for r in b.player_regiments():
+		if r.type in ["spear", "men_at_arms", "foot_knight"]:
+			foot.append(r)
+	match str(o.kind):
+		"hold", "capture":
+			# Chasser l'ennemi de la position, sinon s'y placer en ligne
+			var c: Vector2 = o.center
+			var reach := 220.0 if o.kind == "hold" else 300.0
+			for i in foot.size():
+				var r := foot[i]
+				var e := nearest_to(c, enemies, reach)
+				if e != null:
+					order_attack(r, e)
+				elif r.center.distance_to(c) > 90.0 and not r.engaged:
+					r.target = null
+					r.holding = false
+					r.dest = c + Vector2((i - (foot.size() - 1) * 0.5) * 70.0, 30.0)
+		"escort":
+			# Frapper ce qui menace un chariot, sinon accompagner le chariot de tête
+			var lead := Vector2.INF
+			var threat: Regiment = null
+			var td := 380.0
+			for w in o.wagons:
+				if str(w["state"]) != "road":
+					continue
+				var p: Vector2 = w["pos"]
+				if lead == Vector2.INF or p.x > lead.x:
+					lead = p
+				for e in enemies:
+					var d := e.center.distance_to(p)
+					if d < td:
+						td = d
+						threat = e
+			for i in foot.size():
+				var r := foot[i]
+				if threat != null:
+					order_attack(r, threat)
+				elif lead != Vector2.INF and not r.engaged:
+					r.target = null
+					r.holding = false
+					r.dest = lead + Vector2(80.0 + 40.0 * i, -60.0 + 40.0 * (i % 4))
+		"pursue":
+			# La bande s'enfuit : tout le monde la rattrape
+			for r in b.player_regiments():
+				if r.type in ["archer", "crossbow"]:
+					continue
+				if r.target == null or r.target.is_dead() or r.target.routing:
+					var e := nearest(r, enemies)
+					if e != null:
+						order_attack(r, e)
+
+
+## Ennemi le plus proche d'un point, à moins de max_dist (null sinon).
+func nearest_to(p: Vector2, list: Array[Regiment], max_dist: float) -> Regiment:
+	var best: Regiment = null
+	var bd := max_dist
+	for o in list:
+		var d := o.center.distance_to(p)
+		if d < bd:
+			bd = d
+			best = o
+	return best
