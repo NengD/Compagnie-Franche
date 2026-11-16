@@ -56,6 +56,7 @@ var report_panel: BattleReport = null ## Panneau du bilan (caché pendant REPORT
 var report_clock := 0.0 ## Temps réel écoulé depuis la fin de la bataille
 var is_tutorial := false ## Bataille du tutoriel (bilan simplifié, Entrée recommence)
 var pause_menu: PauseMenu = null ## Menu pause (Échap), créé à la première ouverture
+var stats_watch: Achievements.Watch = null ## Statistiques et succès de la bataille
 
 
 # ---------------------------------------------------------------- Mise en place
@@ -85,6 +86,7 @@ func _ready() -> void:
 	sim.cries_played.connect(_on_cries)
 	sim.impact.connect(_on_impact)
 	sim.ended.connect(_on_battle_ended)
+	stats_watch = Achievements.watch(self) # Après _on_battle_ended : lit le bilan de fin
 
 	renderer = BattleRenderer.new(self)
 	add_child(renderer)

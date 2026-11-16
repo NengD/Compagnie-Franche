@@ -324,6 +324,9 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		var men := clampi(int(r.get("men", 0)), 0, int(UnitTypes.STATS[type]["count"]))
 		if men > 0:
 			c.company.append({"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)})
+			for key in ["battles", "kills"]: # Statistiques du régiment (absentes avant sa première bataille)
+				if r.has(key):
+					c.company[-1][key] = maxi(0, int(r[key]))
 	for k in d.get("contracts", []):
 		var contract := contract_from_dict(k)
 		if contract.is_empty():
@@ -1067,11 +1070,14 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		var rank0 := rank_of(r)
 		var xp0 := float(r.get("xp", 0.0))
 		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (XP_VICTORY if victory else 0.0) + XP_KILLS * k / full, XP_MAX)
+		r["battles"] = int(r.get("battles", 0)) + 1 # Statistiques : âge et décorations du régiment
+		r["kills"] = int(r.get("kills", 0)) + k
 		if after > 0 and rank_of(r) > rank0:
 			promoted.append("les %s (%d) deviennent %s" % [type_name(r["type"]).to_lower(), i + 1, rank_name(rank_of(r))])
 		out["regiments"].append({"type": r["type"], "before": before, "after": after, "healed": after - stood,
 			"kills": k, "xp_before": xp0, "xp_after": float(r["xp"]), "rank_before": rank0, "rank_after": rank_of(r),
 			"promoted": after > 0 and rank_of(r) > rank0})
+		out["regiments"][-1].merge({"battles": r["battles"], "kills_total": r["kills"]})
 	company = company.filter(func(r): return int(r["men"]) > 0)
 	men_lost += lost
 	enemies_killed += killed

@@ -36,6 +36,13 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   par lettre, donc correctes en AZERTY comme en QWERTY.
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
 - La carte de campagne revient au menu par le bouton « Menu principal » ou Échap.
+- **Statistiques et succès** : statistiques gardées d'une campagne à l'autre (batailles jouées, gagnées
+  et perdues, ennemis tués, hommes perdus, or gagné, campagnes gagnées ou perdues, plus longue campagne,
+  régiment le plus ancien et le plus décoré) et 23 succès (première victoire, victoire sans perdre un
+  régiment, carré qui repousse une charge, embuscade réussie, campagne gagnée en difficile, régiment
+  d'élite, 1 000 ennemis tués…). Chaque succès obtenu s'annonce par une notification discrète en haut
+  à droite. Fichier : `statistiques.json` dans le dossier de données du jeu (à part des campagnes).
+  La carte et l'écran de fin montrent les statistiques de la campagne en cours.
 
 ## Difficulté
 Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1) :
@@ -191,6 +198,8 @@ scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrute
 scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
 scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, taille de l'interface, vitesse, difficulté, touches
+scripts/stats.gd        Statistiques globales et succès débloqués (Stats, statique), user://statistiques.json
+scripts/achievements.gd Succès (Achievements) : liste, conditions, notification, observateur de bataille, page du menu
 scripts/difficulty.gd   Niveaux de difficulté (Difficulty) : multiplicateurs ennemis, IA, économie
 scripts/ui_theme.gd     Thème des menus, placement des panneaux selon la taille de la vue
 scripts/display_keys.gd Autoload DisplayKeys : Alt+Entrée / F11 (plein écran) partout, taille minimale de fenêtre
@@ -268,6 +277,7 @@ godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, t
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
+godot --headless --path . -s tests/stats_test.gd      # statistiques et succès (fichier de test, jamais le vrai)
 godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png

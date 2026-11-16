@@ -26,6 +26,8 @@ func _ready() -> void:
 	if state == null:
 		state = CampaignState.load_game()
 	victory = state != null and state.ended == "victory"
+	if state != null and state.ended != "":
+		Stats.record_campaign_end(state) # Comptée une seule fois (voir stats.gd)
 	GameAudio.music("victory" if victory else "defeat")
 	build_background()
 	panel = PanelContainer.new()
@@ -82,6 +84,8 @@ func summary_rows() -> Array:
 		["Renommée", str(s.fame)],
 		["Compagnie à la fin", "%s, %s" % [CampaignState.plural(s.company.size(), "régiment", "régiments"), CampaignState.plural(s.total_men(), "homme", "hommes")]],
 		["Régiments vétérans / aguerris", "%d / %d" % [vets, seasoned]],
+		["Régiment le plus ancien", Achievements.regiment_text(Achievements.company_best(s.company, "battles"))],
+		["Régiment le plus décoré", Achievements.regiment_text(Achievements.company_best(s.company, "kills"))],
 	]
 
 
