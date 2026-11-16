@@ -9,6 +9,8 @@ extends SceneTree
 ##  3. Terrain : l'IA prend une colline (archers au sommet, infanterie sur le versant), passe la rivière
 ##     par les gués, se met en défense quand elle est bien plus faible puis contre-attaque, se retire
 ##     en bon ordre quand la bataille est perdue, et embusque sa cavalerie dans un bois.
+##  4. Palissade : l'assaillant fait tirer ses archers avant l'assaut, attend hors de portée, puis tranche ;
+##     il attaque à découvert un défenseur qui sort de ses pieux.
 ## Code de sortie : 0 si tout va bien, 1 sinon.
 
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -54,6 +56,7 @@ func _process(_delta: float) -> bool:
 	defense_scenario()
 	withdraw_scenario()
 	ambush_scenario()
+	palisade_scenario()
 	if fails.is_empty():
 		print("AI TEST OK")
 		quit(0)
@@ -325,6 +328,60 @@ func defense_scenario() -> void:
 		fails.append("défense : l'IA ne tient pas ses postes (écart moyen %.0f px)" % off_post)
 	if not ai.counter and b.state == b.State.BATTLE:
 		fails.append("défense : l'IA ne contre-attaque jamais")
+	end_battle(b)
+
+
+## Points de vie restants d'un camp.
+func hp_of(b: Node, team: int) -> float:
+	var hp := 0.0
+	for s: Soldier in b.soldiers:
+		if s.alive and s.regiment.team == team:
+			hp += s.hp
+	return hp
+
+
+## Palissade : l'assaillant ne se jette plus sur les pieux. Face à un défenseur qui reste derrière,
+## ses archers tirent d'abord et l'infanterie attend hors de portée ; puis il tranche (assaut s'il domine,
+## brèche la moins gardée, ou renoncement) au lieu d'attendre indéfiniment. Une sortie du défenseur
+## est attaquée à découvert sans attendre.
+func palisade_scenario() -> void:
+	var b := new_battle(first_seed, "siege")
+	b.start_battle()
+	var ai := ai_of(b)
+	var hp0 := hp_of(b, 0)
+	var state := {"closest": INF, "lost": 0.0}
+	var watch := func() -> void:
+		if ai.assault or ai.withdrawing:
+			return
+		state["lost"] = hp0 - hp_of(b, 0) # Pertes du défenseur pendant l'attente (flèches seules)
+		for r in ai_regiments(b):
+			if EnemyAI.is_foot(r):
+				state["closest"] = minf(state["closest"], Terrain.WALL_Y - r.center.y)
+	run_until(b, null, 260.0, watch) # Défenseur immobile derrière les pieux
+	print("Palissade : infanterie au plus près à %.0f px des pieux, défenseur à %.0f PV de moins sous les flèches (dès %.0f s), %s à %.0f s" % [
+		state["closest"], state["lost"], ai.bombard_start, "assaut" if ai.assault else ("renoncement" if ai.withdrawing else "aucune décision"),
+		ai.assault_time if ai.assault else b.battle_time])
+	if ai.plan != EnemyAI.AGGRESSIVE:
+		fails.append("palissade : l'assaillant choisit le plan %s" % ai.plan)
+	if ai.assault and ai.bombard_start >= 0.0 and ai.assault_time < ai.bombard_start + EnemyAI.BOMBARD_TIME \
+			and ai.assault_time <= EnemyAI.ASSAULT_PATIENCE:
+		fails.append("palissade : assaut donné à %.0f s, avant le tir des archers" % ai.assault_time)
+	if state["closest"] < EnemyAI.STANDOFF_MIN - 80.0:
+		fails.append("palissade : l'infanterie s'approche à %.0f px des pieux avant l'assaut" % state["closest"])
+	if state["lost"] <= 0.0:
+		fails.append("palissade : les archers de l'assaillant ne tirent pas avant l'assaut")
+	if not ai.assault and not ai.withdrawing and b.state == b.State.BATTLE:
+		fails.append("palissade : l'assaillant attend indéfiniment devant les pieux")
+	end_battle(b)
+
+	# Sortie : le joueur naïf franchit les brèches, l'IA l'attaque aussitôt à découvert
+	b = new_battle(first_seed, "siege")
+	b.start_battle()
+	ai = ai_of(b)
+	run_until(b, TestPlayer.new("naive"), 30.0)
+	print("Palissade, sortie du défenseur : %s" % ("combat à découvert à %.0f s" % ai.assault_time if ai.assault else "pas de réaction"))
+	if not ai.assault:
+		fails.append("palissade : l'IA ne réagit pas à une sortie du défenseur")
 	end_battle(b)
 
 

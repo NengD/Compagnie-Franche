@@ -122,6 +122,10 @@ func handle_key(k: InputEventKey) -> void:
 			else:
 				battle.paused = not battle.paused
 		KEY_T:
+			if battle.campaign != null:
+				# En campagne, la météo du jour s'impose (world_sim.gd) : T est réservée à l'escarmouche
+				battle.add_message("La météo est celle du jour : on ne commande pas à la pluie.")
+				return
 			sim.raining = not sim.raining
 			battle.add_message("Il pleut : les archers tirent moins loin et moins juste." if sim.raining else "La pluie cesse.")
 		KEY_H:

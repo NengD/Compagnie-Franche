@@ -153,7 +153,7 @@ func build_help() -> void:
 	grid.add_theme_constant_override("h_separation", 28)
 	grid.add_theme_constant_override("v_separation", 2)
 	box.add_child(grid)
-	var lines: Array[String] = Hud.help_lines()
+	var lines: Array[String] = Hud.help_lines(battle.campaign == null)
 	@warning_ignore("integer_division")
 	var half := (lines.size() + 1) / 2
 	# Deux colonnes : la première moitié à gauche, la seconde à droite

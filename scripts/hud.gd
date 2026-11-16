@@ -338,7 +338,9 @@ func draw_top_bar(vs: Vector2) -> void:
 	# Côté droit, depuis le bord : météo, terrain, vitesse
 	var items: Array = []
 	var weather := "Pluie" if battle.raining else "Temps clair"
-	items.append([weather + "  [%s]" % GameOptions.key_label("rain"), Color(0.85, 0.85, 0.85)])
+	if battle.campaign == null: # En campagne, la météo du jour ne se change pas (pas de touche)
+		weather += "  [%s]" % GameOptions.key_label("rain")
+	items.append([weather, Color(0.85, 0.85, 0.85)])
 	items.append(["Terrain : " + battle.terrain.display_name(), Color(0.85, 0.85, 0.85)])
 	if battle.sim.siege != null:
 		items.push_front([battle.sim.siege.status_text(battle.sim), Color(1, 0.85, 0.45)])
@@ -477,7 +479,7 @@ func draw_help(vs: Vector2) -> void:
 		draw_rect(r, Color(0.45, 0.4, 0.3), false, 1.0)
 		text(r.position + Vector2(8, 16), tab, 13, Color(0.9, 0.88, 0.8))
 		return
-	var lines := help_lines()
+	var lines := help_lines(battle.campaign == null)
 	var lay := help_layout(vs, lines)
 	var hr: Rect2 = lay["rect"]
 	draw_rect(hr, Color(0.05, 0.04, 0.03, 0.78))
@@ -491,7 +493,7 @@ func draw_help(vs: Vector2) -> void:
 func free_width(vs: Vector2) -> float:
 	if not battle.show_help:
 		return vs.x
-	var hr: Rect2 = help_layout(vs, help_lines())["rect"]
+	var hr: Rect2 = help_layout(vs, help_lines(battle.campaign == null))["rect"]
 	return hr.position.x
 
 
@@ -510,7 +512,8 @@ func draw_captions(vs: Vector2) -> void:
 
 
 ## Lignes de l'aide (panneau F1 et page Aide du menu pause). Les touches suivent les Options.
-static func help_lines() -> Array[String]:
+## rain_key : faux en campagne, où la météo du jour s'impose (la touche de pluie n'y fait rien).
+static func help_lines(rain_key := true) -> Array[String]:
 	var lines: Array[String] = [
 		"Clic gauche / glisser : sélectionner",
 		"Maj + clic : ajouter à la sélection",
@@ -525,7 +528,7 @@ static func help_lines() -> Array[String]:
 		"%s : archers, tir à volonté / cesser le tir" % GameOptions.key_label("fire"),
 		"%s / flèches / molette (clic) : caméra" % GameOptions.camera_keys_label(),
 		"Molette : zoom   Survol : détails d'un régiment",
-		"%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain"),
+		("%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain")) if rain_key else "Météo du jour imposée   Espace : lancer / pause",
 		"Déploiement : zone bleue, aucun combat",
 		"%s deux fois : sonner la retraite (défaite limitée)" % GameOptions.key_label("retreat"),
 		"Clic : capitaine   %s : il rejoint la sélection" % GameOptions.key_label("captain"),
