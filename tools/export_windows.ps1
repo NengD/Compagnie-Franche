@@ -53,7 +53,15 @@ function Export-Preset([string]$preset, [string]$relPath, [string]$zipSuffix) {
 	if (Test-Path $zip) {
 		Remove-Item $zip -Force
 	}
-	Compress-Archive -Path $bin, (Join-Path $dir "CREDITS.md"), (Join-Path $dir "README.md") -DestinationPath $zip
+	$files = @($bin, (Join-Path $dir "CREDITS.md"), (Join-Path $dir "README.md"))
+	$python = Get-Command python -ErrorAction SilentlyContinue
+	if ($python) {
+		# Droits Unix dans le zip : le binaire Linux reste exécutable une fois décompressé
+		& $python.Source (Join-Path $PSScriptRoot "make_zip.py") $zip @files --exec $bin
+	} else {
+		Write-Warning "Python introuvable : zip sans droits Unix (sous Linux, il faudra « chmod +x »)."
+		Compress-Archive -Path $files -DestinationPath $zip
+	}
 	$size = [math]::Round((Get-Item $bin).Length / 1MB, 1)
 	$zsize = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 	Write-Host "Export « $preset » terminé : $bin ($size Mo) ; archive $zip ($zsize Mo)."
