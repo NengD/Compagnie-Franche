@@ -4,7 +4,7 @@ extends RefCounted
 ## déplacements, mêlée, moral, flèches, endurance et fin de bataille.
 ##
 ## Elle ne connaît ni la caméra, ni le son, ni le HUD : elle les prévient par des signaux
-## (message_posted, sound_played, cries_played, impact, ended), que battle.gd relaie.
+## (message_posted, sound_played, cries_played, impact, hit, ended), que battle.gd relaie.
 ## On peut donc la faire tourner seule (tests, banc d'équilibrage) en appelant step(dt).
 ##
 ## Points d'extension :
@@ -20,6 +20,7 @@ signal message_posted(text: String) ## Message pour le joueur (journal du HUD)
 signal sound_played(sound: String, at: Vector2) ## Bruitage localisé (« sword », « clash », « bow », « death », « swish »)
 signal cries_played(at: Vector2, count: int) ## Cris d'un régiment qui fuit
 signal impact(at: Vector2, amount: float) ## Choc visible (charge) : secousse de caméra
+signal hit(at: Vector2, from: Vector2) ## Soldat touché en at, depuis from (from == at : flèche) : effets visuels
 signal ended ## La bataille vient de se terminer (state vaut VICTORY ou DEFEAT)
 
 const WORLD_SIZE := Vector2(3200, 2000)
@@ -782,6 +783,8 @@ func damage(s: Soldier, amount: float, source: Soldier) -> void:
 		return
 	s.hp -= amount
 	s.flash = 0.12
+	if not is_secret(s.regiment) and (source == null or not is_secret(source.regiment)):
+		hit.emit(s.pos, s.pos if source == null else source.pos)
 	s.regiment.revealed = maxf(s.regiment.revealed, 3.0)
 	if source != null:
 		source.regiment.revealed = maxf(source.regiment.revealed, 3.0)

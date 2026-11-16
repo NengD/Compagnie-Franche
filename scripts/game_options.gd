@@ -15,6 +15,9 @@ const SPEEDS: Array[float] = [1.0, 1.5, 2.0]
 const UI_SCALES: Array[float] = [0.9, 1.0, 1.25, 1.5]
 const BUS_MUSIC := "Musique"
 const BUS_SFX := "Effets"
+## Niveaux des effets visuels de bataille (battle_effects.gd) et leurs noms affichés.
+const EFFECTS: Array[String] = ["full", "reduced", "none"]
+const EFFECTS_NAMES: Array[String] = ["Complets", "Réduits", "Aucun"]
 
 ## Actions de bataille reconfigurables : identifiant, nom affiché, touche par défaut.
 ## Pour en ajouter une : une ligne ici, puis un cas « KEY_x: » (la touche par défaut) dans le
@@ -58,6 +61,7 @@ static var fullscreen := false
 static var ui_scale := 1.0 ## Taille de l'interface (une valeur de UI_SCALES)
 static var speed := 1.0 ## Vitesse de la simulation en bataille
 static var difficulty := Difficulty.NORMAL ## Difficulté de l'escarmouche (la campagne a la sienne)
+static var effects := "full" ## Effets visuels de bataille : une valeur de EFFECTS
 static var binds := {} ## id d'action -> keycode
 
 
@@ -77,6 +81,7 @@ static func reset_all() -> void:
 	ui_scale = 1.0
 	speed = 1.0
 	difficulty = Difficulty.NORMAL
+	effects = "full"
 	reset_keys()
 
 
@@ -101,6 +106,8 @@ static func load_options() -> void:
 	var sp := float(cfg.get_value("jeu", "vitesse", speed))
 	speed = sp if sp in SPEEDS else 1.0
 	difficulty = Difficulty.sanitize(str(cfg.get_value("jeu", "difficulte", difficulty)))
+	var fx := str(cfg.get_value("affichage", "effets", effects))
+	effects = fx if fx in EFFECTS else "full"
 	for a in ACTIONS:
 		var id: String = a["id"]
 		binds[id] = int(cfg.get_value("touches", id, binds[id]))
@@ -120,6 +127,7 @@ static func save_options() -> bool:
 	cfg.set_value("audio", "effets", sfx_volume)
 	cfg.set_value("affichage", "plein_ecran", fullscreen)
 	cfg.set_value("affichage", "taille_interface", ui_scale)
+	cfg.set_value("affichage", "effets", effects)
 	cfg.set_value("jeu", "vitesse", speed)
 	cfg.set_value("jeu", "difficulte", difficulty)
 	for id in binds:

@@ -287,6 +287,16 @@ func build_options() -> void:
 	grid.add_child(ui)
 	grid.add_child(UiTheme.label("(menus, carte et bataille)", 13, UiTheme.DIM))
 
+	grid.add_child(UiTheme.label("Effets visuels"))
+	var fx := OptionButton.new()
+	fx.name = "Effets"
+	for n in GameOptions.EFFECTS_NAMES:
+		fx.add_item(n)
+	fx.selected = maxi(GameOptions.EFFECTS.find(GameOptions.effects), 0)
+	fx.item_selected.connect(set_effects)
+	grid.add_child(fx)
+	grid.add_child(UiTheme.label("(sang, fumée, éclaboussures, pluie au sol)", 13, UiTheme.DIM))
+
 	grid.add_child(UiTheme.label("Vitesse du jeu"))
 	var sp := OptionButton.new()
 	for s in GameOptions.SPEEDS:
@@ -384,6 +394,11 @@ func set_ui_scale(i: int) -> void:
 
 func set_speed(i: int) -> void:
 	GameOptions.speed = GameOptions.SPEEDS[i]
+	GameOptions.save_options()
+
+
+func set_effects(i: int) -> void:
+	GameOptions.effects = GameOptions.EFFECTS[i]
 	GameOptions.save_options()
 
 
