@@ -310,6 +310,8 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		out["ambush"] = true
 	if k.has("world_army"): # Bataille contre une armée rencontrée (world_sim.gd)
 		out["world_army"] = int(k["world_army"])
+	if str(k.get("siege", "")) in SIEGE_KINDS:
+		out["siege"] = str(k["siege"])
 	return out
 
 
@@ -909,7 +911,10 @@ func refresh_contracts(town: int) -> void:
 	var have := contracts_at(town).filter(func(c): return not c.get("final", false)).size()
 	var want := 1 + (1 if rng.randf() < 0.5 else 0) + world.extra_contracts(town) # En guerre : un de plus
 	for i in maxi(0, want - have):
-		contracts.append(world.adjust_contract(make_contract(town)))
+		contracts.append(world.adjust_contract(maybe_siege(make_contract(town))))
+	# Ville assiégée sur la carte (world_sim.gd) : elle embauche des défenseurs
+	if world.besieged(town) and contracts_at(town).filter(func(c): return c.has("siege")).is_empty():
+		contracts.append(world.adjust_contract(make_siege(make_contract(town), "defense")))
 
 
 ## Niveau le plus élevé des contrats proposés : un de plus tous les FAME_STEP de renommée.
@@ -969,6 +974,51 @@ func make_contract(town: int) -> Dictionary:
 		"expires": day + CONTRACT_DAYS,
 		"seed": rng.randi_range(1, 1 << 30),
 	}
+
+
+# ---------------------------------------------------------------- Contrats de siège (siege.gd)
+
+const SIEGE_KINDS := ["assault", "defense"] ## « siege » d'un contrat : assiéger ou défendre une ville
+const SIEGE_CHANCE := 0.12 ## Part des contrats de niveau 2 et plus qui sont des sièges (rares)
+const SIEGE_REWARD := 1.6 ## Prime d'un siège par rapport à un contrat ordinaire du même niveau
+const SIEGE_TITLES := {
+	"assault": ["Assiéger la place forte de {rival} près de %s", "Prendre d'assaut le bourg rebelle de %s"],
+	"defense": ["Défendre les murs de %s", "%s assiégée par {rival}"],
+}
+const SIEGE_TEXTS := {
+	"assault": "La ville paie cher pour qu'on prenne la place : bélier pour la porte, échelles pour le rempart. Il faudra tenir la place de la ville.",
+	"defense": "L'ennemi vient avec des échelles et un bélier. Garnissez les murs et tenez jusqu'à ce qu'il lève le siège.",
+}
+
+
+## Fait parfois d'un contrat ordinaire un siège, rare et bien payé. Le tirage dépend de la graine du
+## contrat : il ne consomme pas le hasard de la campagne (les autres tirages ne changent pas).
+## Assaut : la garnison a des archers en plus ; défense : l'assaillant a un régiment de plus.
+func maybe_siege(c: Dictionary) -> Dictionary:
+	if int(c.get("difficulty", 1)) < 2 or c.get("final", false) or c.has("siege"):
+		return c
+	var r := RandomNumberGenerator.new()
+	r.seed = hash([int(c["seed"]), "siege"])
+	if r.randf() >= SIEGE_CHANCE:
+		return c
+	return make_siege(c, "assault" if r.randf() < 0.5 else "defense")
+
+
+## Transforme le contrat c en siège (kind : « assault » ou « defense »).
+func make_siege(c: Dictionary, kind: String) -> Dictionary:
+	var town := int(c["town"])
+	var rival := str(FACTIONS[int(FACTIONS[town_faction(town)]["rival"])]["short"])
+	var r := RandomNumberGenerator.new()
+	r.seed = hash([int(c["seed"]), "siege_army"])
+	var titles: Array = SIEGE_TITLES[kind]
+	c["siege"] = kind
+	c["title"] = str(titles[r.randi() % titles.size()]).replace("{rival}", rival) % TOWNS[town]["name"]
+	c["text"] = SIEGE_TEXTS[kind]
+	c["reward"] = int(round(int(c["reward"]) * SIEGE_REWARD / 10.0)) * 10
+	var extra := "archer" if kind == "assault" else "spear"
+	var enemy: Array = c["enemy"]
+	enemy.append({"type": extra, "men": int(UnitTypes.STATS[extra]["count"]), "rank": 0})
+	return c
 
 
 # ---------------------------------------------------------------- Objectif : la bataille décisive

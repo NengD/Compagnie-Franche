@@ -48,7 +48,7 @@ static func earned(id: String, info: Dictionary) -> bool:
 		"carre": return bool(info.get("square_repelled", false))
 		"embuscade": return win and bool(info.get("ambush_by_player", false))
 		"brigands": return win and bool(info.get("road_ambush", false))
-		"siege": return win and str(info.get("terrain", "")) == "siege"
+		"siege": return win and str(info.get("terrain", "")) in ["siege", "town_assault", "town_defense"]
 		"eclair": return win and float(info.get("duration", 999.0)) < 120.0
 		"un_contre_deux": return win and int(info.get("enemy_before", 0)) >= 1.5 * maxi(int(info.get("player_before", 1)), 1)
 		"retraite": return str(info.get("outcome", "")) == "retreat"

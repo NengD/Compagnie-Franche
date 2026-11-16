@@ -338,6 +338,8 @@ func draw_top_bar(vs: Vector2) -> void:
 	var weather := "Pluie" if battle.raining else "Temps clair"
 	items.append([weather + "  [%s]" % GameOptions.key_label("rain"), Color(0.85, 0.85, 0.85)])
 	items.append(["Terrain : " + battle.terrain.display_name(), Color(0.85, 0.85, 0.85)])
+	if battle.sim.siege != null:
+		items.push_front([battle.sim.siege.status_text(battle.sim), Color(1, 0.85, 0.45)])
 	if battle.game_speed != 1.0:
 		items.append(["Vitesse " + GameOptions.speed_label(battle.game_speed), Color(1, 0.85, 0.45)])
 	var rx := vs.x - 12.0

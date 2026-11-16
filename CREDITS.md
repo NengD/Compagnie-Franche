@@ -55,3 +55,5 @@ Les licences CC0 n'exigent aucun crédit ; on les cite quand même par politesse
 - Les arbalétriers, chevaliers à pied et archers montés n'ont pas de planche à eux : le jeu reprend les planches
   MiniWorld des archers, des épéistes et des cavaliers, teintées en code, et y dessine pavois, plumet et arc.
 - L'herbe des forêts est assombrie et le sol est assemblé par le jeu à partir des tuiles MiniWorld.
+- Le rempart, les tours, la porte, les échelles, le bélier et le pavé des villes assiégées sont dessinés en code
+  (`scripts/siege.gd`) : aucun asset ajouté.

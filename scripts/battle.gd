@@ -99,6 +99,8 @@ func _ready() -> void:
 		spawn_armies()
 	if sim.terrain.kind == "siege":
 		sim.setup_siege()
+	elif sim.siege != null:
+		sim.siege.deploy(sim) # Garnison sur les murs, bélier et échelles pour l'assaillant
 	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
 	if campaign != null:
 		sim.raining = campaign.world.raining # La météo du jour s'impose à la bataille (world_sim.gd)
@@ -149,6 +151,8 @@ func generate_world() -> void:
 func choose_terrain() -> String:
 	if terrain_override != "":
 		return terrain_override
+	if campaign != null and str(campaign.pending.get("siege", "")) != "":
+		return Siege.terrain_for(str(campaign.pending["siege"])) # Contrat de siège
 	if campaign != null:
 		return Terrain.for_contract(int(campaign.pending.get("town", -1)), int(campaign.pending.get("difficulty", 1)), CampaignState.TOWNS)
 	return ""
