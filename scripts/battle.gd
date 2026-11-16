@@ -96,6 +96,7 @@ func _ready() -> void:
 		spawn_armies()
 	if sim.terrain.kind == "siege":
 		sim.setup_siege()
+	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
 
 	camera = BattleCamera.new()
 	add_child(camera)
@@ -121,6 +122,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if sim.captain != null:
+		sim.captain.leave_field()
 	sim.clear()
 	orders.groups.clear()
 

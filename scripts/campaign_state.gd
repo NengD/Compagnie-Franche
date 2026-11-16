@@ -129,6 +129,7 @@ var end_note := "" ## Phrase qui raconte la fin (écran de fin)
 var men_lost := 0
 var enemies_killed := 0
 var gold_earned := 0 ## Primes, butin et escortes
+var captain := Captain.new() ## Capitaine de la compagnie (voir captain.gd)
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
@@ -141,6 +142,7 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 		c.rng.seed = seed_value
 	else:
 		c.rng.randomize()
+	c.captain = Captain.recruit(c.rng.seed)
 	for t in ["spear", "spear", "men_at_arms", "archer", "archer", "cavalry"]:
 		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
 	for i in TOWNS.size():
@@ -186,11 +188,12 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée), 2, 3 et 4 restent lisibles
-## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours).
-const SAVE_VERSION := 5
+## Les versions 1 (sans expérience, réputation ni renommée), 2, 3, 4 et 5 restent lisibles
+## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf).
+const SAVE_VERSION := 6
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -250,6 +253,7 @@ func to_dict() -> Dictionary:
 		"rng_seed": str(rng.seed), "rng_state": str(rng.state),
 		"ended": ended, "end_day": end_day, "end_note": end_note,
 		"men_lost": men_lost, "enemies_killed": enemies_killed, "gold_earned": gold_earned,
+		"captain": captain.to_dict(),
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -323,7 +327,9 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		var type := str(r["type"])
 		var men := clampi(int(r.get("men", 0)), 0, int(UnitTypes.STATS[type]["count"]))
 		if men > 0:
-			c.company.append({"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)})
+			var entry := {"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)}
+			Traits.read_entry(entry, r) # Version 6 : traits et équipement
+			c.company.append(entry)
 	for k in d.get("contracts", []):
 		var contract := contract_from_dict(k)
 		if contract.is_empty():
@@ -345,6 +351,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		c.log_lines.append(str(s))
 	c.rng.seed = str(d.get("rng_seed", "1")).to_int()
 	c.rng.state = str(d.get("rng_state", "1")).to_int()
+	c.captain = Captain.from_dict(d.get("captain", {}), c.rng.seed) # Version 5 et avant : capitaine neuf
 	# Version 2 et avant : campagne en cours, bilan à zéro
 	c.ended = str(d.get("ended", ""))
 	if not c.ended in ENDINGS:
@@ -549,8 +556,8 @@ func total_men() -> int:
 func daily_wage() -> float:
 	var w := 0.0
 	for r in company:
-		w += float(WAGE[r["type"]]) * int(r["men"])
-	return w * Difficulty.value(difficulty, "wage")
+		w += float(WAGE[r["type"]]) * int(r["men"]) * Traits.wage_factor(r)
+	return w * Difficulty.value(difficulty, "wage") * captain.wage_factor()
 
 
 func is_destroyed() -> bool:
@@ -729,7 +736,7 @@ func travel(to: int) -> String:
 
 static var event_chance := 0.12 ## Chance d'un évènement par jour de marche (les tests la mettent à 0)
 static var forced_event := "" ## Pour les tests : impose cet évènement chaque jour de marche
-const EVENT_WEIGHTS := {"ambush": 0.25, "merchant": 0.25, "plague": 0.15, "deserters": 0.2, "storm": 0.15}
+const EVENT_WEIGHTS := {"ambush": 0.25, "merchant": 0.2, "plague": 0.15, "deserters": 0.15, "storm": 0.15, "village": 0.1}
 const PLAGUE_RATE := 0.08 ## Part des hommes emportés par une épidémie
 const DESERTER_XP := 60.0 ## Les déserteurs d'autres compagnies ont déjà vu le feu
 var travel_events: Array[String] = [] ## Évènements du dernier voyage (non sauvegardé)
@@ -781,10 +788,23 @@ func road_event(kind: String, to: int) -> void:
 				msg = "%s vos %s." % [plural(n, "déserteur rejoint", "déserteurs rejoignent"), type_name(company[best]["type"]).to_lower()]
 		"storm":
 			msg = "des intempéries noient la route, un jour de marche est perdu."
+		"village":
+			msg = village_event(where)
 		_:
 			return
 	travel_events.append(msg[0].to_upper() + msg.substr(1))
 	add_log("Jour %d : %s" % [day, msg])
+
+
+## Évènement « village » : un régiment pille un hameau abandonné et y gagne le trait « pillards ».
+func village_event(where: String) -> String:
+	for r in company:
+		if Traits.add(r, "pillards"):
+			return "vos %s pillent un hameau abandonné près de %s : les voilà pillards." % [type_name(r["type"]).to_lower(), where]
+	var pay := rng.randi_range(2, 5) * 10
+	gold += pay
+	gold_earned += pay
+	return "la compagnie fouille un hameau abandonné près de %s et y trouve %d écus." % [where, pay]
 
 
 ## Bataille forcée par une embuscade de brigands : ni prime ni faction, seulement le butin.
@@ -1068,7 +1088,8 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		var xp0 := float(r.get("xp", 0.0))
 		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (XP_VICTORY if victory else 0.0) + XP_KILLS * k / full, XP_MAX)
 		if after > 0 and rank_of(r) > rank0:
-			promoted.append("les %s (%d) deviennent %s" % [type_name(r["type"]).to_lower(), i + 1, rank_name(rank_of(r))])
+			var gained := Traits.on_promotion(r)
+			promoted.append("les %s (%d) deviennent %s%s" % [type_name(r["type"]).to_lower(), i + 1, rank_name(rank_of(r)), " et %s" % gained if gained != "" else ""])
 		out["regiments"].append({"type": r["type"], "before": before, "after": after, "healed": after - stood,
 			"kills": k, "xp_before": xp0, "xp_after": float(r["xp"]), "rank_before": rank0, "rank_after": rank_of(r),
 			"promoted": after > 0 and rank_of(r) > rank0})
@@ -1082,7 +1103,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	if victory:
 		victories += 1
 		var reward := contract_reward(pending)
-		var loot := killed * LOOT_PER_KILL
+		var loot := killed * LOOT_PER_KILL + Traits.extra_loot(army, kills)
 		out["reward"] = reward
 		out["loot"] = loot
 		gold += reward + loot
@@ -1121,6 +1142,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
+	report += captain.after_battle(self, victory)
 	out["gold_battle"] = gold # Or juste après la bataille, avant la solde du jour
 	out["men_battle"] = total_men()
 	finish_report(out, victory, retreat, lost, healed, killed, report)

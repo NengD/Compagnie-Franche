@@ -29,6 +29,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "hold", "name": "Tenir la position", "key": KEY_G},
 	{"id": "fire", "name": "Tir à volonté", "key": KEY_X},
 	{"id": "retreat", "name": "Retraite", "key": KEY_R},
+	{"id": "captain", "name": "Capitaine : rejoindre la sélection", "key": KEY_C},
 ]
 
 ## Touches réservées (non reconfigurables) : keycode logique -> usage.

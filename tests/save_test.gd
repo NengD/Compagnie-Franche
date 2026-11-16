@@ -241,14 +241,14 @@ func _test_lenient() -> void:
 func _test_versions() -> void:
 	var c := CampaignState.new_game(61)
 	var d := c.to_dict()
-	check(int(d["version"]) == 5 and CampaignState.SAVE_VERSION == 5, "version de sauvegarde 5")
-	for v in [1, 2, 3, 4]:
+	check(int(d["version"]) == 6 and CampaignState.SAVE_VERSION == 6, "version de sauvegarde 6")
+	for v in [1, 2, 3, 4, 5]:
 		var old := d.duplicate(true)
 		old["version"] = v
 		old.erase("lenient")
 		var l := CampaignState.from_dict(JSON.parse_string(JSON.stringify(old)))
 		check(l != null and not l.lenient and not l.in_battle(), "version %d illisible" % v)
-	d["version"] = 6
+	d["version"] = 7
 	check(CampaignState.from_dict(d) == null, "version future acceptée")
 	print("Versions : OK")
 

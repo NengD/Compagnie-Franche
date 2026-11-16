@@ -209,6 +209,9 @@ func _draw() -> void:
 
 	draw_arrows()
 
+	if sim.captain != null:
+		sim.captain.draw(self, sim.state == BattleSim.State.DEPLOY)
+
 	for r in sim.regiments:
 		if r.is_dead() or (r.team == ENEMY and r.hidden):
 			continue
