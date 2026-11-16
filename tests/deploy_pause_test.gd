@@ -62,6 +62,7 @@ func _process(_delta: float) -> bool:
 		1:
 			battle = _new_battle("res://scenes/main.tscn")
 		2:
+			_test_rain_key("escarmouche", true)
 			_test_deploy_orders()
 			print("Déploiement, ordres bornés à la zone bleue : %s" % _status())
 			_test_deploy_no_combat()
@@ -71,6 +72,7 @@ func _process(_delta: float) -> bool:
 			_free_battle()
 			battle = _new_battle("res://scenes/tutorial.tscn")
 		3:
+			_test_rain_key("tutoriel", true)
 			_test_pause_tutorial()
 			print("Menu pause dans le tutoriel : %s" % _status())
 			_free_battle()
@@ -79,6 +81,7 @@ func _process(_delta: float) -> bool:
 			_accept_contract()
 			battle = _new_battle("res://scenes/main.tscn")
 		4:
+			_test_rain_key("contrat", false)
 			_test_contract_abandon()
 			print("Contrat : abandonner = retraite : %s" % _status())
 			_free_battle()
@@ -350,6 +353,23 @@ func _test_pause_tutorial() -> void:
 	press_key(KEY_ESCAPE)
 	press_button("Menu principal")
 	check(battle.pause_menu.last_scene == MENU_SCENE, "tutoriel : Menu principal ne ramène pas au menu")
+
+
+## La touche de pluie (T) : libre en escarmouche et au tutoriel ; en campagne, la météo du jour s'impose,
+## T est sans effet (un court message) et ni la barre ni l'aide ne la proposent.
+func _test_rain_key(what: String, free: bool) -> void:
+	var before: bool = battle.sim.raining
+	var n_msg: int = battle.messages.size()
+	press_key(KEY_T)
+	check(battle.sim.raining == (not before if free else before),
+		"%s : la touche T %s la pluie" % [what, "ne change pas" if free else "change"])
+	check(battle.messages.size() > n_msg, "%s : T sans message" % what)
+	if free:
+		press_key(KEY_T) # Remet la météo de départ
+		check(battle.sim.raining == before, "%s : T deux fois ne rend pas la météo de départ" % what)
+	var rain_line := GameOptions.key_label("rain") + " : pluie"
+	var help := " | ".join(Hud.help_lines(battle.campaign == null))
+	check(help.contains(rain_line) == free, "%s : l'aide F1 %s la touche de pluie" % [what, "ne montre pas" if free else "montre"])
 
 
 func _test_contract_abandon() -> void:

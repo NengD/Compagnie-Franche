@@ -9,6 +9,8 @@ extends RefCounted
 ##    ou se cache dans un bois pour une embuscade.
 ## Dans tous les plans : formations (colonne pour marcher, ligne pour combattre, carré contre la cavalerie),
 ## course, passage par les gués, et retraite en bon ordre quand la bataille est perdue.
+## Assaut d'une palissade : les archers tirent d'abord, l'assaut ne part que si l'IA domine (voir la section
+## « Assaut de palissade »).
 ##
 ## Objectif de contrat (battle_objectives.gd) : il peut imposer le plan (agressif pour prendre une position
 ## ou attaquer un convoi, défensif pour garder un village, « fuite » pour une bande poursuivie), un point
@@ -51,6 +53,20 @@ const PIN_DIST := 480.0 ## L'infanterie qui fixe l'ennemi s'arrête à cette dis
 const PIN_TIME := 35.0 ## ... jusqu'à la charge de flanc, ou ce délai après le début de l'avance
 const AMBUSH_RANGE := 300.0 ## La cavalerie embusquée charge une proie à cette distance
 const AMBUSH_MAX_WAIT := 110.0 ## Délai au-delà duquel elle sort quand même du bois
+## Assaut d'une palissade (terrain « siege ») : les archers tirent d'abord, l'assaut ne part que si l'on domine
+const STANDOFF_MARGIN := 110.0 ## L'infanterie attend à cette distance au-delà de la portée des tireurs abrités
+const STANDOFF_MIN := 380.0 ## ... et jamais plus près que ça de la palissade
+const BOMBARD_TIME := 15.0 ## Tir minimal des archers (depuis leurs premières flèches) avant tout assaut
+const ASSAULT_RATIO := 1.6 ## Rapport de forces qui suffit à lui seul pour donner l'assaut
+const ASSAULT_EDGE := 1.15 ## Rapport suffisant si le défenseur est saigné ou ébranlé
+const ASSAULT_BLED := 0.75 ## Défenseur saigné : il lui reste moins que cette part de sa force de départ
+const ASSAULT_MORALE := 0.6 ## Défenseur ébranlé : moral moyen sous cette part du maximum
+const ASSAULT_PATIENCE := 150.0 ## Délai de décision si les archers ne trouvent aucune cible
+const ASSAULT_EVEN := 1.0 ## Dès ce rapport, assaut par les brèches les plus proches ; en deçà, sur la moins gardée
+const ASSAULT_GIVE_UP := 0.85 ## Sous ce rapport, l'assaillant renonce et se retire
+const BREACH_STAGING := 150.0 ## L'infanterie se rassemble à cette distance devant la brèche choisie
+const SALLY_SHARE := 0.25 ## Part de la force du défenseur sortie de la palissade qui déclenche le combat à découvert
+const SOFT_TARGET := 400.0 ## Les archers préfèrent une cible vulnérable (peu armurée, à découvert), même plus loin
 ## Retraite
 const WITHDRAW_LEFT := 0.4 ## Retraite quand il reste moins de cette part de la force de départ...
 const WITHDRAW_RATIO := 0.6 ## ... et que le rapport de forces est tombé sous ce seuil
@@ -77,6 +93,14 @@ var post_facing := Vector2.DOWN ## Front des postes (vers l'ennemi)
 var post_idle := {} ## id d'archers → secondes passées au poste sans cible
 var ambush := {} ## id de cavalerie → centre du bois où elle s'embusque
 var left_field := 0 ## Régiments sortis du champ en bon ordre
+## Assaut de palissade
+var assault := false ## L'assaut est donné (avant : l'infanterie attend hors de portée)
+var assault_breach := -1.0 ## Abscisse de la brèche choisie pour un assaut concentré (-1 : la plus proche)
+var at_breach := {} ## id d'infanterie → true une fois rassemblée devant la brèche choisie
+var assault_time := 0.0 ## Moment où l'assaut a été donné
+var bombard_start := -1.0 ## Moment des premières flèches sur les défenseurs (-1 : pas encore)
+var assault_ratio := 0.0 ## Rapport de forces au moment de la décision (après le tir des archers)
+var breach_ready := false ## L'infanterie est rassemblée devant la brèche choisie (ou s'est assez fait attendre)
 
 ## Réglages de difficulté (voir difficulty.gd ; valeurs du mode normal par défaut)
 var think_every := 0.8 ## Intervalle entre deux réflexions, en secondes
@@ -412,6 +436,8 @@ func update_posture(b: BattleSim, mine: Array[Regiment], theirs: Array[Regiment]
 		if r.engaged:
 			contact_time += think_every
 			break
+	if besieging(b) and not assault:
+		update_assault(b, theirs, p_mine, p_theirs)
 	if plan == DEFENSIVE and not counter:
 		var gain := (p_mine / maxf(p_theirs, 1.0)) / maxf(start_power[0] / maxf(start_power[1], 1.0), 0.01)
 		var bled := contact_time <= 0.0 and p_mine < start_power[0] * BLED
@@ -488,12 +514,19 @@ func think_archer(b: BattleSim, r: Regiment, mine: Array[Regiment], theirs: Arra
 	if r.target != null and not r.target.is_dead() and not r.target.hidden:
 		return
 	# Cible : l'unité visible la plus proche qui n'est pas en mêlée
+	# (devant une palissade, de préférence une troupe peu armurée que les pieux n'abritent pas)
+	var sieging := besieging(b)
 	var best: Regiment = null
 	var bd := INF
 	for o in theirs:
 		if o.engaged:
 			continue
 		var d := r.center.distance_to(o.center)
+		if sieging:
+			var bite := float(o.stats["arrow_armor"]) # Part des dégâts d'une flèche qui porte
+			if b.terrain.wall_shelters(r.center, o.center):
+				bite *= 1.0 - Terrain.WALL_COVER
+			d += (1.0 - bite) * SOFT_TARGET
 		if d < bd:
 			bd = d
 			best = o
@@ -542,6 +575,9 @@ func hold_archer_post(r: Regiment, theirs: Array[Regiment], range_px: float) -> 
 
 func think_cavalry(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
 	if ambush.has(r.id) and lie_in_ambush(b, r, theirs):
+		return
+	if besieging(b) and not assault:
+		hold_off_palisade(b, r, theirs, 220.0) # En réserve derrière l'infanterie, hors de portée
 		return
 	if advance and seek_objective(b, r, theirs):
 		return # Raid sur le convoi
@@ -691,6 +727,12 @@ func think_infantry(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
 	if posts.has(r.id) and holding_posts():
 		defend_post(b, r, near, d)
 		return
+	if besieging(b):
+		if not assault:
+			hold_off_palisade(b, r, theirs, 0.0) # Les archers tirent d'abord
+			return
+		if march_to_breach(b, r, d):
+			return
 	if r.target != null and not r.target.is_dead() and not r.target.hidden:
 		if must_wade(b, r, r.target):
 			r.target = null # Trop loin de l'autre côté de l'eau : on passe par le gué
@@ -718,17 +760,17 @@ func think_infantry(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> void:
 		var dir := (near.center - r.center).normalized()
 		r.facing = dir
 		if pins(b) and d < PIN_DIST and not melee_started_flank(b):
-			r.dest = r.center # Fixe l'ennemi (charge de flanc, ou flèches sur la palissade) avant l'assaut
+			r.dest = r.center # Fixe l'ennemi en attendant la charge de flanc
 		elif advance_depth(r.center) > line_depth + LINE_SLACK:
 			r.dest = r.center # Trop en avance : attend que la ligne le rejoigne
 		else:
 			r.dest = r.center + dir * 160.0
 
 
-## L'infanterie s'arrête-t-elle à PIN_DIST avant l'assaut ? En débordement (elle attend la charge de flanc)
-## et à l'assaut d'une palissade (les archers tirent d'abord sur les défenseurs).
-func pins(b: BattleSim) -> bool:
-	return plan == FLANK or (b.terrain.kind == "siege" and team == 1)
+## L'infanterie s'arrête-t-elle à PIN_DIST avant l'assaut ? En débordement (elle attend la charge de flanc).
+## L'assaut d'une palissade a sa propre attente (voir hold_off_palisade).
+func pins(_b: BattleSim) -> bool:
+	return plan == FLANK
 
 
 ## L'infanterie repart à l'assaut quand la cavalerie a chargé, au premier contact, ou après PIN_TIME.
@@ -759,6 +801,144 @@ func defend_post(b: BattleSim, r: Regiment, near: Regiment, d: float) -> void:
 		deployed[r.id] = true
 	r.dest = go_to(b, r.center, post)
 	r.facing = post_facing
+
+
+# ---------------------------------------------------------------- Assaut de palissade (terrain « siege »)
+# L'assaillant ne s'empale plus aux brèches : ses archers tirent d'abord sur les défenseurs pendant que
+# l'infanterie et la cavalerie attendent hors de portée. L'assaut ne part que si l'IA domine (rapport de
+# forces, ou défenseur saigné ou ébranlé) ou à forces égales ; un peu plus faible, elle masse ses troupes
+# devant la brèche la moins gardée, et renonce si l'échange de flèches a tourné contre elle. Une sortie du défenseur est
+# attaquée aussitôt, à découvert.
+
+## Vrai si l'IA assaille une palissade (pas un vrai siège, voir siege.gd).
+func besieging(b: BattleSim) -> bool:
+	return b.terrain.kind == "siege" and b.siege == null and team == 1 and plan == AGGRESSIVE
+
+
+## Vrai si p est du côté du défenseur (derrière les pieux, ou dans une brèche).
+func behind_palisade(p: Vector2) -> bool:
+	return advance_depth(p) > advance_depth(Vector2(0.0, Terrain.WALL_Y)) - 30.0
+
+
+## Ligne d'attente de l'infanterie : au-delà de la portée des tireurs abrités (et de STANDOFF_MIN).
+func standoff_y(b: BattleSim, theirs: Array[Regiment]) -> float:
+	var reach := 0.0
+	for o in theirs:
+		if o.stats["ranged"] and behind_palisade(o.center):
+			reach = maxf(reach, float(o.stats["range"]) * b.terrain.range_factor(o.center))
+	var gap := maxf(reach + STANDOFF_MARGIN, STANDOFF_MIN)
+	return Terrain.WALL_Y - gap if team == 1 else Terrain.WALL_Y + gap
+
+
+## Attente devant la palissade (infanterie, ou cavalerie back px plus en arrière). On ne charge que ce
+## qui sort de derrière les pieux : une sortie du défenseur se bat à découvert.
+func hold_off_palisade(b: BattleSim, r: Regiment, theirs: Array[Regiment], back: float) -> void:
+	if r.target != null and not r.target.is_dead() and not r.target.routing and not r.target.hidden \
+			and not behind_palisade(r.target.center):
+		return # Poursuit la sortie
+	r.target = null
+	var near := nearest(r, theirs)
+	if near != null and not behind_palisade(near.center) and r.center.distance_to(near.center) < 340.0:
+		r.target = near
+		if r.stats["mounted"]:
+			try_charge(r)
+		return
+	var y := standoff_y(b, theirs) - (back if team == 1 else -back)
+	var post := clamp_world(Vector2(clampf(r.center.x, 200.0, BattleSim.WORLD_SIZE.x - 200.0), y))
+	if r.center.distance_to(post) > 25.0:
+		r.running = false
+		r.dest = post
+	r.facing = post_facing
+
+
+## Décide de l'assaut, une fois que les archers ont tiré BOMBARD_TIME : assaut général si l'on domine
+## (ou à forces égales), assaut concentré sur la brèche la moins gardée un peu en deçà, renoncement en
+## nette infériorité.
+func update_assault(b: BattleSim, theirs: Array[Regiment], p_mine: float, p_theirs: float) -> void:
+	# Le défenseur sort de ses pieux : on l'attaque à découvert, avec toute l'armée
+	var out: Array[Regiment] = []
+	for o in theirs:
+		if not behind_palisade(o.center):
+			out.append(o)
+	if power(out) > p_theirs * SALLY_SHARE:
+		give_assault(b, -1.0, "Le défenseur sort de la palissade : l'ennemi l'attaque à découvert !")
+		return
+	if bombard_start < 0.0:
+		for r in b.regiments:
+			if r.team == team and r.fire_target != null:
+				bombard_start = b.battle_time # Premières flèches sur les défenseurs
+				break
+	var ratio := p_mine / maxf(p_theirs, 1.0)
+	var morale := 0.0
+	for o in theirs:
+		morale += o.morale / maxf(o.max_morale, 1.0)
+	morale /= maxf(theirs.size(), 1)
+	var bled := p_theirs < start_power[1] * ASSAULT_BLED
+	var bombarded := bombard_start >= 0.0 and b.battle_time - bombard_start >= BOMBARD_TIME
+	if not bombarded and b.battle_time <= ASSAULT_PATIENCE:
+		return # Les archers tirent encore (ou n'ont pas encore trouvé de cible)
+	assault_ratio = ratio
+	if ratio >= ASSAULT_RATIO or (ratio >= ASSAULT_EDGE and (bled or morale < ASSAULT_MORALE)):
+		give_assault(b, -1.0) # On domine : assaut par toutes les brèches
+	elif ratio >= ASSAULT_EVEN:
+		give_assault(b, -1.0) # À forces égales : assaut par les brèches les plus proches
+	elif ratio >= ASSAULT_GIVE_UP:
+		give_assault(b, weakest_breach(b, theirs)) # Pas d'avantage net : tout sur la brèche la moins gardée
+	else:
+		withdrawing = true # L'échange de flèches a tourné court : on renonce
+		advance = false
+		b.message("L'ennemi renonce à forcer la palissade et se retire.")
+
+
+func give_assault(b: BattleSim, breach_x: float, text := "") -> void:
+	assault = true
+	assault_breach = breach_x
+	assault_time = b.battle_time
+	breach_ready = breach_x < 0.0
+	advance = true
+	melee_started = true
+	if text == "":
+		text = "L'ennemi donne l'assaut à la palissade !" if breach_x < 0.0 \
+				else "L'ennemi se masse devant une brèche et donne l'assaut !"
+	b.message(text)
+
+
+## Brèche la moins gardée : la plus faible force adverse à moins de 400 px.
+func weakest_breach(b: BattleSim, theirs: Array[Regiment]) -> float:
+	var best := -1.0
+	var bp := INF
+	for x in b.terrain.breaches:
+		var p := 0.0
+		for o in theirs:
+			if o.center.distance_to(Vector2(x, Terrain.WALL_Y)) < 400.0:
+				var one: Array[Regiment] = [o]
+				p += power(one)
+		if p < bp:
+			bp = p
+			best = x
+	return best
+
+
+## Assaut concentré : l'infanterie se rassemble devant la brèche choisie avant de la franchir ensemble.
+## Renvoie faux quand elle peut combattre normalement (rassemblée, au contact, ou lassée d'attendre).
+func march_to_breach(b: BattleSim, r: Regiment, d: float) -> bool:
+	if breach_ready or r.engaged or d < 200.0:
+		return false
+	var stage := Vector2(assault_breach, Terrain.WALL_Y - (BREACH_STAGING if team == 1 else -BREACH_STAGING))
+	if r.center.distance_to(stage) < 140.0:
+		at_breach[r.id] = true
+	var waiting := 0
+	for o in b.regiments:
+		if o.team == team and is_foot(o) and not o.is_dead() and not o.routing and not at_breach.has(o.id):
+			waiting += 1
+	if waiting == 0 or b.battle_time - assault_time > 25.0:
+		breach_ready = true
+		return false
+	r.target = null
+	r.running = false
+	r.dest = clamp_world(stage + Vector2((r.id % 3 - 1) * 130.0, 0.0))
+	r.facing = post_facing
+	return true
 
 
 # ---------------------------------------------------------------- Siège (siege.gd)
