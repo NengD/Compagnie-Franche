@@ -77,7 +77,8 @@ L'escarmouche prend la difficulté des Options ; la campagne garde celle choisie
 ## Campagne
 Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disputent trois factions :
 le **Comté de Valfrène** (Valombre, Saint-Aubin), la **Baronnie de Montfaucon** (Montfaucon, Castelroux,
-Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous chaque ville donne sa faction.
+Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux) au début de la campagne. Le liseré sous chaque
+ville donne la faction qui la tient aujourd'hui (les villes changent de mains, voir « Monde vivant »).
 - **Objectif** (annoncé au journal dès le jour 1, rappelé par l'encart en haut à gauche de la carte et dans
   le panneau) : faire de la compagnie la plus célèbre du comté. À **150 de renommée**, la faction qui vous
   estime le plus (parmi celles qui ne vous ferment pas leurs portes) vous convoque dans sa capitale
@@ -158,12 +159,44 @@ Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux). Le liseré sous c
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 5 : emplacements, mode indulgent, bataille en cours) ; les versions 1 à 4
-  se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en cours).
+  Format versionné (version 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
+  cours) ; les versions 1 à 6 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours, monde neuf et en paix).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
   Quitter par le menu pause compte toujours comme une retraite.
+- **Monde vivant** (`scripts/world_sim.gd`) : le pays vit sans vous.
+  - **Saisons** de 30 jours (printemps, été, automne, hiver ; cartouche en haut à droite de la carte et
+    section « Le pays » du panneau). En **hiver**, la compagnie et les armées marchent à x0,7 (les jours de
+    marche affichés sur les routes en tiennent compte), les armées fondent plus vite, et chaque jour de marche
+    a une chance sur deux que le **froid** emporte 2 % des hommes. La carte se couvre de neige.
+  - **Météo du jour** : pluie 25 % au printemps, 10 % en été, **50 % en automne**, 30 % en hiver. Une bataille
+    livrée un jour de pluie se fait **sous la pluie** (la pluie tombe aussi sur la carte).
+  - **Guerres** : à partir du jour 6, deux factions rivales peuvent se déclarer la guerre (une chance sur 33
+    par jour ; une sur 100 pour le Comté et la Ligue, qui ne sont pas rivaux), au plus tôt 12 jours après une
+    trêve. Une trêve peut se signer après 20 jours de guerre, de plus en plus probable avec le temps (tout de
+    suite si une faction n'a plus de ville). Déclarations, trêves et villes prises s'inscrivent au journal.
+  - **Armées** : chaque faction a des armées visibles sur la carte (bannière à ses couleurs, effectif écrit
+    dessous, infobulle au survol). En paix, une petite patrouille (x0,5) va d'une ville amie à l'autre ; en
+    guerre, jusqu'à deux armées (x1,6 ; base 170 hommes pour le Comté, 210 pour la Baronnie, 150 pour la Ligue)
+    marchent sur la ville ennemie la plus proche. Arrivées, elles **l'assiègent** (anneau rouge et fumée) :
+    chaque jour, assiégeants et garnison (180 hommes, 300 dans une capitale) s'usent ; quand la garnison tombe à
+    zéro, la ville **change de mains**, ses contrats sont annulés et la nouvelle faction en propose d'autres.
+    Deux armées ennemies qui se croisent **se livrent bataille** (résolue automatiquement, selon les effectifs
+    et un peu de hasard) : le vaincu perd les trois quarts de ses hommes et se replie, ce qui peut lever un siège.
+  - **Contrats de guerre** : une ville dont la faction est en guerre propose **un contrat de plus** et paie
+    **30 % de plus**.
+  - **Réputation** : une faction alliée de la compagnie (réputation 50 et plus) déclare plus volontiers la
+    guerre, et la taille des armées varie de x0,75 à x1,25 selon la réputation de la compagnie auprès d'elles.
+  - **Rencontres** : une armée est **hostile** (cerclée de rouge) si sa faction vous ferme ses portes, ou si
+    elle se méfie de vous (réputation négative) et que vous êtes ami (20 et plus) d'une faction qu'elle combat.
+    En croiser une sur la route vous laisse le choix à l'arrivée : **livrer bataille** (pas de prime mais le
+    butin ; la disperser coûte 5 de réputation auprès d'elle et en rapporte 5 auprès de ses ennemis) ou
+    **fuir** (un jour de détour, 8 % de l'or abandonné avec les bagages).
+  - **Camper un jour** (section « Le pays ») : la solde est due, le monde avance d'un jour.
+  - **Nouvelles du monde** : les dernières sont listées dans la section « Le pays ».
+  - Réglages : constantes en tête de `scripts/world_sim.gd`.
 - **Mode indulgent** (option de la nouvelle campagne) : la bataille en cours n'est pas sauvegardée. Fermer
   la fenêtre en pleine bataille revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
 
@@ -299,6 +332,10 @@ scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; 
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
 scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures armes
 scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » du panneau de la carte
+scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, guerres, armées, sièges, prises
+                        de villes, rencontres, contrats de guerre ; appelé par CampaignState (pass_day, travel)
+scripts/world_army.gd   Armée de faction sur la carte (WorldArmy) : marche, siège, sauvegarde
+scripts/world_view.gd   Affichage du monde sur la carte (WorldView) : armées, sièges, météo, section « Le pays »
 scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques et capacités des unités (seule source lue par la simulation)
 scripts/enemy_ai.gd     IA ennemie
@@ -327,6 +364,8 @@ tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêl�
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
+tests/world_test.gd     Test du monde vivant (saisons, 200 jours sur 5 graines, prise d'une ville, contrats de
+                        guerre, réputation, rencontre, sauvegarde, pluie en bataille, carte)
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
@@ -374,6 +413,7 @@ godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, I
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
 godot --headless --path . -s tests/stats_test.gd      # statistiques et succès (fichier de test, jamais le vrai)
 godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent
+godot --headless --path . -s tests/world_test.gd      # monde vivant : saisons, guerres, armées, sièges, sauvegarde
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
 godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)

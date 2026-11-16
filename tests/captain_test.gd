@@ -191,7 +191,7 @@ func _test_save() -> void:
 	c.company[0]["traits"] = ["tenaces"]
 	c.company[1]["gear"] = ["weapons", "armor"]
 	var d := JSON.parse_string(JSON.stringify(c.to_dict())) as Dictionary
-	check(int(d["version"]) == 6 and CampaignState.SAVE_VERSION == 6, "version de sauvegarde")
+	check(int(d["version"]) >= 6 and CampaignState.SAVE_VERSION >= 6, "version de sauvegarde")
 	var b := CampaignState.from_dict(d)
 	check(b != null, "sauvegarde version 6 illisible")
 	if b != null:

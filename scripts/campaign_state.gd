@@ -137,6 +137,7 @@ var men_lost := 0
 var enemies_killed := 0
 var gold_earned := 0 ## Primes, butin et escortes
 var captain := Captain.new() ## Capitaine de la compagnie (voir captain.gd)
+var world := WorldSim.new() ## Monde vivant : saisons, météo, guerres et armées (voir world_sim.gd)
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
@@ -150,6 +151,7 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 	else:
 		c.rng.randomize()
 	c.captain = Captain.recruit(c.rng.seed)
+	c.world = WorldSim.create(c.rng.seed)
 	for t in ["spear", "spear", "men_at_arms", "archer", "archer", "cavalry"]:
 		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
 	for i in TOWNS.size():
@@ -196,12 +198,14 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 7 : monde vivant (villes conquises, guerres, armées, météo ; voir world_sim.gd).
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée), 2, 3, 4 et 5 restent lisibles
-## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf).
-const SAVE_VERSION := 6
+## Les versions 1 (sans expérience, réputation ni renommée), 2, 3, 4, 5 et 6 restent lisibles
+## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
+## monde neuf et en paix).
+const SAVE_VERSION := 7
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -262,6 +266,7 @@ func to_dict() -> Dictionary:
 		"ended": ended, "end_day": end_day, "end_note": end_note,
 		"men_lost": men_lost, "enemies_killed": enemies_killed, "gold_earned": gold_earned,
 		"captain": captain.to_dict(),
+		"world": world.to_dict(),
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -303,6 +308,8 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		out["final"] = true
 	if bool(k.get("ambush", false)):
 		out["ambush"] = true
+	if k.has("world_army"): # Bataille contre une armée rencontrée (world_sim.gd)
+		out["world_army"] = int(k["world_army"])
 	return out
 
 
@@ -363,6 +370,9 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.rng.seed = str(d.get("rng_seed", "1")).to_int()
 	c.rng.state = str(d.get("rng_state", "1")).to_int()
 	c.captain = Captain.from_dict(d.get("captain", {}), c.rng.seed) # Version 5 et avant : capitaine neuf
+	c.world = WorldSim.from_dict(d.get("world", {}), c.rng.seed, c.day) # Version 6 et avant : monde neuf
+	if c.world == null:
+		return null
 	# Version 2 et avant : campagne en cours, bilan à zéro
 	c.ended = str(d.get("ended", ""))
 	if not c.ended in ENDINGS:
@@ -510,6 +520,21 @@ static func town_faction(town: int) -> int:
 	return int(TOWNS[town]["faction"])
 
 
+## Faction qui tient la ville aujourd'hui (town_faction : celle du début de la campagne).
+func town_owner(town: int) -> int:
+	return world.owner_of(town)
+
+
+## Une armée assiège-t-elle la ville ? (pour proposer un contrat de siège)
+func town_besieged(town: int) -> bool:
+	return world.besieged(town)
+
+
+## Détails du siège : {"faction" (assiégeant), "defender", "men", "days", "garrison", "army"}, {} sinon.
+func town_siege(town: int) -> Dictionary:
+	return world.siege_info(town)
+
+
 static func faction_name(f: int) -> String:
 	return str(FACTIONS[f]["name"])
 
@@ -548,7 +573,7 @@ func contract_reward(contract: Dictionary) -> int:
 
 ## Message de refus si la faction de la ville actuelle nous ferme ses portes, sinon "".
 func closed_message(town: int) -> String:
-	var f := town_faction(town)
+	var f := town_owner(town)
 	if faction_closed(f):
 		return "%s vous ferme ses portes (réputation %d)." % [str(FACTIONS[f]["short"]).capitalize(), reputation[f]]
 	return ""
@@ -705,7 +730,7 @@ func neighbours(town: int) -> Array[int]:
 func travel_days(to: int) -> int:
 	var a: Vector2 = TOWNS[location]["pos"]
 	var b: Vector2 = TOWNS[to]["pos"]
-	return maxi(1, ceili(a.distance_to(b) / TRAVEL_PX_PER_DAY))
+	return maxi(1, ceili(a.distance_to(b) / (TRAVEL_PX_PER_DAY * WorldSim.march_factor(day)))) # Hiver : plus lent
 
 
 ## Marche vers une ville voisine : chaque jour coûte la solde et peut amener un évènement de route.
@@ -725,6 +750,7 @@ func travel(to: int) -> String:
 	while done < days:
 		pass_day()
 		done += 1
+		world.on_march_day(self, location, to, float(done) / days) # Froid, armée rencontrée
 		if is_destroyed():
 			break
 		if forced_event == "" and rng.randf() >= event_chance:
@@ -837,6 +863,7 @@ func make_ambush(to: int) -> Dictionary:
 ## Un jour passe : solde, désertions si les caisses sont vides, contrats qui expirent.
 func pass_day() -> void:
 	day += 1
+	world.advance(self) # Saisons, météo, guerres et armées
 	var wage := daily_wage()
 	if gold >= wage:
 		gold -= wage
@@ -880,9 +907,9 @@ func contracts_at(town: int) -> Array[Dictionary]:
 ## (Le contrat final ne compte pas : il s'ajoute aux contrats ordinaires de sa ville.)
 func refresh_contracts(town: int) -> void:
 	var have := contracts_at(town).filter(func(c): return not c.get("final", false)).size()
-	var want := 1 + (1 if rng.randf() < 0.5 else 0)
+	var want := 1 + (1 if rng.randf() < 0.5 else 0) + world.extra_contracts(town) # En guerre : un de plus
 	for i in maxi(0, want - have):
-		contracts.append(make_contract(town))
+		contracts.append(world.adjust_contract(make_contract(town)))
 
 
 ## Niveau le plus élevé des contrats proposés : un de plus tous les FAME_STEP de renommée.
@@ -1153,6 +1180,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			var loss := REP_RETREAT if retreat else REP_LOSS
 			change_reputation(f, loss)
 			rep_note = " Réputation : %s %+d." % [FACTIONS[f]["short"], loss]
+	rep_note += world.after_battle(self, victory) # Armée rencontrée : dispersée ou non
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
