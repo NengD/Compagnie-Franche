@@ -14,9 +14,12 @@ const DESERT_RATE := 0.15 ## Part des hommes qui désertent chaque jour sans sol
 const WOUNDED_RECOVER := 0.3 ## Part des tombés relevés blessés après une victoire
 const LOOT_PER_KILL := 2 ## Butin ramassé sur chaque ennemi tué, après une victoire
 ## Solde quotidienne d'un homme, en écus
-const WAGE := {"spear": 0.3, "archer": 0.35, "men_at_arms": 0.6, "cavalry": 1.0}
+## (nouvelles unités : arbalétriers, chevaliers à pied, archers montés en fin de ligne)
+const WAGE := {"spear": 0.3, "archer": 0.35, "men_at_arms": 0.6, "cavalry": 1.0,
+	"crossbow": 0.45, "foot_knight": 1.4, "horse_archer": 0.9}
 ## Prix d'enrôlement d'un homme, en écus (modulé par la ville, voir TOWNS « price »)
-const RECRUIT_COST := {"spear": 6, "archer": 7, "men_at_arms": 12, "cavalry": 20}
+const RECRUIT_COST := {"spear": 6, "archer": 7, "men_at_arms": 12, "cavalry": 20,
+	"crossbow": 10, "foot_knight": 30, "horse_archer": 18}
 
 ## Expérience : seuils des rangs (recrues, aguerris, vétérans) et gains après une bataille
 const RANK_XP := [0.0, 100.0, 250.0]
@@ -54,21 +57,25 @@ const FINAL_FAME := 150
 const ENDINGS := ["", "victory", "ruin"]
 
 ## Villes de la carte (positions en pixels d'écran), faction, prix des recrues (x RECRUIT_COST)
-## et types de troupes qu'on peut y lever.
+## et types de troupes qu'on peut y lever. Nouvelles unités : les villes de la Ligue lèvent des
+## arbalétriers, le Comté (Saint-Aubin) et Hautemure des chevaliers à pied, la Baronnie
+## (Montfaucon, Castelroux) des archers montés.
 const TOWNS := [
 	{"name": "Valombre", "pos": Vector2(140, 560), "faction": 0, "price": 1.0, "recruits": ["spear", "archer"]},
-	{"name": "Saint-Aubin", "pos": Vector2(330, 420), "faction": 0, "price": 0.9, "recruits": ["spear", "men_at_arms"]},
-	{"name": "Montfaucon", "pos": Vector2(230, 200), "faction": 1, "price": 1.15, "recruits": ["archer", "cavalry"]},
-	{"name": "Brévannes", "pos": Vector2(500, 600), "faction": 2, "price": 0.85, "recruits": ["spear", "archer"]},
-	{"name": "Castelroux", "pos": Vector2(560, 290), "faction": 1, "price": 1.1, "recruits": ["men_at_arms", "cavalry"]},
-	{"name": "Hautemure", "pos": Vector2(770, 140), "faction": 1, "price": 1.25, "recruits": ["men_at_arms", "archer", "cavalry"]},
-	{"name": "Pontrieux", "pos": Vector2(760, 470), "faction": 2, "price": 0.95, "recruits": ["spear", "men_at_arms", "archer"]},
+	{"name": "Saint-Aubin", "pos": Vector2(330, 420), "faction": 0, "price": 0.9, "recruits": ["spear", "men_at_arms", "foot_knight"]},
+	{"name": "Montfaucon", "pos": Vector2(230, 200), "faction": 1, "price": 1.15, "recruits": ["archer", "cavalry", "horse_archer"]},
+	{"name": "Brévannes", "pos": Vector2(500, 600), "faction": 2, "price": 0.85, "recruits": ["spear", "archer", "crossbow"]},
+	{"name": "Castelroux", "pos": Vector2(560, 290), "faction": 1, "price": 1.1, "recruits": ["men_at_arms", "cavalry", "horse_archer"]},
+	{"name": "Hautemure", "pos": Vector2(770, 140), "faction": 1, "price": 1.25, "recruits": ["men_at_arms", "foot_knight", "archer", "cavalry"]},
+	{"name": "Pontrieux", "pos": Vector2(760, 470), "faction": 2, "price": 0.95, "recruits": ["spear", "men_at_arms", "archer", "crossbow"]},
 ]
 const ROADS := [[0, 1], [0, 3], [1, 2], [1, 3], [1, 4], [2, 4], [3, 6], [4, 6], [4, 5], [5, 6]]
 
 ## Modèles de contrats, du niveau 1 au niveau MAX_LEVEL : composition de l'ennemi, effectifs
 ## (part du plein), prime de base et expérience des régiments ennemis (« ranks » : chance d'être
 ## aguerri, chance d'être vétéran). « {rival} » : la faction rivale de celle de la ville.
+## Nouvelles unités : arbalétriers dès le niveau 2, archers montés au niveau 4, chevaliers à pied
+## au niveau 5 et dans la bataille décisive (ils remplacent des régiments, l'effectif ne grossit pas).
 const CONTRACT_KINDS := [
 	{
 		"difficulty": 1, "foe": "brigands", "reward": 260, "fill": [0.6, 0.85], "ranks": [0.0, 0.0],
@@ -78,25 +85,25 @@ const CONTRACT_KINDS := [
 	},
 	{
 		"difficulty": 2, "foe": "routiers", "reward": 450, "fill": [0.75, 1.0], "ranks": [0.4, 0.0],
-		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "archer", "cavalry"],
+		"army": ["spear", "spear", "men_at_arms", "men_at_arms", "crossbow", "cavalry"],
 		"titles": ["Routiers aux portes de %s", "Une compagnie rivale menace %s"],
 		"text": "Des routiers sans contrat pillent la campagne. Ils sont aguerris et ont quelques cavaliers.",
 	},
 	{
 		"difficulty": 3, "foe": "ost du baron", "reward": 720, "fill": [0.9, 1.0], "ranks": [0.7, 0.3],
-		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "archer", "cavalry"],
+		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry"],
 		"titles": ["La querelle du baron de %s", "Défendre %s contre l'ost du baron"],
 		"text": "Un baron voisin lève son ost. La ville engage des lances pour lui tenir tête en rase campagne.",
 	},
 	{
 		"difficulty": 4, "foe": "routiers de la Grande Compagnie", "reward": 1000, "fill": [0.9, 1.0], "ranks": [0.45, 0.55],
-		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "archer", "cavalry", "cavalry"],
+		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "archer", "crossbow", "cavalry", "horse_archer"],
 		"titles": ["La Grande Compagnie marche sur %s", "Chevauchée de routiers autour de %s"],
 		"text": "Plusieurs bandes se sont unies sous un même capitaine. Nombreuse et aguerrie, la Grande Compagnie rançonne des provinces entières.",
 	},
 	{
 		"difficulty": 5, "foe": "armées de {rival}", "reward": 1350, "fill": [0.95, 1.0], "ranks": [0.2, 0.8],
-		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "men_at_arms", "archer", "archer", "cavalry", "cavalry"],
+		"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "foot_knight", "archer", "crossbow", "cavalry", "horse_archer"],
 		"titles": ["L'ost de {rival} menace %s", "Bataille rangée devant %s"],
 		"text": "{Rival} lève son ost et marche sur la ville. Ses chevaliers sont des vétérans de toutes les guerres.",
 	},
@@ -105,7 +112,7 @@ const MAX_LEVEL := 5 ## Niveau de contrat le plus élevé (atteint à FAME_STEP 
 ## Bataille décisive (objectif de la campagne) : la plus grande armée du jeu, presque toute vétérane.
 const FINAL_CONTRACT := {
 	"difficulty": 5, "reward": 2500, "fill": [0.95, 1.0], "ranks": [0.1, 0.9],
-	"army": ["spear", "spear", "spear", "men_at_arms", "men_at_arms", "men_at_arms", "archer", "archer", "archer", "cavalry", "cavalry"],
+	"army": ["spear", "spear", "spear", "men_at_arms", "foot_knight", "foot_knight", "archer", "crossbow", "crossbow", "cavalry", "horse_archer"],
 }
 
 var day := 1
@@ -167,7 +174,8 @@ static func plural(n: int, one: String, many: String) -> String:
 
 
 ## Nom d'un type d'unité au singulier.
-const TYPE_SINGULAR := {"spear": "piquier", "men_at_arms": "homme d'armes", "archer": "archer", "cavalry": "cavalier"}
+const TYPE_SINGULAR := {"spear": "piquier", "men_at_arms": "homme d'armes", "archer": "archer", "cavalry": "cavalier",
+	"crossbow": "arbalétrier", "foot_knight": "chevalier à pied", "horse_archer": "archer monté"}
 
 
 ## « 1 archer », « 2 hommes d'armes » (en minuscules).
@@ -995,7 +1003,7 @@ static func army_summary(list: Array) -> String:
 		men += int(r["men"])
 		ranks[rank_of(r)] += 1
 	var parts: Array[String] = []
-	for t in ["spear", "men_at_arms", "archer", "cavalry"]:
+	for t in UnitTypes.ORDER:
 		if counts.has(t):
 			parts.append(type_count(t, int(counts[t])))
 	var s := "%s — %s" % [", ".join(parts), plural(men, "homme", "hommes")]

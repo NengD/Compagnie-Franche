@@ -53,6 +53,7 @@ func _initialize() -> void:
 	_test_progression()
 	_test_plurals()
 	_test_endings()
+	_test_new_units()
 	# Première bataille de contrat
 	camp = CampaignState.new_game(42)
 	CampaignState.current = camp
@@ -811,6 +812,52 @@ func _test_plurals() -> void:
 
 
 ## Fin de campagne : objectif annoncé, contrat final, victoire, ruine, sauvegarde de l'état.
+## Nouvelles unités (arbalétriers, chevaliers à pied, archers montés) : prix, solde, villes,
+## armées ennemies par niveau de contrat et noms.
+func _test_new_units() -> void:
+	for t in UnitTypes.STATS:
+		check(CampaignState.WAGE.has(t) and CampaignState.RECRUIT_COST.has(t), "unités : solde ou prix manquant pour %s" % t)
+		check(t in UnitTypes.ORDER and CampaignState.TYPE_SINGULAR.has(t), "unités : %s absent de l'ordre d'affichage ou des noms" % t)
+	check(CampaignState.type_count("foot_knight", 2) == "2 chevaliers à pied" and CampaignState.type_count("crossbow", 1) == "1 arbalétrier", "unités : pluriels des nouvelles unités")
+	check(CampaignState.RECRUIT_COST["foot_knight"] > CampaignState.RECRUIT_COST["cavalry"], "unités : les chevaliers à pied doivent être l'élite la plus chère")
+	for t in ["crossbow", "foot_knight", "horse_archer"]:
+		var town := -1
+		for i in CampaignState.TOWNS.size():
+			if t in CampaignState.TOWNS[i]["recruits"]:
+				town = i
+				break
+		check(town >= 0, "unités : aucune ville ne lève de %s" % t)
+		if town < 0:
+			continue
+		var c := CampaignState.new_game(77)
+		c.location = town
+		c.gold = 5000.0
+		c.company.resize(1)
+		var cost := c.recruit_cost(t, int(UnitTypes.STATS[t]["count"]))
+		check(c.recruit(t) == "" and c.company[-1]["type"] == t and is_equal_approx(c.gold, 5000.0 - cost), "unités : recrutement de %s à %s" % [t, CampaignState.TOWNS[town]["name"]])
+		check(c.daily_wage() > 0.0, "unités : solde nulle")
+	# Arbalétriers, chevaliers et archers montés se lèvent dans des villes de factions différentes
+	check(CampaignState.town_faction(3) == 2 and "crossbow" in CampaignState.TOWNS[3]["recruits"], "unités : arbalétriers de la Ligue")
+	# Présence dans les armées ennemies selon le niveau
+	var first := {}
+	for k in CampaignState.CONTRACT_KINDS:
+		for t in k["army"]:
+			if not first.has(t):
+				first[t] = int(k["difficulty"])
+	check(not CampaignState.CONTRACT_KINDS[0]["army"].has("crossbow"), "unités : pas d'arbalétriers chez les brigands")
+	check(first.get("crossbow", 0) == 2 and first.get("horse_archer", 0) == 4 and first.get("foot_knight", 0) == 5, "unités : niveaux d'apparition %s" % str(first))
+	check(CampaignState.FINAL_CONTRACT["army"].count("foot_knight") >= 2, "unités : chevaliers à pied dans la bataille décisive")
+	var s := CampaignState.army_summary([{"type": "foot_knight", "men": 12, "rank": 0}, {"type": "crossbow", "men": 16, "rank": 0}, {"type": "horse_archer", "men": 10, "rank": 0}])
+	check(s.begins_with("1 chevalier à pied, 1 arbalétrier, 1 archer monté"), "unités : résumé d'armée « %s »" % s)
+	# Une armée ennemie complète se déploie : archers montés sur les ailes
+	var sim := BattleSim.new()
+	sim.spawn_army(1, [{"type": "spear", "men": 10}, {"type": "crossbow", "men": 10}, {"type": "horse_archer", "men": 6}])
+	var line_y: float = sim.regiments[0].center.y
+	check(absf(sim.regiments[2].center.x - BattleSim.WORLD_SIZE.x * 0.5) > 300.0, "unités : les archers montés ne sont pas sur une aile")
+	check(sim.regiments[1].center.y < line_y, "unités : les arbalétriers ennemis ne sont pas derrière l'infanterie")
+	sim.clear()
+
+
 func _test_endings() -> void:
 	var c := CampaignState.new_game(31)
 	check(c.log_lines[0].begins_with("Objectif") and str(CampaignState.FINAL_FAME) in c.log_lines[0], "fin : objectif non annoncé au journal")

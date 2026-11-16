@@ -35,6 +35,7 @@ var hold_position := false ## Ordre « tenir la position » (G) : ne poursuit pa
 var fire_at_will := true ## Archers : tir à volonté (X) ; sinon, tir seulement sur une cible ordonnée
 var think := 0.0
 var flank_time := 0.0
+var evading := 0.0 ## Tirailleurs montés : temps restant du décrochage en cours (voir BattleSim.update_skirmish)
 
 var in_forest := false
 var hidden := false ## Caché à l'ennemi (en forêt, non repéré)

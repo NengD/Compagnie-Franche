@@ -180,10 +180,10 @@ func deploy_siege_defense() -> void:
 	for r in regiments:
 		if r.team != PLAYER:
 			continue
-		if r.stats["ranged"]:
-			archers.append(r)
-		elif r.stats["mounted"]:
+		if r.stats["mounted"]: # Les archers montés attendent avec la cavalerie
 			horse.append(r)
+		elif r.stats["ranged"]:
+			archers.append(r)
 		else:
 			foot.append(r)
 	var br := terrain.breaches
@@ -217,7 +217,7 @@ func deploy_siege_defense() -> void:
 
 
 ## Déploie une armée de campagne (liste de {"type", "men"}) : infanterie devant, tireurs derrière,
-## montés sur les ailes. Les régiments du joueur gardent leur indice dans la liste.
+## montés (archers montés compris) sur les ailes. Les régiments du joueur gardent leur indice dans la liste.
 func spawn_army(team: int, list: Array) -> void:
 	var cx := WORLD_SIZE.x * 0.5
 	var front_y := 1600.0 if team == PLAYER else 400.0
@@ -228,10 +228,10 @@ func spawn_army(team: int, list: Array) -> void:
 	var wings: Array[int] = []
 	for i in list.size():
 		var st: Dictionary = UnitTypes.STATS[str(list[i]["type"])]
-		if st["ranged"]:
-			rear.append(i)
-		elif st["mounted"]:
+		if st["mounted"]:
 			wings.append(i)
+		elif st["ranged"]:
+			rear.append(i)
 		else:
 			front.append(i)
 	var placed := {}
@@ -519,11 +519,14 @@ func update_archers(r: Regiment, dt: float) -> void:
 	if raining:
 		range_px *= 0.75
 	r.fire_target = null
+	if r.stats["skirmish"]:
+		update_skirmish(r, dt)
+	var evading := r.evading > 0.0 # Décrochage en cours : on tire sans s'arrêter
 	if r.target != null:
 		var d := r.center.distance_to(r.target.center)
 		if d <= range_px:
 			r.fire_target = r.target
-			if not r.holding:
+			if not r.holding and not evading:
 				r.holding = true
 				r.dest = r.center
 				r.facing = (r.target.center - r.center).normalized()
@@ -531,12 +534,12 @@ func update_archers(r: Regiment, dt: float) -> void:
 			r.holding = false # Cible hors de portée : on ne quitte pas sa place pour la rejoindre
 		else:
 			r.holding = false
-			if r.think <= 0.0:
+			if r.think <= 0.0 and not evading:
 				r.think = 0.5
 				var dir := (r.target.center - r.center).normalized()
 				r.dest = r.target.center - dir * range_px * 0.85
 				r.facing = dir
-	elif r.fire_at_will and not r.engaged and r.center.distance_to(r.dest) < 24.0 and state == State.BATTLE:
+	elif r.fire_at_will and (evading or (not r.engaged and r.center.distance_to(r.dest) < 24.0)) and state == State.BATTLE:
 		# Tir à volonté : sur l'ennemi visible le plus proche (pas sur une mêlée)
 		var best: Regiment = null
 		var bd := range_px
@@ -548,6 +551,42 @@ func update_archers(r: Regiment, dt: float) -> void:
 				bd = d
 				best = o
 		r.fire_target = best
+
+
+## Tirailleurs montés (« skirmish ») : quand une troupe de mêlée approche à moins de SKIRMISH_DIST,
+## ils décrochent au galop en continuant de tirer (sauf ordre de tenir la position).
+func update_skirmish(r: Regiment, dt: float) -> void:
+	r.evading = maxf(r.evading - dt, 0.0)
+	if r.evading > 0.0 or r.hold_position or state != State.BATTLE:
+		return
+	var threat: Regiment = null
+	var td := UnitTypes.SKIRMISH_DIST
+	for o in regiments:
+		if o.team == r.team or o.is_dead() or o.routing or o.hidden or o.stats["ranged"]:
+			continue
+		var d := r.center.distance_to(o.center)
+		if d < td:
+			td = d
+			threat = o
+	if threat == null:
+		return
+	var away := (r.center - threat.center).normalized()
+	if away == Vector2.ZERO:
+		away = -r.facing
+	r.evading = UnitTypes.SKIRMISH_TIME
+	r.holding = false
+	r.facing = -away
+	r.dest = (r.center + away * UnitTypes.SKIRMISH_DIST * 1.2).clamp(Vector2(40, 40), WORLD_SIZE - Vector2(40, 40))
+
+
+## Facteur des traits reçus de face : le pavois ne protège qu'un régiment qui tient sa place.
+func pavise_factor(r: Regiment) -> float:
+	var f: float = r.stats["pavise"]
+	if f >= 1.0 or r.routing or r.engaged:
+		return 1.0
+	if r.holding or (r.target == null and r.center.distance_to(r.dest) < 24.0):
+		return f
+	return 1.0
 
 
 func start_rout(r: Regiment) -> void:
@@ -605,6 +644,8 @@ func update_soldier(s: Soldier, dt: float) -> void:
 		if r.target != null and not r.stats["ranged"]:
 			radius = 80.0
 		s.foe = find_foe(s, radius)
+	if r.evading > 0.0:
+		s.foe = null # Les tirailleurs qui décrochent ne s'attardent pas au contact
 
 	# Tenir la position : on frappe ce qui est à portée, sans quitter le rang pour aller au-devant
 	var stay := r.hold_position and r.target == null
@@ -631,7 +672,8 @@ func update_soldier(s: Soldier, dt: float) -> void:
 			kick_dust(s, dt)
 		else:
 			s.momentum = maxf(s.momentum - dt, 0.0)
-		if r.stats["ranged"] and r.fire_target != null and s.cooldown <= 0.0 and d < 12.0 and state != State.DEPLOY:
+		# Les tirailleurs montés tirent aussi en marchant (moins précis, voir fire_arrow)
+		if r.stats["ranged"] and r.fire_target != null and s.cooldown <= 0.0 and (d < 12.0 or r.stats["skirmish"]) and state != State.DEPLOY:
 			fire_arrow(s, r.fire_target)
 			s.cooldown = float(r.stats["reload"]) * rng.randf_range(0.8, 1.25)
 	separate(s)
@@ -744,22 +786,23 @@ func strike(a: Soldier, b: Soldier) -> void:
 		br.morale -= UnitTypes.MORALE_AMBUSH
 		message("Embuscade !")
 
-	# Attaque de flanc ou de dos (un carré n'a ni flanc ni dos)
+	# Attaque de flanc ou de dos (un carré n'a ni flanc ni dos) ; les inébranlables s'en émeuvent moins
+	var calm := 0.5 if br.stats["steadfast"] else 1.0
 	match hit_side(a.pos, b.pos, br):
 		HIT_REAR:
 			dmg *= 2.0
-			br.morale -= UnitTypes.MORALE_REAR_HIT
+			br.morale -= UnitTypes.MORALE_REAR_HIT * calm
 		HIT_FLANK:
 			dmg *= 1.4
-			br.morale -= UnitTypes.MORALE_FLANK_HIT
+			br.morale -= UnitTypes.MORALE_FLANK_HIT * calm
 
-	# Charge des montés
-	if ar.stats["mounted"]:
+	# Charge des montés (pas des tirailleurs, qui n'ont pas de lance)
+	if ar.stats["mounted"] and not ar.stats["skirmish"]:
 		dmg *= 1.0 + a.momentum * UnitTypes.CHARGE_BONUS
 		if a.momentum > 0.5:
-			br.morale -= UnitTypes.MORALE_CHARGE_HIT * (0.5 if br.stats["braces"] else 1.0)
-			var push := (b.pos - a.pos).normalized() * 6.0
-			b.pos += push
+			br.morale -= UnitTypes.MORALE_CHARGE_HIT * (0.5 if br.stats["braces"] else 1.0) * calm
+			if not br.stats["steadfast"]:
+				b.pos += (b.pos - a.pos).normalized() * 6.0 # Le choc fait reculer (sauf les inébranlables)
 			if not is_secret(ar):
 				impact.emit(b.pos, 0.07 * a.momentum)
 			# Les piques plantées blessent les chevaux qui chargent
@@ -813,11 +856,14 @@ func fire_arrow(s: Soldier, target: Regiment) -> void:
 	var spread := 12.0 * (0.5 + dist / 400.0)
 	if raining:
 		spread *= 1.8
+	if s.moving and s.regiment.stats["skirmish"]:
+		spread *= UnitTypes.SKIRMISH_SPREAD # Tir en marchant (tirailleurs montés)
 	var aim := t.pos + Vector2(rng.randf_range(-spread, spread), rng.randf_range(-spread, spread))
 	arrows.append({
 		"from": s.pos + Vector2(0, -8), "to": aim, "t": 0.0, "dur": 0.5 + dist / 440.0,
 		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE) * s.regiment.rank_damage(),
 		"src": s.regiment, # Pour compter les ennemis tués par les flèches
+		"pierce": float(s.regiment.stats["pierce"]), # Carreaux d'arbalète : ignorent une part de l'armure
 		"h": dist * 0.25,
 	})
 	s.regiment.revealed = maxf(s.regiment.revealed, 2.0)
@@ -848,8 +894,16 @@ func arrow_impact(a: Dictionary) -> void:
 		return # Les arbres arrêtent la flèche
 	if terrain.wall_shelters(a.get("from", a["to"]), victim.pos) and rng.randf() < Terrain.WALL_COVER:
 		return # Les pieux de la palissade arrêtent la flèche
-	var dmg: float = a["dmg"] * float(victim.regiment.stats["arrow_armor"])
-	victim.regiment.morale -= UnitTypes.MORALE_ARROW_HIT
+	var vr := victim.regiment
+	var armor := lerpf(float(vr.stats["arrow_armor"]), 1.0, float(a.get("pierce", 0.0)))
+	var dmg: float = a["dmg"] * armor
+	var morale_hit := UnitTypes.MORALE_ARROW_HIT
+	var from: Vector2 = a.get("from", a["to"])
+	var shield := pavise_factor(vr)
+	if shield < 1.0 and hit_side(from, victim.pos, vr) == HIT_FRONT:
+		dmg *= shield # Le trait se fiche dans le pavois
+		morale_hit *= 0.5
+	vr.morale -= morale_hit
 	damage(victim, dmg * rng.randf_range(0.7, 1.3), null)
 	var src: Regiment = a.get("src")
 	if src != null and not victim.alive and src.team != victim.regiment.team:

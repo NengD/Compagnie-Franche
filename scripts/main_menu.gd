@@ -8,7 +8,7 @@ const BATTLE_SCENE := "res://scenes/main.tscn"
 const TUTORIAL_SCENE := "res://scenes/tutorial.tscn"
 const END_SCENE := "res://scenes/end.tscn"
 const PIX := 4 ## Taille d'un « pixel » du fond
-const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "men_at_arms", "archer", "cavalry", "spear"]
+const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "foot_knight", "crossbow", "horse_archer", "spear"]
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée

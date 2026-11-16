@@ -14,7 +14,13 @@ extends RefCounted
 ##   « mounted » : charge (élan), poursuit les fuyards, soulève de la poussière, se place sur les ailes ;
 ##   « braces » : plante ses piques (blesse le cheval qui charge, moitié moins de peur d'une charge) ;
 ##   « armored » : les coups reçus sonnent sur le métal (bruitage « clash ») ;
-##   « forest_speed » : facteur de vitesse en forêt.
+##   « forest_speed » : facteur de vitesse en forêt ;
+##   « pierce » : part de l'armure ignorée par ses traits (0 = aucune, 1 = toute : carreaux d'arbalète) ;
+##   « pavise » : facteur des traits reçus de face quand le régiment tient sa place (1 = sans pavois) ;
+##   « steadfast » : inébranlable (moitié moins de moral perdu sur un flanc, dans le dos ou sous une
+##                   charge, et ne recule pas sous le choc) ;
+##   « skirmish » : tirailleur monté (tire en marchant, décroche seul quand la mêlée approche,
+##                  ne charge pas). Un tireur monté (« ranged » + « mounted ») se place sur les ailes.
 
 const STATS := {
 	"men_at_arms": {
@@ -24,6 +30,7 @@ const STATS := {
 		"speed": 40.0, "arrow_armor": 0.35, "morale": 100.0,
 		"ranged": false, "radius": 5.2,
 		"mounted": false, "braces": false, "armored": true, "forest_speed": 0.65,
+		"pierce": 0.0, "pavise": 1.0, "steadfast": false, "skirmish": false,
 	},
 	"spear": {
 		"name": "Piquiers",
@@ -32,6 +39,7 @@ const STATS := {
 		"speed": 44.0, "arrow_armor": 0.7, "morale": 85.0,
 		"ranged": false, "radius": 4.8,
 		"mounted": false, "braces": true, "armored": false, "forest_speed": 0.65,
+		"pierce": 0.0, "pavise": 1.0, "steadfast": false, "skirmish": false,
 	},
 	"archer": {
 		"name": "Archers",
@@ -41,6 +49,7 @@ const STATS := {
 		"ranged": true, "range": 340.0, "reload": 2.4, "ranged_damage": 2.6,
 		"radius": 4.8,
 		"mounted": false, "braces": false, "armored": false, "forest_speed": 0.65,
+		"pierce": 0.0, "pavise": 1.0, "steadfast": false, "skirmish": false,
 	},
 	"cavalry": {
 		"name": "Cavaliers",
@@ -49,8 +58,47 @@ const STATS := {
 		"speed": 104.0, "arrow_armor": 0.6, "morale": 90.0,
 		"ranged": false, "radius": 8.0,
 		"mounted": true, "braces": false, "armored": true, "forest_speed": 0.4,
+		"pierce": 0.0, "pavise": 1.0, "steadfast": false, "skirmish": false,
+	},
+	"crossbow": {
+		"name": "Arbalétriers",
+		"count": 16, "cols": 8, "spacing": 12.0,
+		"hp": 28.0, "damage": 1.0, "cooldown": 1.1, "reach": 10.0,
+		"speed": 42.0, "arrow_armor": 0.8, "morale": 70.0,
+		"ranged": true, "range": 270.0, "reload": 5.0, "ranged_damage": 4.6,
+		"radius": 4.8,
+		"mounted": false, "braces": false, "armored": false, "forest_speed": 0.65,
+		"pierce": 0.6, "pavise": 0.4, "steadfast": false, "skirmish": false,
+	},
+	"foot_knight": {
+		"name": "Chevaliers à pied",
+		"count": 12, "cols": 6, "spacing": 12.0,
+		"hp": 80.0, "damage": 2.8, "cooldown": 1.2, "reach": 11.0,
+		"speed": 34.0, "arrow_armor": 0.2, "morale": 140.0,
+		"ranged": false, "radius": 5.4,
+		"mounted": false, "braces": false, "armored": true, "forest_speed": 0.6,
+		"pierce": 0.0, "pavise": 1.0, "steadfast": true, "skirmish": false,
+	},
+	"horse_archer": {
+		"name": "Archers montés",
+		"count": 10, "cols": 5, "spacing": 18.0,
+		"hp": 30.0, "damage": 0.9, "cooldown": 1.2, "reach": 12.0,
+		"speed": 98.0, "arrow_armor": 0.85, "morale": 70.0,
+		"ranged": true, "range": 250.0, "reload": 2.6, "ranged_damage": 1.9,
+		"radius": 8.0,
+		"mounted": true, "braces": false, "armored": false, "forest_speed": 0.4,
+		"pierce": 0.0, "pavise": 1.0, "steadfast": false, "skirmish": true,
 	},
 }
+
+## Ordre d'affichage des types (recrutement, résumés d'armée).
+const ORDER := ["spear", "men_at_arms", "foot_knight", "archer", "crossbow", "cavalry", "horse_archer"]
+
+## Tirailleurs montés (« skirmish ») : distance à laquelle ils décrochent devant la mêlée,
+## durée d'un décrochage et précision du tir en marchant.
+const SKIRMISH_DIST := 170.0
+const SKIRMISH_TIME := 1.6
+const SKIRMISH_SPREAD := 1.6 ## Dispersion des flèches tirées en mouvement (x)
 
 ## Moral : pertes et récupération (en points ; un régiment fuit à 0).
 const MORALE_PER_DEATH := 130.0 ## Perte totale si tout le régiment mourait (répartie par soldat)
@@ -91,12 +139,20 @@ const BRACE_DAMAGE := 3.5 ## Blessure infligée au cheval qui charge des piques
 static func bonus(attacker: String, defender: String) -> float:
 	if attacker == "spear" and defender == "cavalry":
 		return 2.0
-	if attacker == "cavalry" and defender == "archer":
+	if attacker == "spear" and defender == "horse_archer":
+		return 1.5
+	if attacker == "cavalry" and (defender == "archer" or defender == "crossbow"):
 		return 2.0
+	if attacker == "cavalry" and defender == "horse_archer":
+		return 1.5
 	if attacker == "cavalry" and defender == "spear":
 		return 0.6
-	if attacker == "men_at_arms" and defender == "spear":
+	if attacker == "cavalry" and defender == "foot_knight":
+		return 0.7 # Des chevaliers en armure de plates ne se laissent pas bousculer
+	if (attacker == "men_at_arms" or attacker == "foot_knight") and defender == "spear":
 		return 1.4
-	if attacker == "archer":
+	if attacker == "archer" or attacker == "crossbow":
 		return 0.8
+	if attacker == "horse_archer":
+		return 0.7
 	return 1.0

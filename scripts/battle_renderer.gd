@@ -312,12 +312,29 @@ func draw_soldier(s: Soldier) -> void:
 		var src: Rect2 = f["src"]
 		var foot: Vector2 = f["foot"]
 		draw_rect(Rect2(p.x - 5, p.y - 1, 10, 3), Color(0, 0, 0, 0.22))
-		var mod := Color(1, 1, 1, hidden_alpha)
+		var tint: Color = f["tint"]
+		var mod := Color(tint.r, tint.g, tint.b, hidden_alpha)
 		if s.flash > 0.0:
 			mod = Color(2.5, 2.5, 2.5, hidden_alpha) # Éclair blanc quand il est touché
 		draw_texture_rect_region(f["tex"], Rect2(p - foot, src.size), src, mod)
+		draw_unit_extras(s, p, hidden_alpha)
 		return
 	draw_soldier_code(s)
+
+
+## Détails ajoutés aux planches empruntées : pavois des arbalétriers qui tiennent, plumet des
+## chevaliers à pied, arc des archers montés.
+func draw_unit_extras(s: Soldier, p: Vector2, alpha: float) -> void:
+	var r := s.regiment
+	var wood := Color(WOOD, alpha)
+	if sim.pavise_factor(r) < 1.0:
+		var c := p + r.facing.normalized() * 6.0 + Vector2(0, -6)
+		draw_rect(Rect2(c - Vector2(4, 5), Vector2(8, 10)), wood)
+		draw_rect(Rect2(c - Vector2(2, 3), Vector2(4, 5)), Color(TEAM_COLORS[r.team], alpha))
+	if r.stats["steadfast"]:
+		draw_rect(Rect2(p.x - 1, p.y - 18, 2, 3), Color(0.96, 0.92, 0.78, alpha))
+	if r.stats["skirmish"]:
+		draw_arc(p + Vector2(6, -16), 4.0, -PI * 0.5, PI * 0.5, 6, wood, 1.0)
 
 
 ## Corps au sol : le sprite couché et assombri, ou un petit dessin en code.
@@ -366,7 +383,7 @@ func draw_soldier_code(s: Soldier) -> void:
 
 	draw_rect(Rect2(p.x - 2, p.y - 0.5, 5, 1.5), Color(0, 0, 0, 0.28))
 
-	if r.type == "cavalry":
+	if r.stats["mounted"]:
 		var horse := HORSE
 		horse.a = alpha
 		px(p, fx, -3, -5, 7, 3, horse)
@@ -380,7 +397,9 @@ func draw_soldier_code(s: Soldier) -> void:
 		px(p, fx, -1, -6, 1, 2, dark)
 		px(p, fx, -1, -9, 3, 3, col)
 		px(p, fx, -1, -11, 2, 2, STEEL)
-		if s.momentum > 0.5:
+		if r.stats["skirmish"]:
+			px(p, fx, 2, -11, 1, 5, WOOD) # Arc
+		elif s.momentum > 0.5:
 			px(p, fx, 2, -8, 6, 1, WOOD)
 		else:
 			px(p, fx, 2, -13, 1, 7, WOOD)
@@ -412,6 +431,16 @@ func draw_soldier_code(s: Soldier) -> void:
 			px(p, fx, 2, -7, 1, 5, WOOD)
 			if s.attack_anim > 0.0:
 				px(p, fx, 1, -5, 1, 1, Color(0.9, 0.9, 0.8))
+		"foot_knight":
+			px(p, fx, -1, -7, 3, 2, STEEL)
+			px(p, fx, -1, -5, 3, 1, STEEL)
+			px(p, fx, 0, -8, 1, 1, Color(0.96, 0.92, 0.78))
+			px(p, fx, 2, -7, 1, 5, STEEL.lightened(0.2))
+		"crossbow":
+			px(p, fx, -1, -7, 3, 2, STEEL)
+			px(p, fx, 1, -6, 1, 1, SKIN)
+			px(p, fx, 1, -5, 4, 1, WOOD)
+			px(p, fx, 4, -6, 1, 3, WOOD)
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -506,6 +535,15 @@ func draw_banner_shape(r: Regiment, base: Vector2) -> void:
 			draw_arc(base + Vector2(3, -7.5), 1.8, -PI / 2, PI / 2, 6, ic, 1.0)
 		"cavalry":
 			draw_rect(Rect2(base.x + 2, base.y - 8, 3, 2), ic)
+		"foot_knight":
+			draw_rect(Rect2(base.x + 2, base.y - 9, 3, 3), ic)
+			draw_rect(Rect2(base.x + 3, base.y - 10, 1, 1), ic)
+		"crossbow":
+			draw_line(base + Vector2(1.5, -7.5), base + Vector2(5.5, -7.5), ic, 1.0)
+			draw_line(base + Vector2(3.5, -9.5), base + Vector2(3.5, -5.5), ic, 1.0)
+		"horse_archer":
+			draw_rect(Rect2(base.x + 1, base.y - 7, 3, 1), ic)
+			draw_arc(base + Vector2(4.5, -7.5), 1.6, -PI / 2, PI / 2, 6, ic, 1.0)
 	# Barre de moral
 	var k := clampf(r.morale / r.max_morale, 0.0, 1.0)
 	draw_rect(Rect2(base.x - 4, base.y + 1, 14, 2), Color(0, 0, 0, 0.6))

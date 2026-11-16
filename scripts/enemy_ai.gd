@@ -75,10 +75,12 @@ func think(b: BattleSim, dt: float) -> void:
 
 	for r in mine:
 		match r.type:
-			"archer":
+			"archer", "crossbow": # Les arbalétriers tirent comme des archers
 				think_archer(b, r, mine, theirs)
 			"cavalry":
 				think_cavalry(r, theirs)
+			"horse_archer":
+				think_horse_archer(r, mine, theirs)
 			_:
 				think_infantry(r, theirs)
 
@@ -170,6 +172,34 @@ func think_cavalry(r: Regiment, theirs: Array[Regiment]) -> void:
 		r.flank_time = 0.0
 		r.target = prey
 		try_charge(r)
+
+
+## Archers montés : harcèlent l'infanterie (la simulation les fait décrocher seuls devant la mêlée)
+## et se replient derrière leur ligne quand une cavalerie ennemie les menace.
+func think_horse_archer(r: Regiment, mine: Array[Regiment], theirs: Array[Regiment]) -> void:
+	if not advance:
+		return
+	var raider := nearest_of_type(r, theirs, "cavalry")
+	if raider != null and r.center.distance_to(raider.center) < 360.0:
+		var home := r.center
+		for o in mine:
+			if not o.stats["mounted"] and not o.stats["ranged"]:
+				home = o.center - Vector2(0, 160.0 if team == 1 else -160.0)
+				break
+		r.target = null
+		r.holding = false
+		r.dest = home.clamp(Vector2(40, 40), Vector2(3160, 1960))
+		return
+	if r.target != null and not r.target.is_dead() and not r.target.routing and not r.target.hidden:
+		return
+	# Proie : l'infanterie à pied la plus proche (lente, elle ne peut pas les rattraper)
+	var prey: Regiment = null
+	for o in theirs:
+		if o.stats["mounted"]:
+			continue
+		if prey == null or r.center.distance_to(o.center) < r.center.distance_to(prey.center):
+			prey = o
+	r.target = prey if prey != null else nearest(r, theirs)
 
 
 ## Charge au galop sur les derniers mètres, une seule fois par cible (pour ne pas épuiser les chevaux).

@@ -90,7 +90,7 @@ func tactical(b) -> void:
 	for r in mine:
 		var alive_target: bool = r.target != null and not r.target.is_dead() and not r.target.routing
 		match r.type:
-			"archer":
+			"archer", "crossbow":
 				# Recule si de la mêlée arrive ; sinon tire sur ce qui n'est pas au contact
 				var threat := nearest(r, enemies, func(o): return not o.stats["ranged"])
 				if threat != null and r.center.distance_to(threat.center) < 130.0 and not r.engaged:
@@ -101,7 +101,7 @@ func tactical(b) -> void:
 				var e := nearest(r, enemies, func(o): return not o.engaged)
 				if e != null and r.center.distance_to(e.center) < float(r.stats["range"]) * 1.2:
 					order_attack(r, e)
-			"spear", "men_at_arms":
+			"spear", "men_at_arms", "foot_knight":
 				if r.type == "spear":
 					var cav := nearest(r, enemies, func(o): return o.type == "cavalry")
 					if cav != null and r.center.distance_to(cav.center) < 320.0:
@@ -115,6 +115,12 @@ func tactical(b) -> void:
 					e = nearest(r, enemies)
 				if r.center.distance_to(e.center) < 300.0 or b.battle_time > 70.0:
 					order_attack(r, e)
+			"horse_archer":
+				# Harcèle l'infanterie (le décrochage devant la mêlée est automatique)
+				if not alive_target:
+					var foot := nearest(r, enemies, func(o): return not o.stats["mounted"])
+					if foot != null:
+						order_attack(r, foot)
 			"cavalry":
 				# Protège les archers contre la cavalerie ennemie
 				var raider: Regiment = null
