@@ -203,12 +203,12 @@ func _test_reputation() -> void:
 	var c := CampaignState.new_game(9)
 	var owned := [0, 0, 0]
 	for t in CampaignState.TOWNS.size():
-		owned[CampaignState.town_faction(t)] += 1
+		owned[CampaignState.initial_faction(t)] += 1
 	check(owned[0] > 0 and owned[1] > 0 and owned[2] > 0 and c.reputation == [0, 0, 0], "réputation : factions mal réparties %s" % str(owned))
 	for k in c.contracts:
-		check(int(k["faction"]) == CampaignState.town_faction(int(k["town"])) and int(k["difficulty"]) == 1, "réputation : contrat mal attribué ou trop dur sans renommée")
+		check(int(k["faction"]) == CampaignState.initial_faction(int(k["town"])) and int(k["difficulty"]) == 1, "réputation : contrat mal attribué ou trop dur sans renommée")
 	# Contrat gagné à Valombre (Comté) : le Comté apprécie, sa rivale la Baronnie beaucoup moins
-	var f := CampaignState.town_faction(0)
+	var f := CampaignState.initial_faction(0)
 	var rival := int(CampaignState.FACTIONS[f]["rival"])
 	var other := 3 - f - rival
 	c.accept(c.contracts_at(0)[0])
@@ -411,7 +411,7 @@ func _test_save() -> void:
 			e.erase("rank")
 	var v1 := CampaignState.from_dict(JSON.parse_string(JSON.stringify(old)))
 	check(v1 != null and v1.reputation == [0, 0, 0] and v1.fame == 30 and float(v1.company[0]["xp"]) == 0.0
-		and int(v1.contracts[0]["faction"]) == CampaignState.town_faction(int(v1.contracts[0]["town"])), "sauvegarde : version 1 mal relue")
+		and int(v1.contracts[0]["faction"]) == CampaignState.initial_faction(int(v1.contracts[0]["town"])), "sauvegarde : version 1 mal relue")
 	var k1 := c.make_contract(2)
 	var k2 := l.make_contract(2)
 	check(k1["title"] == k2["title"] and k1["reward"] == k2["reward"] and k1["seed"] == k2["seed"], "sauvegarde : tirage aléatoire non restauré")
@@ -837,7 +837,7 @@ func _test_objectives() -> void:
 
 				"faction":
 					var f := int(k["enemy_faction"])
-					check(f >= 0 and f != CampaignState.town_faction(town), "objectifs : faction ennemie %d pour une ville de la faction %d" % [f, CampaignState.town_faction(town)])
+					check(f >= 0 and f != CampaignState.initial_faction(town), "objectifs : faction ennemie %d pour une ville de la faction %d" % [f, CampaignState.initial_faction(town)])
 					check(str(CampaignState.FACTIONS[f]["short"]) in str(k["foe"]), "objectifs : ennemi « %s » sans sa faction" % k["foe"])
 					if f == 2:
 						seen["ligue"] = true
@@ -931,7 +931,7 @@ func _test_new_units() -> void:
 		check(c.recruit(t) == "" and c.company[-1]["type"] == t and is_equal_approx(c.gold, 5000.0 - cost), "unités : recrutement de %s à %s" % [t, CampaignState.TOWNS[town]["name"]])
 		check(c.daily_wage() > 0.0, "unités : solde nulle")
 	# Arbalétriers, chevaliers et archers montés se lèvent dans des villes de factions différentes
-	check(CampaignState.town_faction(3) == 2 and "crossbow" in CampaignState.TOWNS[3]["recruits"], "unités : arbalétriers de la Ligue")
+	check(CampaignState.initial_faction(3) == 2 and "crossbow" in CampaignState.TOWNS[3]["recruits"], "unités : arbalétriers de la Ligue")
 	# Présence dans les armées ennemies selon le niveau
 	var first := {}
 	for k in CampaignState.CONTRACT_KINDS:

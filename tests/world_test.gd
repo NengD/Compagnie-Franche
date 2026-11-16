@@ -5,7 +5,9 @@ extends SceneTree
 ## - 200 jours de simulation sur plusieurs graines, sans erreur et sans état incohérent ;
 ## - une guerre, un siège et une ville qui change de mains (contrats réattribués) ;
 ## - contrats d'une ville en guerre (un de plus, mieux payés), influence de la réputation ;
-## - rencontre d'une armée hostile : bataille (armée dispersée) ou fuite ;
+## - rencontre d'une armée hostile : bataille (armée dispersée) ou fuite, en rase campagne ;
+## - bataille décisive toujours chez son patron ; contrats au nom du maître actuel de la ville ;
+## - sièges gagnés : défense qui lève le siège, assaut qui prend la ville voisine ;
 ## - sauvegarde : aller-retour, même suite d'évènements après relecture, ancienne version ;
 ## - la pluie du jour s'impose à la bataille ; la carte affiche le monde sans erreur.
 ## N'écrit que dans user://test_monde_*.json. Code de sortie : 0 si tout va bien, 1 sinon.
@@ -52,6 +54,10 @@ func _initialize() -> void:
 	_test_war_contracts()
 	_test_reputation()
 	_test_encounter()
+	_test_final()
+	_test_owner_contracts()
+	_test_siege_effects()
+	_test_road_terrain()
 	_test_save()
 
 
@@ -244,6 +250,170 @@ func _test_encounter() -> void:
 	w.on_march_day(c, 0, 1, 0.0)
 	check(not w.has_encounter(), "rencontre : une armée amie barre la route")
 	print("Rencontre : OK")
+
+
+# ---------------------------------------------------------------- Bataille décisive (B2)
+
+## Le contrat final se signe toujours dans une ville du patron : il suit le patron quand sa
+## capitale tombe, survit à une vieille sauvegarde, et passe à une autre faction si le patron
+## perd toutes ses villes. La campagne reste gagnable.
+func _test_final() -> void:
+	var c := rich(81)
+	var w := c.world
+	w.armies.clear()
+	c.fame = CampaignState.FINAL_FAME
+	c.reputation[0] = 20 # Le Comté est le patron
+	c.reputation[1] = CampaignState.REP_CLOSED # La Baronnie ferme ses portes à la compagnie
+	c.offer_final()
+	var k := c.final_contract()
+	check(not k.is_empty() and int(k["faction"]) == 0 and int(k["town"]) == 1, "finale : pas proposée à Saint-Aubin par le Comté")
+	# La capitale du patron tombe aux mains de la Baronnie, hostile
+	w.declare_war(c, 0, 1)
+	w.take_town(c, 1, 1, 100)
+	k = c.final_contract()
+	check(not k.is_empty() and int(k["faction"]) == 0 and int(k["town"]) != 1 and c.town_owner(int(k["town"])) == 0, "finale : le contrat reste dans la capitale tombée")
+	if k.is_empty():
+		return
+	c.location = int(k["town"])
+	check(c.accept(k) == "", "finale : contrat déplacé mais refusé")
+	c.pending = {}
+	var moved := false
+	for s in c.log_lines:
+		moved = moved or s.contains("se prépare désormais")
+	check(moved, "finale : déplacement non annoncé au journal")
+	# Vieille sauvegarde : contrat final resté dans une ville ennemie, corrigé à la relecture
+	var saved := c.to_dict()
+	for x in saved["contracts"]:
+		if x.get("final", false):
+			x["town"] = 1
+	var back := CampaignState.from_dict(JSON.parse_string(JSON.stringify(saved)))
+	var bk := back.final_contract() if back != null else {}
+	check(not bk.is_empty() and back.town_owner(int(bk["town"])) == int(bk["faction"]), "finale : sauvegarde avec la finale en ville ennemie non corrigée")
+	# Le Comté perd toutes ses villes : contrat annulé, puis reproposé par la Ligue
+	for t in w.towns_of(0):
+		w.take_town(c, 1, t, 100)
+	check(c.final_contract().is_empty(), "finale : contrat d'un patron sans ville")
+	check(c.final_patron() == 2, "finale : la Ligue devrait prendre le relais (patron %d)" % c.final_patron())
+	c.pass_day()
+	k = c.final_contract()
+	check(not k.is_empty() and int(k["faction"]) == 2 and c.town_owner(int(k["town"])) == 2, "finale : pas reproposée par la Ligue dans une de ses villes")
+	if not k.is_empty():
+		c.location = int(k["town"])
+		check(c.accept(k) == "", "finale : contrat de la Ligue refusé")
+		c.pending = {}
+	# Sur 200 jours de monde agité, la finale proposée est toujours dans une ville de son patron
+	var d := rich(82)
+	d.fame = CampaignState.FINAL_FAME
+	var bad := 0
+	for i in 200:
+		d.pass_day()
+		var f := d.final_contract()
+		if not f.is_empty() and d.town_owner(int(f["town"])) != int(f["faction"]):
+			bad += 1
+	check(bad == 0, "finale : %d jours en ville étrangère" % bad)
+	print("Bataille décisive : OK")
+
+
+# ---------------------------------------------------------------- Faction actuelle dans les contrats (B4)
+
+## Une ville prise sert son nouveau maître : jamais de contrat contre lui, armée et faction ennemies
+## justes ; une ville assiégée nomme l'assiégeant réel.
+func _test_owner_contracts() -> void:
+	var c := rich(91)
+	var w := c.world
+	w.armies.clear()
+	c.fame = CampaignState.FAME_STEP * 4 # Niveaux 4 et 5 : armées de faction
+	w.declare_war(c, 1, 2)
+	w.take_town(c, 1, 3, 100) # Brévannes (la Ligue au départ) passe à la Baronnie
+	check(CampaignState.initial_faction(3) == 2 and c.town_owner(3) == 1, "maître : Brévannes pas prise")
+	var factions := 0
+	for i in 80:
+		var k := c.make_contract(3)
+		var ef := int(k["enemy_faction"])
+		check(int(k["faction"]) == 1, "maître : contrat de Brévannes au nom de la faction %d" % int(k["faction"]))
+		check(ef != 1, "maître : contrat de la Baronnie contre la Baronnie")
+		if ef >= 0:
+			factions += 1
+			check(ef == 2, "maître : ennemi %d, pas en guerre avec la Baronnie" % ef)
+			for e in k["enemy"]:
+				check(str(e["type"]) != "archer", "maître : armée de la Ligue sans ses arbalètes")
+		check(not (str(k["title"]) + str(k["foe"])).contains("la Baronnie"), "maître : « %s » nomme la Baronnie" % k["title"])
+	check(factions > 0, "maître : aucune armée de faction tirée")
+	# En paix, l'ennemi reste une autre faction que le maître
+	w.make_peace(c, 1, 2)
+	for i in 40:
+		check(c.roll_enemy_faction(3) != 1, "maître : en paix, ennemi = maître")
+	# Siège réel : le titre et l'ennemi sont l'assiégeant
+	w.declare_war(c, 1, 2)
+	var a := w.add_army(2, 6, 3, 400, "siege")
+	a.pos = WorldSim.town_pos(3)
+	check(c.town_besieged(3), "maître : Brévannes pas assiégée")
+	c.contracts = c.contracts.filter(func(x: Dictionary) -> bool: return int(x["town"]) != 3)
+	c.refresh_contracts(3)
+	var found := false
+	for k in c.contracts_at(3):
+		if str(k.get("siege", "")) == "defense":
+			found = true
+			check(int(k["enemy_faction"]) == 2 and str(k["foe"]).contains("la Ligue"), "maître : assiégeant mal nommé (%s)" % k["foe"])
+			check(not str(k["title"]).contains("la Baronnie"), "maître : titre de siège « %s »" % k["title"])
+	check(found, "maître : pas de contrat de défense dans la ville assiégée")
+	print("Faction actuelle des contrats : OK")
+
+
+# ---------------------------------------------------------------- Sièges et carte (B3)
+
+## Défense gagnée : le siège est levé et l'assiégeant repart affaibli. Assaut gagné : la ville
+## voisine visée passe au patron.
+func _test_siege_effects() -> void:
+	var c := rich(101)
+	var w := c.world
+	w.armies.clear()
+	w.declare_war(c, 0, 1)
+	var a := w.add_army(1, 2, 1, 600, "siege") # La Baronnie assiège Saint-Aubin
+	a.pos = WorldSim.town_pos(1)
+	check(c.town_besieged(1), "sièges : Saint-Aubin pas assiégée")
+	var k := c.make_siege(c.make_contract(1, 1), "defense")
+	check(CampaignState.objective_line(k).contains("tenir les murs"), "sièges : ligne d'objectif de la défense « %s »" % CampaignState.objective_line(k))
+	c.contracts.append(k)
+	c.location = 1
+	check(c.accept(k) == "", "sièges : défense refusée")
+	var men := a.men
+	var out := c.finish_battle(true, [], [])
+	check(not c.town_besieged(1) and a.mode == "retreat" and a.men <= int(men * WorldSim.SIEGE_BROKEN), "sièges : siège non levé après la défense (%s, %d hommes)" % [a.mode, a.men])
+	check(str(out["text"]).contains("siège de Saint-Aubin est levé"), "sièges : compte rendu de la défense")
+	# Assaut : une ville voisine de la Baronnie, prise pour le Comté
+	var s := c.make_siege(c.make_contract(1), "assault")
+	var t := int(s.get("target", -1))
+	check(t in [2, 4] and int(s["enemy_faction"]) == 1, "sièges : assaut sans ville baronniale visée (%d)" % t)
+	if t >= 0:
+		var name := str(CampaignState.TOWNS[t]["name"])
+		check(str(s["title"]).contains(name) and CampaignState.objective_line(s).contains(name), "sièges : la ville visée n'est pas nommée")
+		var back := CampaignState.contract_from_dict(JSON.parse_string(JSON.stringify(CampaignState.contract_to_dict(s))))
+		check(int(back.get("target", -1)) == t, "sièges : ville visée non sauvegardée")
+		c.contracts.append(s)
+		check(c.accept(s) == "", "sièges : assaut refusé")
+		out = c.finish_battle(true, [], [])
+		check(c.town_owner(t) == 0, "sièges : %s pas prise pour le Comté" % name)
+		check(str(out["text"]).contains("Le Comté tient désormais %s" % name), "sièges : compte rendu de l'assaut « %s »" % out["text"])
+	# En paix : un assaut ne vise pas de ville de la carte
+	w.make_peace(c, 0, 1)
+	var p := c.make_siege(c.make_contract(0), "assault")
+	check(not p.has("target"), "sièges : assaut sur une ville en paix")
+	print("Sièges et carte : OK")
+
+
+# ---------------------------------------------------------------- Rencontre sur la route (B6)
+
+func _test_road_terrain() -> void:
+	var c := rich(111)
+	var w := c.world
+	for town in CampaignState.TOWNS.size():
+		var a := w.add_army(1, 2, town, 600, "march") # Grosse armée : difficulté 5
+		var k := w.make_battle(c, a, town)
+		check(str(k.get("terrain", "")) in WorldSim.ROAD_TERRAINS, "route : rencontre vers %s sur le terrain « %s »" % [CampaignState.TOWNS[town]["name"], k.get("terrain", "")])
+		var back := CampaignState.contract_from_dict(JSON.parse_string(JSON.stringify(CampaignState.contract_to_dict(k))))
+		check(str(back.get("terrain", "")) == str(k["terrain"]), "route : terrain non sauvegardé")
+	print("Terrain des rencontres : OK")
 
 
 # ---------------------------------------------------------------- Sauvegarde

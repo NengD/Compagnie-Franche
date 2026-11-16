@@ -8,7 +8,8 @@ extends RefCounted
 ## - advance(c) à chaque jour qui passe (pass_day) ;
 ## - on_march_day(c, ...) à chaque jour de marche (froid de l'hiver, rencontre d'une armée) ;
 ## - adjust_contract / extra_contracts pour les contrats (une ville en guerre embauche plus et paie mieux) ;
-## - after_battle(c, victory) à la fin d'une bataille contre une armée rencontrée.
+## - after_battle(c, victory) à la fin d'une bataille : armée rencontrée dispersée, siège levé
+##   (défense gagnée d'une ville assiégée) ou ville prise pour le patron (assaut gagné).
 ## Le monde a son propre générateur aléatoire : il ne change pas les tirages de la campagne.
 ##
 ## Pour les sièges (autres sessions) : besieged(town), siege_info(town) et, côté campagne,
@@ -56,6 +57,8 @@ const FLEE_GOLD := 0.08 ## Fuir une armée : part de l'or abandonnée avec les b
 const ENCOUNTER_RANGE := 40.0 ## Distance (carte) à laquelle une armée hostile croise la compagnie
 const CLASH_RANGE := 30.0 ## Distance à laquelle deux armées ennemies se livrent bataille
 const NEWS_MAX := 10
+const SIEGE_BROKEN := 0.4 ## Défense gagnée par la compagnie : part de l'armée assiégeante qui repart
+const ROAD_TERRAINS := ["plain", "forest", "hills"] ## Terrains d'une rencontre sur la route
 
 var owner: Array[int] = [] ## Faction qui tient chaque ville
 var garrison: Array[int] = [] ## Défenseurs de chaque ville
@@ -510,21 +513,30 @@ func siege_day(c: CampaignState, a: WorldArmy) -> void:
 
 ## La ville tombe aux mains de l'armée : elle change de faction et ses contrats sont caducs.
 func capture(c: CampaignState, a: WorldArmy, t: int) -> void:
-	var old := owner[t]
-	owner[t] = a.faction
 	@warning_ignore("integer_division")
-	garrison[t] = mini(garrison_max(t), maxi(40, a.men / 2))
+	var men := maxi(40, a.men / 2)
 	a.men = 0
+	take_town(c, a.faction, t, men)
+
+
+## La faction f prend la ville t (garnison men) : armée victorieuse (capture) ou assaut gagné par
+## la compagnie pour son patron (after_battle). Les contrats de la ville sont caducs, sauf la
+## bataille en cours ; le contrat final suit son patron (CampaignState.keep_final_in_patron_town).
+func take_town(c: CampaignState, f: int, t: int, men: int) -> void:
+	var old := owner[t]
+	owner[t] = f
+	garrison[t] = mini(garrison_max(t), men)
 	captures += 1
 	for other in armies:
-		if other.mode == "siege" and other.target == t and not at_war(other.faction, a.faction):
+		if other.mode == "siege" and other.target == t and not at_war(other.faction, f):
 			send_home(other) # La ville a changé de maître : plus de raison de l'assiéger
-	post(c, "%s prend %s à %s !" % [CampaignState.cap_first(short(a.faction)), town_name(t), short(old)], true)
+	post(c, "%s prend %s à %s !" % [CampaignState.cap_first(short(f)), town_name(t), short(old)], true)
 	if c != null:
 		var keep := func(k: Dictionary) -> bool:
 			return int(k["town"]) != t or k.get("final", false) or is_same(k, c.pending)
 		c.contracts = c.contracts.filter(keep)
 		c.refresh_contracts(t)
+		c.keep_final_in_patron_town()
 
 
 ## Deux armées ennemies proches l'une de l'autre se livrent bataille (issue tirée au sort,
@@ -671,8 +683,13 @@ func make_battle(c: CampaignState, a: WorldArmy, town: int) -> Dictionary:
 		var full := int(UnitTypes.STATS[t]["count"])
 		var x := rng.randf()
 		enemy.append({"type": t, "men": maxi(3, int(round(full * rng.randf_range(0.7, 1.0)))), "rank": 2 if x < 0.15 else (1 if x < 0.55 else 0)})
+	# Une rencontre se joue en chemin, jamais sur la palissade de la ville : le terrain de la ville
+	# s'il s'y prête (bois de Valombre, collines de Montfaucon...), sinon un terrain de route.
+	var land := Terrain.for_contract(town, 1, CampaignState.TOWNS)
+	if not land in ROAD_TERRAINS:
+		land = str(ROAD_TERRAINS[rng.randi() % ROAD_TERRAINS.size()])
 	return {
-		"town": town, "faction": -1, "world_army": a.id,
+		"town": town, "faction": -1, "world_army": a.id, "terrain": land,
 		"title": "%s barre la route de %s" % [CampaignState.cap_first(a.display_name()), town_name(town)],
 		"text": "Les bannières de %s couvrent la route. Pas de prime : seulement le butin et la gloire." % short(a.faction),
 		"foe": "troupes de %s" % short(a.faction),
@@ -681,9 +698,42 @@ func make_battle(c: CampaignState, a: WorldArmy, town: int) -> Dictionary:
 	}
 
 
-## Fin d'une bataille contre une armée rencontrée (appelé par finish_battle, pending encore
-## en place). Renvoie la note de réputation ajoutée au compte rendu ("" sinon).
+## Fin d'une bataille (appelé par finish_battle, pending encore en place) : effets sur la carte
+## d'une rencontre (after_encounter) ou d'un siège (after_siege). Renvoie la note ajoutée au
+## compte rendu ("" sinon).
 func after_battle(c: CampaignState, victory: bool) -> String:
+	if c.pending.has("siege"):
+		return after_siege(c, victory)
+	return after_encounter(c, victory)
+
+
+## Siège gagné. Défense d'une ville assiégée sur la carte : l'assiégeant, saigné, lève le siège et
+## rentre chez lui. Assaut d'une ville de la carte (« target ») : elle passe au patron du contrat,
+## s'il est toujours en guerre avec son maître. Une défaite ne change rien : le siège continue.
+func after_siege(c: CampaignState, victory: bool) -> String:
+	if not victory:
+		return ""
+	var town := int(c.pending["town"])
+	if str(c.pending["siege"]) == "defense":
+		var a := siege_at(town)
+		if a == null:
+			return ""
+		a.men = int(a.men * SIEGE_BROKEN)
+		post(c, "la compagnie brise le siège de %s : %s se retire." % [town_name(town), a.display_name()])
+		send_home(a)
+		return " Le siège de %s est levé : %s se retire." % [town_name(town), a.display_name()]
+	var t := int(c.pending.get("target", -1))
+	var f := int(c.pending.get("faction", -1))
+	if t < 0 or t >= owner.size() or f < 0 or owner[t] == f or not at_war(f, owner[t]):
+		return ""
+	@warning_ignore("integer_division")
+	take_town(c, f, t, garrison_max(t) / 2)
+	return " %s tient désormais %s." % [CampaignState.cap_first(short(f)), town_name(t)]
+
+
+## Fin d'une bataille contre une armée rencontrée : dispersée si la compagnie gagne, et
+## réputation (renvoie la note, "" sinon).
+func after_encounter(c: CampaignState, victory: bool) -> String:
 	if not c.pending.has("world_army"):
 		return ""
 	var a := army_by_id(int(c.pending["world_army"]))
@@ -711,19 +761,11 @@ func extra_contracts(town: int) -> int:
 	return 1 if at_war_any(owner[town]) else 0
 
 
-## Adapte un contrat tout juste tiré (make_contract) au monde : faction qui tient la ville
-## aujourd'hui, et prime de guerre.
+## Adapte un contrat tout juste tiré (make_contract) au monde : prime de guerre. (La faction de
+## la ville et l'ennemi sont déjà ceux d'aujourd'hui : make_contract lit town_owner.)
 func adjust_contract(k: Dictionary) -> Dictionary:
-	var t := int(k["town"])
-	var o := owner[t]
-	var base := int(k.get("faction", o))
-	if base >= 0 and o != base:
-		var old_rival := short(int(CampaignState.FACTIONS[base]["rival"]))
-		var foes := enemies_of(o)
-		var new_rival := short(foes[0] if not foes.is_empty() else int(CampaignState.FACTIONS[o]["rival"]))
-		for key in ["title", "text", "foe"]:
-			k[key] = str(k.get(key, "")).replace(CampaignState.cap_first(old_rival), CampaignState.cap_first(new_rival)).replace(old_rival, new_rival)
-		k["faction"] = o
+	var o := owner[int(k["town"])]
+	k["faction"] = o
 	var foes := enemies_of(o)
 	if not foes.is_empty():
 		k["reward"] = int(round(int(k["reward"]) * WAR_REWARD / 10.0)) * 10

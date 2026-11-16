@@ -5,7 +5,8 @@ extends SceneTree
 ##  2. Bélier : il enfonce la porte ; échelle sans personne en haut : la garnison la repousse.
 ##  3. Assaut gagné : le camp du joueur, joué par l'IA, dresse ses échelles, monte aux murs et prend la place.
 ##  4. Défense tenue : l'IA ennemie monte aux murs mais la garnison (IA du joueur) tient la ville.
-##  5. Campagne : contrats de siège rares, mieux payés, sauvegardés, et terrain de ville en bataille.
+##  5. Campagne : contrats de siège rares, mieux payés, sauvegardés, terrain de ville en bataille,
+##     vraie ligne d'objectif, et rencontre sur la route jamais jouée sur la palissade.
 ## Code de sortie : 0 si tout va bien, 1 sinon.
 
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -271,5 +272,19 @@ func campaign_scenario() -> void:
 	var b := scene.instantiate()
 	root.add_child(b)
 	check(b.terrain.kind == "town_defense" and b.sim.siege != null, "campagne : terrain %s au lieu de town_defense" % b.terrain.kind)
+	end_battle(b)
+	# Ligne d'objectif de la carte : le vrai objectif du siège, pas « détruire l'armée ennemie » (B5)
+	var line_d := CampaignState.objective_line(k)
+	var line_a := CampaignState.objective_line(c.make_siege(c.make_contract(2), "assault"))
+	check(line_d.contains("tenir les murs") and not line_d.contains("détruire"), "campagne : objectif de défense « %s »" % line_d)
+	check(line_a.contains("tenir sa place") and not line_a.contains("détruire"), "campagne : objectif d'assaut « %s »" % line_a)
+	# Rencontre d'une armée sur la route de Hautemure (ville à palissade) : jamais la palissade (B6)
+	c.pending = {}
+	var army := c.world.add_army(1, 4, 5, 600, "march")
+	c.pending = c.world.make_battle(c, army, 5)
+	check(Terrain.for_contract(5, int(c.pending["difficulty"]), CampaignState.TOWNS) == "siege", "campagne : la rencontre n'est pas assez dure pour tester la palissade")
+	b = scene.instantiate()
+	root.add_child(b)
+	check(b.terrain.kind in WorldSim.ROAD_TERRAINS and b.sim.siege == null, "campagne : rencontre sur la route jouée sur le terrain %s" % b.terrain.kind)
 	end_battle(b)
 	CampaignState.current = null
