@@ -305,24 +305,26 @@ func build_options() -> void:
 	df.item_selected.connect(set_difficulty)
 	grid.add_child(df)
 	grid.add_child(UiTheme.label("(la campagne a la sienne)", 13, UiTheme.DIM))
+	UiTheme.add_access_options(grid)
 
 	box.add_child(HSeparator.new())
 	box.add_child(UiTheme.label("Touches de bataille", 18, UiTheme.GOLD))
 	var keys := GridContainer.new()
-	keys.columns = 2
-	keys.add_theme_constant_override("h_separation", 14)
+	keys.columns = 4
+	keys.add_theme_constant_override("h_separation", 12)
 	keys.add_theme_constant_override("v_separation", 4)
 	box.add_child(keys)
-	for a in GameOptions.ACTIONS:
+	for a in GameOptions.ACTIONS + GameOptions.CAMERA_ACTIONS:
 		var id: String = a["id"]
-		var l := UiTheme.label(str(a["name"]), 15)
-		l.custom_minimum_size.x = 330
+		var l := UiTheme.label(str(a["name"]), 14)
+		l.custom_minimum_size.x = 250
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		keys.add_child(l)
-		var txt := "Appuyez sur une touche…" if waiting_action == id else GameOptions.key_label(id)
+		var txt := "Appuyez…" if waiting_action == id else GameOptions.key_label(id)
 		var b := add_button(txt, start_rebind.bind(id), true, keys)
-		b.custom_minimum_size.x = 230
+		b.custom_minimum_size.x = 110
 		b.name = "Touche_" + id
-	var info := "Échap pour annuler." if waiting_action != "" else "Cliquez sur une touche pour la changer. Espace, Entrée, Échap, F11, chiffres et caméra (ZQSD) sont réservés."
+	var info := "Échap pour annuler." if waiting_action != "" else "Cliquez sur une touche pour la changer. Espace, Entrée, Échap, F11, flèches et chiffres sont réservés. La caméra garde la position des touches (ZQSD en AZERTY)."
 	var il := UiTheme.label(info, 13, UiTheme.DIM)
 	il.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	il.custom_minimum_size.x = 560

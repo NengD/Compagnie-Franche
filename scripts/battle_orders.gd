@@ -32,6 +32,7 @@ var groups := {} ## Groupes de contrôle : chiffre (0-8) -> Array[Regiment]
 var last_digit := -1 ## Dernier chiffre appuyé (pour le double appui)
 var last_digit_ms := -100000
 var retreat_ask_ms := -100000 ## Instant du premier appui sur R (il faut confirmer)
+var roster_list: Array[Regiment] = [] ## Numérotation fixe des régiments du joueur (voir roster())
 
 
 func _init(b: Battle) -> void:
@@ -127,6 +128,8 @@ func handle_key(k: InputEventKey) -> void:
 			halt()
 		KEY_F1:
 			battle.show_help = not battle.show_help
+			GameOptions.show_help = battle.show_help # Mémorisé pour les batailles suivantes
+			GameOptions.save_options()
 		KEY_F:
 			cycle_formation()
 		KEY_G:
@@ -207,13 +210,39 @@ func group_members(idx: int) -> Array[Regiment]:
 	return out
 
 
-## Chiffre seul : rappelle le groupe s'il existe, sinon sélectionne le régiment n° idx + 1.
+## Régiments du joueur dans un ordre fixe pour toute la bataille : numéros des cartes du HUD et
+## des touches 1 à 8. Ordre de la compagnie (company_index, comme sur la carte de campagne), puis
+## ordre de création. Un régiment mort ou en fuite garde sa place ; un régiment ajouté en cours
+## de bataille (tutoriel) prend la suivante.
+func roster() -> Array[Regiment]:
+	var fresh: Array[Regiment] = []
+	for r in sim.regiments:
+		if r.team == PLAYER and not roster_list.has(r):
+			fresh.append(r)
+	if not fresh.is_empty():
+		fresh.sort_custom(func(x: Regiment, y: Regiment) -> bool:
+			var kx := x.company_index if x.company_index >= 0 else 1000 + x.id
+			var ky := y.company_index if y.company_index >= 0 else 1000 + y.id
+			return kx < ky)
+		roster_list.append_array(fresh)
+	# Régiments retirés de la simulation (tests qui la vident) : on les oublie
+	roster_list = roster_list.filter(func(r: Regiment) -> bool: return sim.regiments.has(r))
+	return roster_list
+
+
+## Numéro affiché d'un régiment du joueur (1, 2…), 0 s'il n'en a pas.
+func roster_number(r: Regiment) -> int:
+	return roster().find(r) + 1
+
+
+## Chiffre seul : rappelle le groupe s'il existe, sinon sélectionne le régiment n° idx + 1
+## (numéro fixe, voir roster() ; rien si ce régiment est mort ou en fuite).
 ## Un double appui centre la caméra sur la sélection rappelée.
 func recall_digit(idx: int, add: bool) -> void:
 	var list := group_members(idx)
 	if list.is_empty():
-		var all := sim.player_regiments()
-		if idx < all.size():
+		var all := roster()
+		if idx < all.size() and not all[idx].is_dead() and not all[idx].routing:
 			list.append(all[idx])
 	if list.is_empty():
 		return

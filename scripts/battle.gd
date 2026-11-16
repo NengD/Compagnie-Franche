@@ -41,7 +41,7 @@ var hud: Hud
 var audio: BattleAudio
 
 var paused := false
-var show_help := true
+var show_help := false ## Aide F1 dépliée (état mémorisé dans GameOptions.show_help)
 var messages: Array = [] ## Messages du HUD : [texte, temps restant]
 var game_speed := 1.0 ## Vitesse de la simulation (options, touche V)
 var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
@@ -68,6 +68,7 @@ func _init() -> void:
 func _ready() -> void:
 	GameOptions.ensure_loaded()
 	game_speed = GameOptions.speed
+	show_help = GameOptions.show_help
 	if CampaignState.current != null and CampaignState.current.in_battle():
 		campaign = CampaignState.current
 	if seed_override != 0:
@@ -229,14 +230,20 @@ func _on_sound(sound: String, at: Vector2) -> void:
 func _on_cries(at: Vector2, count: int) -> void:
 	if audio != null:
 		audio.play_cries(at, count)
+	if hud != null:
+		hud.caption("rout") # Sous-titre (option d'accessibilité)
 
 
 func _on_impact(at: Vector2, amount: float) -> void:
 	if camera != null:
 		camera.add_shake(at, amount)
+	if hud != null and amount >= 0.05:
+		hud.caption("cavalry")
 
 
 func add_message(text: String) -> void:
+	if hud != null and text.begins_with("Embuscade"):
+		hud.caption("ambush")
 	messages.append([text, MESSAGE_LIFE])
 	if messages.size() > MAX_MESSAGES:
 		messages.pop_front()
@@ -499,6 +506,11 @@ func team_strength(team: int) -> int:
 
 func player_regiments() -> Array[Regiment]:
 	return sim.player_regiments()
+
+
+## Tous les régiments du joueur, numérotation fixe (morts et fuyards compris) : voir BattleOrders.roster.
+func player_roster() -> Array[Regiment]:
+	return orders.roster()
 
 
 func selected_regiments() -> Array[Regiment]:

@@ -27,12 +27,8 @@ func setup(rep: Dictionary, b: Battle) -> void:
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(shade)
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(center)
 	panel = PanelContainer.new()
-	center.add_child(panel)
+	add_child(panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
 	panel.add_child(box)
@@ -42,6 +38,23 @@ func setup(rep: Dictionary, b: Battle) -> void:
 	box.add_child(HSeparator.new())
 	build_totals(box)
 	build_buttons(box)
+
+
+func _ready() -> void:
+	get_viewport().size_changed.connect(place_panel)
+	place_panel.call_deferred()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED and visible:
+		place_panel.call_deferred()
+
+
+## Centré dans la vue, réduit s'il ne tient pas (petite fenêtre, interface à 150 %).
+func place_panel() -> void:
+	if panel == null or not is_inside_tree():
+		return
+	UiTheme.fit_panel(panel, get_viewport_rect().size)
 
 
 func is_campaign() -> bool:

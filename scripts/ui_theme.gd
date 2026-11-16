@@ -106,3 +106,25 @@ static func fit_panel(panel: Control, vs: Vector2, top := -1.0, margin := 12.0) 
 ## Taille de police d'un titre dessiné, réduite si la vue est trop étroite pour `chars` caractères.
 static func title_size(vs: Vector2, base: int, chars: int) -> int:
 	return clampi(int(vs.x / (chars * 0.72)), 18, base)
+
+
+## Accessibilité : formes des camps et sous-titres (menu principal et menu pause).
+static func add_access_options(grid: GridContainer) -> void:
+	var rows := [
+		["Formes des camps", "FormesCamps", GameOptions.team_shapes, "(rond : vous, losange : l'ennemi)"],
+		["Sous-titres", "SousTitres", GameOptions.subtitles, "(cors, charges, embuscades)"],
+	]
+	for row in rows:
+		grid.add_child(UiTheme.label(row[0]))
+		var c := CheckButton.new()
+		c.name = row[1]
+		c.button_pressed = row[2]
+		var which: String = row[1]
+		c.toggled.connect(func(on: bool) -> void:
+			if which == "FormesCamps":
+				GameOptions.team_shapes = on
+			else:
+				GameOptions.subtitles = on
+			GameOptions.save_options())
+		grid.add_child(c)
+		grid.add_child(UiTheme.label(row[3], 13, UiTheme.DIM))

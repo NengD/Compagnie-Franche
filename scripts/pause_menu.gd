@@ -198,6 +198,7 @@ func build_options() -> void:
 	ui.item_selected.connect(set_ui_scale)
 	grid.add_child(ui)
 	grid.add_child(Control.new())
+	UiTheme.add_access_options(grid)
 	add_text("Les touches se reconfigurent depuis le menu principal (Options).", 13, UiTheme.DIM)
 	focus_later(add_button("Retour", show_page.bind("main")))
 

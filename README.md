@@ -31,9 +31,23 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 - **Options** : volumes général / musique / effets, plein écran (aussi **Alt+Entrée** ou **F11**, partout),
   **taille de l'interface** (90 %, 100 %, 125 %, 150 %), vitesse du jeu (x1, x1,5, x2 ; touche V
   en bataille), **difficulté de l'escarmouche**, **touches de bataille reconfigurables** (cliquez sur une touche puis appuyez sur la nouvelle ;
-  si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, F11, chiffres,
-  flèches et caméra ZQSD sont réservés ; bouton « Touches par défaut »). Les touches sont enregistrées
-  par lettre, donc correctes en AZERTY comme en QWERTY.
+  si elle sert déjà à une autre action, les deux échangent leurs touches ; Espace, Entrée, Échap, F11, chiffres
+  et flèches sont réservés ; bouton « Touches par défaut »). Les touches sont enregistrées
+  par lettre, donc correctes en AZERTY comme en QWERTY. Les **touches de caméra** (ZQSD en AZERTY, WASD en
+  QWERTY) se changent aussi ; elles gardent la position de la touche sur le clavier et ne peuvent pas
+  prendre une touche déjà utilisée par une action.
+- **Accessibilité** : **formes des camps** (rond pour vos régiments, losange pour l'ennemi, sur les étendards,
+  marque sous chaque soldat, part ennemie rayée dans la barre des forces : les camps se distinguent sans le
+  bleu et le rouge) et **sous-titres** des évènements sonores (cor de charge et de retraite, embuscade,
+  charges de cavalerie, déroutes, fin de bataille). Aussi dans le menu pause.
+- **Interface de bataille** : messages sur fond sombre, police épaissie et plus grande, aide F1 repliée
+  par défaut (son état est mémorisé), info-bulle au survol de tout régiment ami ou ennemi visible
+  (type, effectif, moral, endurance, rang, formation). Les **numéros des régiments** (cartes et touches
+  1 à 8) restent fixes toute la bataille et suivent l'ordre de la compagnie : un régiment anéanti ou en
+  fuite garde sa carte, grisée. À 150 % dans une fenêtre 1280×720, cartes, barre du haut et aide se resserrent.
+- **Zoom de la bataille** : la taille de l'interface n'agrandit pas le terrain, et le zoom réel est arrondi
+  pour qu'un pixel des sprites fasse un nombre entier de pixels de l'écran (pas de pixels de largeurs
+  inégales) ; la molette passe d'une échelle entière à la suivante.
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
 - La carte de campagne revient au menu par le bouton « Menu principal » ou Échap.
 
@@ -137,14 +151,15 @@ Les touches marquées * se changent dans **Options**.
 | Formation : ligne → colonne → carré | F * |
 | Tenir la position (on/off) | G * : le régiment frappe ce qui est à sa portée mais ne poursuit pas et ne s'engage pas seul (indiqué « tient » sur sa carte) |
 | Tir à volonté / cesser le tir (archers) | X * : sans tir à volonté, les archers ne tirent que sur la cible désignée par clic droit (« tir retenu ») |
-| Caméra | ZQSD (ou WASD), flèches, clic molette maintenu |
+| Caméra | ZQSD (ou WASD) *, flèches, clic molette maintenu |
+| Détails d'un régiment (ami ou ennemi) | Survol à la souris |
 | Zoom | Molette |
 | Pluie on/off | T * |
 | Lancer la bataille / pause | Espace (pendant le déploiement, aucun combat : les ordres restent dans la zone bleue et on ne peut pas attaquer) |
 | Couper / remettre le son | M * |
 | Sonner la retraite | R * deux fois |
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
-| Aide | F1 * |
+| Aide (repliée par défaut, état mémorisé) | F1 * |
 | Fin de bataille | Entrée : afficher le bilan, puis carte de campagne (contrat) ou rejouer (escarmouche, tutoriel) |
 | Menu pause (reprendre, aide, options, abandonner, menu principal) | Échap ; sur l'écran de fin d'escarmouche : retour au menu |
 
@@ -201,7 +216,8 @@ scripts/battle_sim.gd   Simulation sans rendu (BattleSim) : monde, armées, dép
                         flèches, endurance, retraite, fin ; prévient le reste par des signaux
 scripts/battle_renderer.gd  Rendu pixel art (BattleRenderer, nœud enfant) : sol, soldats, arbres, effets
 scripts/battle_orders.gd    Saisie et ordres du joueur (BattleOrders) : sélection, groupes, ligne de front
-scripts/battle_camera.gd    Caméra (BattleCamera) : défilement ZQSD, zoom, bornes, secousse
+scripts/battle_camera.gd    Caméra (BattleCamera) : défilement (touches des Options), zoom entier compensant
+                            la taille de l'interface, bornes, secousse
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/soldier.gd      Soldat individuel
@@ -221,6 +237,9 @@ tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, d
                         contrat, une retraite, bilan de fin de bataille, carte et embuscade, écrans de fin et menu)
 tests/ai_test.gd        Test de l'IA (colonne, ligne, carré face à une charge, course)
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
+tests/interface_test.gd Test de l'interface de bataille : numéros fixes, aide, info-bulle, sous-titres,
+                        touches de caméra, zoom et taille de l'interface, HUD et bilan à 150 %
+tests/interface_capture.gd Captures de l'interface de bataille dans user://captures_interface/ (avec fenêtre)
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
@@ -265,6 +284,7 @@ godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur
 godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, niveaux, fin, batailles, sauvegarde, carte
 godot --headless --path . -s tests/ai_test.gd         # IA : formations utilisées, carré face à une charge
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
+godot --headless --path . -s tests/interface_test.gd  # interface de bataille, accessibilité, caméra
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
@@ -272,6 +292,7 @@ godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacement
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
 godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)
+godot --path . --resolution 1280x720 -s tests/interface_capture.gd -- --ui=1.5   # captures user://captures_interface/
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet
 godot --headless --path . -s tests/balance.gd -- --seeds=10   # taux de victoire et durée par stratégie
 godot --headless --path . -s tests/balance.gd -- --seeds=10 --terrain=all   # idem, terrain par terrain
