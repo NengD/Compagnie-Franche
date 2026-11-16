@@ -57,6 +57,7 @@ var rng := RandomNumberGenerator.new()
 var road_noise := FastNoiseLite.new()
 var terrain := Terrain.new() ## Collines, rivière, village, palissade (voir terrain.gd)
 var ai := EnemyAI.new()
+var siege: Siege = null ## Vrai siège (ville fortifiée, voir siege.gd), null sinon
 
 var retreated := false ## La bataille s'est terminée par une retraite
 var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
@@ -87,6 +88,8 @@ func generate_world(kind := "") -> void:
 	if kind == "":
 		kind = Terrain.KINDS[rng.randi() % Terrain.KINDS.size()]
 	terrain.setup(kind, rng, WORLD_SIZE, road_y)
+	if terrain.town != null:
+		siege = Siege.new(terrain.town)
 
 	# Forêts (pour les embuscades)
 	var placed := 0
@@ -137,6 +140,8 @@ func is_in_forest(p: Vector2) -> bool:
 func deploy_top() -> float:
 	if terrain.kind == "siege":
 		return minf(DEPLOY_Y, Terrain.WALL_Y + 40.0)
+	if siege != null:
+		return siege.deploy_top(DEPLOY_Y)
 	return DEPLOY_Y
 
 
@@ -304,6 +309,8 @@ func step(dt: float) -> void:
 			update_soldier(s, dt)
 	if captain != null:
 		captain.step(self, dt)
+	if siege != null:
+		siege.step(self, dt) # Échelles, bélier, tours, place de la ville
 	update_arrows(dt)
 	update_dust(dt)
 	cleanup_timer -= dt
@@ -492,7 +499,7 @@ func update_regiment(r: Regiment, dt: float) -> void:
 	elif r.center.distance_to(r.dest) < 24.0 and not r.hold_position:
 		# Au repos : défend sa position si un ennemi s'approche (sauf ordre de tenir la position)
 		var e := nearest_enemy_regiment(r, 110.0, true)
-		if e != null and state == State.BATTLE:
+		if e != null and state == State.BATTLE and (siege == null or not terrain.wall_blocks(r.center, e.center)):
 			r.target = e
 
 
@@ -686,6 +693,8 @@ func update_soldier(s: Soldier, dt: float) -> void:
 
 func move_towards(s: Soldier, goal: Vector2, speed: float, dt: float) -> void:
 	var rad: float = s.regiment.stats["radius"]
+	if siege != null:
+		goal = siege.route(s, goal) # Porteurs du bélier et des échelles
 	goal = terrain.route(s.pos, goal, rad) # Brèche à franchir, ou but ramené hors d'une maison
 	var v := goal - s.pos
 	var l := v.length()
@@ -930,6 +939,11 @@ func start() -> void:
 ## Un objectif de contrat (tenir X secondes, protéger un convoi…) se brancherait ici.
 func check_end() -> void:
 	if state != State.BATTLE:
+		return
+	var siege_end := siege.outcome(self) if siege != null else -1 # Ville prise, ou défense tenue
+	if siege_end >= 0:
+		state = siege_end as State
+		ended.emit()
 		return
 	var p_alive := false
 	var e_alive := false

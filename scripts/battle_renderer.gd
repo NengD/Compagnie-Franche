@@ -151,6 +151,8 @@ func _draw() -> void:
 		draw_texture_rect(terrain_tex, Rect2(Vector2.ZERO, WORLD_SIZE), false)
 	if sim.terrain.has_river():
 		draw_river_glints()
+	if sim.siege != null:
+		sim.siege.draw_ground(self)
 
 	if sim.state == BattleSim.State.DEPLOY:
 		var top := sim.deploy_top()
@@ -199,10 +201,14 @@ func _draw() -> void:
 		items.append([h.end.y, h])
 	for w in sim.terrain.walls:
 		items.append([w.end.y, w])
+	if sim.siege != null:
+		sim.siege.add_items(items, self) # Rempart, tours, porte, échelles, bélier : [y, Callable]
 	items.sort_custom(func(a, b): return a[0] < b[0])
 	for it in items:
 		if it[1] is Vector2:
 			draw_tree(it[1])
+		elif it[1] is Callable:
+			it[1].call()
 		elif it[1] is Rect2:
 			if (it[1] as Rect2).size.y <= Terrain.WALL_HALF * 2.0:
 				draw_palisade(it[1])
@@ -213,6 +219,8 @@ func _draw() -> void:
 
 	effects.draw_air(self)
 	draw_arrows()
+	if sim.siege != null:
+		sim.siege.draw_air(self)
 
 	if GameOptions.team_shapes:
 		draw_team_marks()
@@ -309,6 +317,8 @@ func draw_soldier(s: Soldier) -> void:
 			anim = "walk"
 		var f := sprites.frame(r.type, r.team, dir, anim, t)
 		var p := s.pos.round()
+		if sim.siege != null:
+			p.y -= roundf(sim.siege.lift(s.pos)) # Sur le chemin de ronde ou à l'échelle
 		if s.attack_anim > 0.0 and r.type == "spear":
 			p += look.normalized().round() * 3.0 # Coup de pique : petite fente vers l'avant
 		var src: Rect2 = f["src"]

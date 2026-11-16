@@ -8,6 +8,7 @@ const KINDS := ["plain", "forest", "hills", "river", "village", "siege"]
 const NAMES := {
 	"plain": "rase campagne", "forest": "bois", "hills": "collines",
 	"river": "rivière", "village": "village", "siege": "palissade",
+	"town_assault": "assaut d'une ville", "town_defense": "défense d'une ville",
 }
 const HINTS := {
 	"plain": "Terrain découvert, quelques bosquets.",
@@ -16,7 +17,11 @@ const HINTS := {
 	"river": "Rivière : on la traverse lentement, sauf aux gués (passages clairs).",
 	"village": "Village : les maisons bloquent le passage.",
 	"siege": "Défendez la palissade : l'ennemi doit passer par les brèches, vos troupes derrière les pieux sont abritées des flèches.",
+	"town_assault": "Ville fortifiée : le bélier enfonce la porte, les échelles se dressent au pied du rempart. Prenez la place.",
+	"town_defense": "Ville fortifiée : vos tireurs sur le chemin de ronde tirent plus loin et sont abrités. Repoussez les échelles.",
 }
+## Vrais sièges (siege_terrain.gd, siege.gd) : hors de KINDS, ils ne sont jamais tirés au sort.
+const TOWN_KINDS := ["town_assault", "town_defense"]
 
 ## Terrain d'après la ville d'un contrat de campagne (nom de CampaignState.TOWNS).
 const TOWN_TERRAINS := {
@@ -61,7 +66,8 @@ var houses: Array[Rect2] = [] ## Emprise au sol des maisons
 var village_rect := Rect2()
 var breaches: Array[float] = [] ## Abscisses des brèches de la palissade
 var walls: Array[Rect2] = [] ## Tronçons de palissade
-var obstacles: Array[Rect2] = [] ## Maisons + palissade
+var obstacles: Array[Rect2] = [] ## Maisons + palissade (+ rempart et tours d'une ville fortifiée)
+var town: SiegeTerrain = null ## Ville fortifiée (terrains TOWN_KINDS), null sinon
 
 
 ## Terrain d'un contrat de campagne (ville et difficulté).
@@ -87,7 +93,7 @@ func forest_count() -> int:
 	match kind:
 		"forest":
 			return 11
-		"hills", "village", "siege":
+		"hills", "village", "siege", "town_assault", "town_defense":
 			return 3
 	return 6
 
@@ -101,7 +107,7 @@ func has_river() -> bool:
 
 
 func setup(k: String, rng: RandomNumberGenerator, size: Vector2, road: Callable) -> void:
-	kind = k if k in KINDS else "plain"
+	kind = k if k in KINDS or k in TOWN_KINDS else "plain"
 	world = size
 	road_y = road
 	match kind:
@@ -118,9 +124,19 @@ func setup(k: String, rng: RandomNumberGenerator, size: Vector2, road: Callable)
 			make_village(rng)
 		"siege":
 			make_wall(rng)
+		"town_assault", "town_defense":
+			town = SiegeTerrain.new()
+			town.build(kind == "town_defense", rng, world, houses)
+	refresh_obstacles()
+
+
+## Obstacles : maisons, palissade, rempart et tours (le rempart change quand une échelle se dresse).
+func refresh_obstacles() -> void:
 	obstacles.clear()
 	obstacles.append_array(houses)
 	obstacles.append_array(walls)
+	if town != null:
+		obstacles.append_array(town.solid)
 
 
 func make_hills(rng: RandomNumberGenerator) -> void:
@@ -182,12 +198,16 @@ func forest_ok(c: Vector2, r: float) -> bool:
 		return false
 	if kind == "siege" and absf(c.y - WALL_Y) < r + 50.0:
 		return false
+	if town != null and town.depth(c) > -r - 60.0 and c.x > SiegeTerrain.X0 - r - 60.0 and c.x < SiegeTerrain.X1 + r + 60.0:
+		return false
 	return true
 
 
 ## Un arbre isolé ou de forêt peut-il pousser en p ?
 func tree_ok(p: Vector2) -> bool:
 	if is_river(p, 10.0):
+		return false
+	if town != null and town.depth(p) > -40.0 and p.x > SiegeTerrain.X0 - 40.0 and p.x < SiegeTerrain.X1 + 40.0:
 		return false
 	for o in obstacles:
 		if o.grow(10.0).has_point(p):
@@ -199,6 +219,8 @@ func tree_ok(p: Vector2) -> bool:
 
 ## Hauteur du sol en p, de 0 (plaine) à 1 (sommet).
 func height(p: Vector2) -> float:
+	if town != null:
+		return town.height(p) if active else 0.0 # Chemin de ronde
 	if not active or heights.is_empty():
 		return 0.0
 	var gx := clampf(p.x / HEIGHT_CELL, 0.0, hw - 1.001)
@@ -334,6 +356,8 @@ func speed_factor(p: Vector2, dir: Vector2, type: String) -> float:
 	if not active:
 		return 1.0
 	var f := 1.0
+	if town != null:
+		f *= town.speed_factor(p) # Échelles
 	if is_deep_water(p):
 		f *= WATER_SPEED * (1.2 if type == "cavalry" else 1.0)
 	if not heights.is_empty():
@@ -347,6 +371,8 @@ func speed_factor(p: Vector2, dir: Vector2, type: String) -> float:
 func route(p: Vector2, goal: Vector2, radius: float) -> Vector2:
 	if not active:
 		return goal
+	if town != null:
+		return town.route(p, goal, radius, self) # Porte enfoncée ou échelle
 	if not walls.is_empty() and wall_blocks(p, goal, radius):
 		var best := 0.0
 		var bd := INF
@@ -368,6 +394,8 @@ func route(p: Vector2, goal: Vector2, radius: float) -> Vector2:
 
 ## Vrai si le segment a→b traverse la palissade ailleurs que dans une brèche.
 func wall_blocks(a: Vector2, b: Vector2, radius := 0.0) -> bool:
+	if town != null:
+		return active and town.blocks(a, b, radius)
 	if walls.is_empty() or not active:
 		return false
 	var da := a.y - WALL_Y
@@ -449,6 +477,8 @@ func blocked_at(p: Vector2, radius := 0.0) -> bool:
 
 ## Vrai si une flèche tirée de from vers un soldat en p est en partie arrêtée par la palissade.
 func wall_shelters(from: Vector2, p: Vector2) -> bool:
+	if town != null:
+		return active and town.shelters(from, p)
 	if walls.is_empty() or not active:
 		return false
 	if absf(p.y - WALL_Y) > WALL_COVER_DIST or (from.y - WALL_Y) * (p.y - WALL_Y) >= 0.0:

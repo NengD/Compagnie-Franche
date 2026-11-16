@@ -138,6 +138,8 @@ func think(b: BattleSim, dt: float) -> void:
 
 ## Aiguillage par type. Un nouveau type ajoute ici sa branche (et sa fonction think_xxx).
 func think_regiment(b: BattleSim, r: Regiment, mine: Array[Regiment], theirs: Array[Regiment]) -> void:
+	if b.siege != null and think_siege(b, r, theirs):
+		return
 	match r.type:
 		"archer", "crossbow": # Les arbalétriers tirent comme des archers
 			think_archer(b, r, mine, theirs)
@@ -257,6 +259,8 @@ func choose_plan(b: BattleSim, mine: Array[Regiment], theirs: Array[Regiment]) -
 			if roll < 0.0:
 				plan = k
 				break
+	if b.siege != null:
+		plan = AGGRESSIVE if b.siege.attacker == team else DEFENSIVE # Vrai siège : voir think_siege
 
 	posts.clear()
 	if plan == DEFENSIVE:
@@ -325,8 +329,8 @@ func setup_defense(b: BattleSim, mine: Array[Regiment], my_c: Vector2) -> void:
 	var foot_at := my_c + face * 120.0
 	var archers_at := my_c - face * 10.0
 	anchor_kind = "line"
-	if t.kind == "siege":
-		# Derrière la palissade : chacun garde la place de son déploiement
+	if t.kind == "siege" or b.siege != null:
+		# Derrière la palissade (ou sur le rempart) : chacun garde la place de son déploiement
 		anchor_kind = "wall"
 		anchor = my_c
 		for r in mine:
@@ -728,6 +732,118 @@ func defend_post(b: BattleSim, r: Regiment, near: Regiment, d: float) -> void:
 		deployed[r.id] = true
 	r.dest = go_to(b, r.center, post)
 	r.facing = post_facing
+
+
+# ---------------------------------------------------------------- Siège (siege.gd)
+
+## Vrai siège : la garnison tient ses postes sans sortir ; l'assaillant mène le bélier à la porte et
+## les échelles au pied du rempart, attend une ouverture hors de portée des tours, puis marche sur
+## la place. Renvoie faux pour laisser le régiment jouer comme d'habitude (tireurs de l'assaillant).
+func think_siege(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> bool:
+	if b.siege.attacker == team:
+		return siege_attack(b, b.siege, r, theirs)
+	return siege_defend(b, b.siege, r, theirs)
+
+
+func siege_attack(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment]) -> bool:
+	if r.stats["ranged"]:
+		return false
+	var t := sg.town
+	var inward := Vector2(0, -t.out_dir)
+	match sg.role(r):
+		"ram":
+			r.target = null
+			r.formation = Regiment.Formation.COLUMN
+			r.dest = t.ram_spot() + Vector2(0, t.out_dir * 20.0)
+			r.facing = inward
+			return true
+		"ladder":
+			r.target = null
+			r.dest = t.ladder_foot(sg.ladder_x(sg.ladder_of(r))) + Vector2(0, t.out_dir * 16.0)
+			r.facing = inward
+			return true
+	var near := nearest(r, theirs)
+	var nd := r.center.distance_to(near.center)
+	var open: bool = sg.has_opening() and (t.gate_open or not r.stats["mounted"]) # Les chevaux attendent la porte
+	if not open:
+		r.target = null
+		if not t.inside(near.center, SiegeTerrain.WALL_T) and nd < 250.0:
+			r.target = near # Sortie de la garnison : on la reçoit
+			return true
+		var wait := Vector2(clampf(r.center.x, SiegeTerrain.X0 + 100.0, SiegeTerrain.X1 - 100.0), t.front_y + t.out_dir * Siege.STAGING)
+		if sg.raised > 0 and not r.stats["mounted"]:
+			# L'assaut est lancé : on attend au pied d'une échelle renversée qu'elle se redresse
+			for l in sg.ladders:
+				if l["state"] in ["down", "raising"]:
+					wait = t.ladder_foot(float(l["x"])) + Vector2(0, t.out_dir * 60.0)
+					break
+		r.dest = wait
+		r.facing = inward
+		return true
+	if r.target != null and not r.target.is_dead() and not r.target.routing and r.center.distance_to(r.target.center) < 400.0:
+		return true
+	if nd < 200.0 and not b.terrain.wall_blocks(r.center, near.center):
+		r.target = near
+		return true
+	r.target = null
+	r.dest = t.plaza # Par la porte ou les échelles (voir SiegeTerrain.route)
+	r.facing = (t.plaza - r.center).normalized()
+	return true
+
+
+func siege_defend(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment]) -> bool:
+	var t := sg.town
+	if not posts.has(r.id):
+		posts[r.id] = r.dest
+	var post: Vector2 = posts[r.id]
+	var outward := Vector2(0, t.out_dir)
+	r.hold_position = true # Ne sort pas des murs pour poursuivre
+	if r.stats["ranged"] and not r.stats["mounted"]:
+		var range_px: float = r.stats["range"] * b.terrain.range_factor(r.center)
+		if r.target != null and not r.target.is_dead() and not r.target.hidden and r.center.distance_to(r.target.center) <= range_px:
+			return true
+		r.target = null
+		var bd := range_px
+		for o in theirs:
+			var d := r.center.distance_to(o.center)
+			if d < bd:
+				bd = d
+				r.target = o
+		if r.target == null and r.center.distance_to(post) > 20.0:
+			r.dest = post
+			r.facing = outward
+		return true
+	# Ennemis entrés dans la ville : on les charge
+	var threat: Regiment = null
+	var td := 700.0
+	for o in theirs:
+		if not t.inside(o.center, 6.0) or o.center.distance_to(post) > 750.0:
+			continue
+		var d := r.center.distance_to(o.center)
+		if d < td:
+			td = d
+			threat = o
+	if threat != null:
+		r.target = threat
+		return true
+	r.target = null
+	if not r.stats["mounted"]:
+		# Échelle dressée près du poste : on garde son débouché (et on la repousse)
+		var best := -1.0
+		var bd := 560.0
+		for l in sg.ladders_up():
+			var d := post.distance_to(t.ladder_top(float(l["x"])))
+			if d < bd:
+				bd = d
+				best = float(l["x"])
+		if best >= 0.0:
+			r.dest = t.ladder_top(best) - outward * 6.0
+			r.facing = outward
+			return true
+	if r.center.distance_to(post) > 24.0:
+		r.dest = post
+		r.facing = outward
+	return true
 
 
 # ---------------------------------------------------------------- Retraite

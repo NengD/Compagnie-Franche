@@ -238,6 +238,31 @@ Le terrain est affiché en haut de l'écran et annoncé au début de la bataille
   campagne ; les contrats de difficulté 3 et plus à **Hautemure** et **Castelroux** sont des défenses de palissade.
   Table modifiable dans `scripts/terrain.gd` (`TOWN_TERRAINS`, `SIEGE_TOWNS`).
 
+### Vrais sièges (assaut ou défense d'une ville)
+Deux terrains de plus, jamais tirés au sort : **assaut d'une ville** (`town_assault`, la ville est en haut,
+tenue par l'ennemi) et **défense d'une ville** (`town_defense`, la ville est en bas, vous la tenez).
+- **Rempart** de pierre dessiné en code : un front percé d'une **porte**, deux murs latéraux, **6 tours**,
+  un **chemin de ronde** derrière le parapet, des maisons et une **place** dallée (avec son puits).
+- Sur le chemin de ronde, on tire 35 % plus loin, on frappe d'en haut (+50 %), et le parapet arrête la
+  moitié des flèches tirées du dehors. Les **tours** tirent seules sur l'assaillant hors les murs (300 px),
+  tant que la garnison les tient.
+- L'assaillant reçoit au déploiement un **bélier** (son régiment à pied le plus solide) et jusqu'à
+  **3 échelles** (les suivants). Le bélier, mené devant la porte, l'enfonce en 30 s environ (moins s'il
+  perd des hommes, état « Porte » dans la barre du haut). Une échelle se dresse en 3 s quand ses porteurs
+  arrivent au pied du rempart ; on y monte lentement (40 % de la vitesse), et pas à cheval.
+- La garnison qui se tient au débouché d'une échelle, sans assaillant arrivé en haut pour la tenir, la
+  **repousse** : les grimpeurs tombent, l'échelle se redresse 6 s plus tard ou se brise (une fois sur trois).
+- **Victoire** : l'assaillant prend la ville s'il tient la **place** 20 s (6 soldats au moins, trois fois
+  plus nombreux que les défenseurs ; un anneau montre l'avancée). En défense, la ville est sauvée après
+  **5 min** de bataille, ou si l'assaut est repoussé (déroute ou retraite de l'ennemi).
+- En **défense**, vos tireurs sont postés sur le chemin de ronde, l'infanterie derrière la porte et le
+  rempart, la cavalerie sur la place ; vous vous déployez dans la ville. L'IA assaillante attend hors de
+  portée des tours qu'une échelle soit dressée ou la porte enfoncée, puis marche sur la place ; l'IA en
+  garnison ne sort pas des murs, garde le débouché des échelles et charge ce qui entre.
+- **Campagne** : environ un contrat sur huit à partir du niveau 2 est un siège (« Assiéger la place
+  forte… » ou « Défendre les murs de… »), payé 60 % de plus ; la garnison a des archers de plus, ou
+  l'assaillant un régiment de piquiers de plus.
+
 ## IA ennemie
 L'IA (`scripts/enemy_ai.gd`) choisit au début de chaque bataille un **plan** d'après le rapport de forces
 (effectif × solidité × dégâts) et le terrain. Le tirage dépend de la graine : même bataille, même plan.
@@ -294,6 +319,8 @@ scripts/battle_effects.gd   Effets visuels (BattleEffects) : sang, étincelles, 
 scripts/battle_camera.gd    Caméra (BattleCamera) : défilement (touches des Options), zoom entier compensant
                             la taille de l'interface, bornes, secousse
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
+scripts/siege_terrain.gd  Ville fortifiée (SiegeTerrain) : rempart, porte, tours, chemin de ronde, place, ouvertures
+scripts/siege.gd        Vrai siège (Siege) : bélier, échelles, repoussage, tours, prise de la place, fin, rendu
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
@@ -374,6 +401,8 @@ godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, I
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
 godot --headless --path . -s tests/stats_test.gd      # statistiques et succès (fichier de test, jamais le vrai)
 godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent
+godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, campagne
+godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
 godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)
@@ -451,6 +480,7 @@ durée médiane) :
 dépasser l'effectif plein d'un régiment.
 
 ## Pistes pour continuer
-- Sièges plus complets (échelles, portes, assaut d'une ville).
+- Sièges : brancher la prise de la place sur les objectifs de contrat, tours prenables, poix et
+  huile bouillante, sapes, engins de jet.
 - D'autres types d'unités (piquiers suisses, vétérans d'élite par faction) ; vrais sprites pour les arbalétriers,
   chevaliers à pied et archers montés (ils reprennent aujourd'hui une planche MiniWorld teintée).
