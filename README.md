@@ -49,7 +49,11 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   pour qu'un pixel des sprites fasse un nombre entier de pixels de l'écran (pas de pixels de largeurs
   inégales) ; la molette passe d'une échelle entière à la suivante.
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
-- La carte de campagne revient au menu par le bouton « Menu principal » ou Échap.
+- Carte de campagne épurée : la carte occupe tout l'écran, sous une fine barre (date, or, solde, effectif,
+  pause et vitesses, onglets Compagnie, Monde, Journal et Menu ; touches E, M, J et Échap). Une fenêtre
+  centrale n'apparaît que pour une ville, une rencontre ou un onglet ouvert ; Échap ou ✕ la ferme. Les
+  messages (arrivée, refus, évènements) s'affichent en bas de l'écran puis s'effacent. Le menu principal
+  est dans l'onglet Menu.
 - **Statistiques et succès** : statistiques gardées d'une campagne à l'autre (batailles jouées, gagnées
   et perdues, ennemis tués, hommes perdus, or gagné, campagnes gagnées ou perdues, plus longue campagne,
   régiment le plus ancien et le plus décoré) et 23 succès (première victoire, victoire sans perdre un
@@ -496,7 +500,7 @@ scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
 scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures armes
-scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » du panneau de la carte
+scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » des fenêtres de la carte
 scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, guerres, armées, sièges, prises
                         de villes, rencontres, contrats de guerre ; appelé par CampaignState (pass_day, travel)
 scripts/encounter.gd    Rencontres de la carte (Encounter) : choix par sorte et attitude, résolution, accueil

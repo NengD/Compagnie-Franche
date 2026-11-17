@@ -4,7 +4,7 @@ extends SceneTree
 ## Écrit dans user://captures (voir capture_dir.gd) : grande_carte_loin (zoom minimal, noms des
 ## régions), grande_carte_moyen (zoom moyen sur le centre), grande_carte_pres (zoom fort sur une
 ## forêt et une rivière), grande_carte_monts (les Monts de Fer et leur col), grande_carte_sud
-## (le bocage, le gué et l'étang). Campagne de test dans user://, jamais celle du joueur.
+## (le bocage, le gué et l'étang), fenetre_ville et fenetre_monde (fenêtres sur la carte). Campagne de test dans user://, jamais celle du joueur.
 
 const CaptureDir := preload("res://tests/capture_dir.gd")
 
@@ -14,6 +14,8 @@ const SHOTS := [
 	{"file": "grande_carte_pres.png", "zoom": 1.8, "at": Vector2(2230, 1330)},
 	{"file": "grande_carte_monts.png", "zoom": 1.0, "at": Vector2(3080, 560)},
 	{"file": "grande_carte_sud.png", "zoom": 1.0, "at": Vector2(1050, 2650)},
+	{"file": "fenetre_ville.png", "zoom": 1.0, "at": Vector2(-1, -1), "town": true},
+	{"file": "fenetre_monde.png", "zoom": 1.0, "at": Vector2(-1, -1), "view": "world"},
 ]
 
 var map: Node
@@ -38,10 +40,12 @@ func _process(_delta: float) -> bool:
 	if frame % 15 == 5 and shot < SHOTS.size():
 		var s: Dictionary = SHOTS[shot]
 		var z: float = s["zoom"]
-		map.town_open = false
+		map.town_open = bool(s.get("town", false))
+		map.view = str(s.get("view", ""))
 		map.paused = true
 		map.cam.zoom = Vector2(z, z)
-		map.center_on(s["at"])
+		var at: Vector2 = s["at"]
+		map.center_on(map.state.overworld.player.pos if at.x < 0 else at)
 		map.refresh_ui()
 	elif frame % 15 == 0 and shot < SHOTS.size():
 		CaptureDir.save(self, str(SHOTS[shot]["file"]))

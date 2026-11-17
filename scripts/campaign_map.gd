@@ -10,9 +10,9 @@ extends Node2D
 ## pour le zoom. Mini-carte en bas à gauche (clic : y regarder).
 ## Panneau de droite : compagnie, ville, rencontre, monde, réputation, journal.
 
-const PANEL_SHARE := 0.3125 ## Part de la largeur de la vue prise par le panneau (400 px en 1280)
-const PANEL_MIN := 340.0
-const PANEL_MAX := 480.0
+const WINDOW_W := 560.0 ## Largeur des fenêtres (ville, rencontre, compagnie...)
+const MARGIN := 40.0 ## La vue peut dépasser le bord de la carte de tant (pixels de carte)
+const TOAST_SECONDS := 5.0 ## Durée d'affichage d'un message
 const MAP_BG := Color(0.09, 0.07, 0.05)
 const HOURS_PER_SECOND := 1.5 ## Heures de jeu par seconde à la vitesse x1
 const SPEEDS := [1, 2, 4]
@@ -23,6 +23,8 @@ const EDGE := 12.0 ## Largeur du bord d'écran qui fait défiler
 const MINIMAP_W := 250.0 ## Largeur de la mini-carte (pixels d'écran)
 const PICK := 16.0 ## Rayon de clic d'un groupe (pixels d'écran)
 const GOLD_COL := Color(1, 0.84, 0.4)
+const DIM_COL := Color(0.75, 0.72, 0.65)
+const HINT_COL := Color(0.6, 0.58, 0.52)
 const BLUE := Color(0.22, 0.38, 0.85)
 const WOOD := Color(0.48, 0.32, 0.17)
 const TYPE_ORDER := UnitTypes.ORDER
@@ -39,10 +41,19 @@ var land: Node2D ## Fond uni autour de la carte
 var terrain: Node2D ## Terrain peint par le shader (MapRender)
 var roads_layer: Node2D ## Routes, ponts et noms des forêts, chaînes, lacs et rivières
 var light: CanvasModulate
-var notice := "" ## Message d'information ou de refus affiché dans le panneau
-var box: VBoxContainer
-var panel: PanelContainer
+var notice := "" ## Message d'information ou de refus (affiché en bas de l'écran, puis effacé)
+var box: VBoxContainer ## Contenu de la fenêtre ouverte
+var panel: PanelContainer ## Fenêtre au centre : cachée quand il n'y a rien à montrer
+var scroll: ScrollContainer
+var window_title: Label
+var close_button: Button
+var bar: PanelContainer ## Barre du haut : date, or, effectif, temps, onglets
 var top_label: Label
+var view_buttons := {} ## Onglet -> bouton de la barre
+var view := "" ## Onglet ouvert par le joueur : "", "company", "world", "journal", "menu"
+var toast: PanelContainer
+var toast_label: Label
+var toast_time := 0.0
 var speed_buttons: Array[Button] = []
 var minimap: Control
 var tip: PanelContainer
@@ -204,28 +215,18 @@ func _ready() -> void:
 	refresh_ui()
 
 
-## Largeur du panneau pour une vue donnée.
-static func panel_width(vs: Vector2) -> float:
-	return clampf(roundf(vs.x * PANEL_SHARE), PANEL_MIN, minf(PANEL_MAX, vs.x * 0.6))
-
-
 func layout() -> void:
-	var vs := get_viewport_rect().size
-	if panel != null:
-		panel.offset_left = -panel_width(vs)
+	fit_window()
 	queue_redraw()
 
 
-## Largeur de la carte visible à gauche du panneau (pixels d'écran).
+## Taille de la carte visible (tout l'écran : les fenêtres flottent par-dessus).
 func map_area() -> Vector2:
-	var vs := get_viewport_rect().size
-	return Vector2(maxf(vs.x - panel_width(vs), 1.0), vs.y)
+	return get_viewport_rect().size
 
 
-## Centre la caméra pour que p soit au milieu de la carte visible (à gauche du panneau).
 func center_on(p: Vector2) -> void:
-	var vs := get_viewport_rect().size
-	cam.position = p + Vector2((vs.x - map_area().x) * 0.5, 0.0) / cam.zoom.x
+	cam.position = p
 	clamp_camera()
 
 
@@ -233,8 +234,21 @@ func look_at_point(p: Vector2) -> void:
 	center_on(p)
 
 
+## La vue reste sur la carte (au plus MARGIN au-delà du bord) ; plus large que la carte : centrée.
 func clamp_camera() -> void:
-	cam.position = cam.position.clamp(Vector2(-100, -100), MapData.SIZE + Vector2(100, 100))
+	var half := get_viewport_rect().size * 0.5 / cam.zoom.x
+	var lo := half - Vector2(MARGIN, MARGIN)
+	var hi := MapData.SIZE - half + Vector2(MARGIN, MARGIN)
+	for a in 2:
+		cam.position[a] = MapData.SIZE[a] * 0.5 if lo[a] > hi[a] else clampf(cam.position[a], lo[a], hi[a])
+
+
+## La souris est-elle sur l'interface (barre, fenêtre, mini-carte) plutôt que sur la carte ?
+func over_ui(m: Vector2) -> bool:
+	for c: Control in [bar, panel, minimap]:
+		if c != null and c.visible and c.get_global_rect().has_point(m):
+			return true
+	return false
 
 
 ## Partie de la carte visible à l'écran (coordonnées de la carte).
@@ -261,6 +275,11 @@ func _process(delta: float) -> void:
 		advance_time(delta * game_speed())
 	walking = not state.overworld.player.path.is_empty()
 	update_top()
+	fit_window()
+	if toast_time > 0.0:
+		toast_time -= delta
+		toast.modulate.a = clampf(toast_time, 0.0, 1.0)
+		toast.visible = toast_time > 0.0
 	queue_redraw()
 	if minimap != null:
 		(minimap as MiniMap).redraw()
@@ -350,7 +369,7 @@ func pan_camera(delta: float) -> void:
 	if DisplayServer.get_name() != "headless" and get_window().has_focus() and not dragging:
 		var m := get_viewport().get_mouse_position()
 		var area := map_area()
-		if m.x >= 0 and m.y >= 0 and m.x < area.x and m.y < area.y:
+		if m.x >= 0 and m.y >= 0 and m.x < area.x and m.y < area.y and not over_ui(m):
 			if m.x < EDGE:
 				v.x -= 1
 			elif m.x > area.x - EDGE:
@@ -401,9 +420,9 @@ func update_hover() -> void:
 	if cam == null:
 		return
 	var p := get_global_mouse_position()
-	var over_ui := get_viewport().get_mouse_position().x >= map_area().x
-	hover_party = null if over_ui else party_at(p)
-	hover_place = -1 if over_ui or hover_party != null else MapData.place_at(p)
+	var on_ui := over_ui(get_viewport().get_mouse_position())
+	hover_party = null if on_ui else party_at(p)
+	hover_place = -1 if on_ui or hover_party != null else MapData.place_at(p)
 	if tip == null:
 		return
 	var lines: Array[String] = []
@@ -437,7 +456,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 		match k.keycode:
 			KEY_ESCAPE:
-				back_to_menu()
+				escape()
+			KEY_E:
+				toggle_view("company")
+			KEY_M:
+				toggle_view("world")
+			KEY_J:
+				toggle_view("journal")
 			KEY_SPACE:
 				toggle_pause()
 			KEY_KP_1:
@@ -535,6 +560,31 @@ func order(err: String, ok_text: String) -> void:
 		refresh_speed_buttons()
 	GameAudio.ui("click" if err == "" else "refuse")
 	refresh_ui()
+
+
+## Échap : ferme l'onglet ouvert, puis la ville ; sinon ouvre le menu.
+func escape() -> void:
+	if view != "":
+		toggle_view(view)
+	elif town_open:
+		close_town()
+	elif contact == null and not state.world.has_encounter():
+		toggle_view("menu")
+
+
+## Ouvre un onglet (ou le ferme s'il est déjà ouvert).
+func toggle_view(v: String) -> void:
+	view = "" if view == v else v
+	GameAudio.ui("click")
+	refresh_ui()
+
+
+## Bouton ✕ de la fenêtre.
+func close_window() -> void:
+	if view != "":
+		toggle_view(view)
+	elif town_open:
+		close_town()
 
 
 ## Le joueur ferme le panneau de la ville : la compagnie y reste, le temps reprend.
@@ -660,23 +710,11 @@ func build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	var th := make_theme()
-	panel = PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	panel.offset_left = -400.0
-	panel.offset_right = 0.0
-	panel.theme = th
-	layer.add_child(panel)
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	panel.add_child(scroll)
-	box = VBoxContainer.new()
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 5)
-	scroll.add_child(box)
-	# Barre du temps, en haut à gauche : date, heure, météo, pause et vitesses
-	var bar := PanelContainer.new()
+	# Barre du haut : date et heure, or et effectif, temps, onglets
+	bar = PanelContainer.new()
 	bar.theme = th
-	bar.position = Vector2(10, 10)
+	bar.add_theme_stylebox_override("panel", bar_style())
+	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	layer.add_child(bar)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -684,9 +722,12 @@ func build_ui() -> void:
 	top_label = Label.new()
 	top_label.add_theme_font_size_override("font_size", 14)
 	top_label.add_theme_color_override("font_color", GOLD_COL)
+	top_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_label.clip_text = true
 	row.add_child(top_label)
 	var pause := Button.new()
 	pause.text = "Pause"
+	pause.tooltip_text = "Espace"
 	pause.focus_mode = Control.FOCUS_NONE
 	pause.toggle_mode = true
 	pause.pressed.connect(toggle_pause)
@@ -695,12 +736,51 @@ func build_ui() -> void:
 	for i in SPEEDS.size():
 		var b := Button.new()
 		b.text = "x%d" % SPEEDS[i]
+		b.tooltip_text = "Touche %d" % (i + 1)
 		b.focus_mode = Control.FOCUS_NONE
 		b.toggle_mode = true
 		b.pressed.connect(set_speed.bind(i))
 		row.add_child(b)
 		speed_buttons.append(b)
 	refresh_speed_buttons()
+	row.add_child(VSeparator.new())
+	for v in [["company", "Compagnie", "E"], ["world", "Monde", "M"], ["journal", "Journal", "J"], ["menu", "Menu", "Échap"]]:
+		var b := Button.new()
+		b.text = v[1]
+		b.tooltip_text = "Touche %s" % v[2]
+		b.focus_mode = Control.FOCUS_NONE
+		b.toggle_mode = true
+		b.pressed.connect(toggle_view.bind(v[0]))
+		row.add_child(b)
+		view_buttons[v[0]] = b
+	# Fenêtre au centre (ville, rencontre, onglets) : n'apparaît que s'il y a quelque chose à montrer
+	panel = PanelContainer.new()
+	panel.theme = th
+	panel.visible = false
+	layer.add_child(panel)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	panel.add_child(col)
+	var head := HBoxContainer.new()
+	col.add_child(head)
+	window_title = Label.new()
+	window_title.add_theme_font_size_override("font_size", 18)
+	window_title.add_theme_color_override("font_color", GOLD_COL)
+	window_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(window_title)
+	close_button = Button.new()
+	close_button.text = "✕"
+	close_button.tooltip_text = "Fermer (Échap)"
+	close_button.focus_mode = Control.FOCUS_NONE
+	close_button.pressed.connect(close_window)
+	head.add_child(close_button)
+	scroll = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	col.add_child(scroll)
+	box = VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 5)
+	scroll.add_child(box)
 	# Mini-carte en bas à gauche
 	var mm := MiniMap.new()
 	mm.map = self
@@ -715,6 +795,18 @@ func build_ui() -> void:
 	layer.add_child(mm)
 	mm.setup()
 	minimap = mm
+	# Message en bas de l'écran (arrivée, refus, évènement de la route), qui s'efface seul
+	toast = PanelContainer.new()
+	toast.theme = th
+	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	toast.visible = false
+	toast_label = Label.new()
+	toast_label.add_theme_font_size_override("font_size", 14)
+	toast_label.add_theme_color_override("font_color", Color(1, 0.8, 0.5))
+	toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast.add_child(toast_label)
+	layer.add_child(toast)
 	# Infobulle
 	tip = PanelContainer.new()
 	tip.theme = th
@@ -726,6 +818,46 @@ func build_ui() -> void:
 	layer.add_child(tip)
 
 
+func bar_style() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.06, 0.04, 0.85)
+	sb.border_color = Color(0.45, 0.35, 0.2)
+	sb.border_width_bottom = 1
+	sb.content_margin_left = 12
+	sb.content_margin_right = 12
+	sb.content_margin_top = 5
+	sb.content_margin_bottom = 5
+	return sb
+
+
+## Ajuste la fenêtre à son contenu (au plus la hauteur de l'écran) et la centre sous la barre.
+func fit_window() -> void:
+	if panel == null or not panel.visible:
+		return
+	var vs := get_viewport_rect().size
+	var top := bar.size.y if bar != null else 0.0
+	var w := minf(WINDOW_W, vs.x - 32.0)
+	var h := maxf(40.0, minf(box.get_combined_minimum_size().y, vs.y - top - 120.0))
+	if not is_equal_approx(scroll.custom_minimum_size.x, w) or not is_equal_approx(scroll.custom_minimum_size.y, h):
+		scroll.custom_minimum_size = Vector2(w, h)
+		panel.reset_size()
+	panel.position = Vector2(roundf((vs.x - panel.size.x) * 0.5), roundf(top + maxf(10.0, (vs.y - top - panel.size.y) * 0.4)))
+
+
+## Affiche un message en bas de l'écran pendant quelques secondes.
+func show_toast(s: String) -> void:
+	if toast == null or s == "":
+		return
+	toast_label.text = s
+	var vs := get_viewport_rect().size
+	toast_label.custom_minimum_size.x = minf(620.0, vs.x - 60.0)
+	toast.reset_size()
+	toast.position = Vector2(roundf((vs.x - toast.size.x) * 0.5), vs.y - toast.size.y - 24.0)
+	toast.modulate.a = 1.0
+	toast.visible = true
+	toast_time = TOAST_SECONDS
+
+
 func refresh_speed_buttons() -> void:
 	for i in speed_buttons.size():
 		speed_buttons[i].button_pressed = paused if i == 0 else (not paused and speed_index == i - 1)
@@ -734,9 +866,9 @@ func refresh_speed_buttons() -> void:
 func update_top() -> void:
 	if top_label == null:
 		return
-	var s := "%s  ·  %s" % [clock_text(), state.world.calendar_text(state.day)]
+	var s := "%s   ·   %d écus (solde %d / jour)   ·   %s" % [clock_text(), int(state.gold), ceili(state.daily_wage()), CampaignState.plural(state.total_men(), "homme", "hommes")]
 	if time_stopped() and not paused:
-		s += "  ·  temps arrêté"
+		s += "   ·   temps arrêté"
 	top_label.text = s
 
 
@@ -803,7 +935,8 @@ func add_button(s: String, cb: Callable, enabled := true, parent: Control = null
 
 
 func add_section(s: String) -> void:
-	box.add_child(HSeparator.new())
+	if box.get_child_count() > 0:
+		box.add_child(HSeparator.new())
 	add_label(s, 15, GOLD_COL)
 
 
@@ -813,60 +946,94 @@ func town_here() -> int:
 	return i if i >= 0 and i < CampaignState.TOWNS.size() and town_open else -1
 
 
+## Fenêtre à montrer : la rencontre passe avant tout, puis l'onglet choisi, puis la ville ("" : aucune).
+func current_window() -> String:
+	if contact != null or state.world.has_encounter():
+		return "contact"
+	if view != "":
+		return view
+	if town_open:
+		return "town"
+	if state.is_over():
+		return "world" # Le bouton du bilan y est
+	return ""
+
+
 func refresh_ui() -> void:
 	if box == null:
 		return
+	update_top()
+	if notice != "":
+		show_toast(notice)
+		notice = ""
 	for c in box.get_children():
 		box.remove_child(c)
 		c.queue_free()
+	var w := current_window()
+	for v in view_buttons:
+		(view_buttons[v] as Button).set_pressed_no_signal(v == view)
+	panel.visible = w != ""
+	close_button.visible = w != "contact"
+	match w:
+		"contact":
+			window_title.text = "Rencontre"
+			build_contact()
+			WorldView.build_encounter(self) # Ancienne rencontre d'une sauvegarde : bataille ou fuite
+		"town":
+			build_place()
+		"company":
+			window_title.text = "Votre compagnie"
+			add_label(where_text(), 12, DIM_COL)
+			build_company(-1, "")
+			CompanyPanel.build(self)
+		"world":
+			window_title.text = "Le monde"
+			add_section("Objectif")
+			add_label(state.objective_status(), 12, Color(1, 0.9, 0.7))
+			add_label("Victoires %d   ·   défaites %d   ·   renommée %d   ·   ennemis tués %d   ·   hommes perdus %d   ·   or gagné %d écus" % [state.victories, state.defeats, state.fame, state.enemies_killed, state.men_lost, state.gold_earned], 12, DIM_COL)
+			if state.is_over():
+				add_button("Voir le bilan de la campagne", show_end_now)
+			WorldView.build_world(self) # Saison, météo, guerres, sièges, nouvelles
+			add_section("Réputation")
+			for f in CampaignState.FACTIONS.size():
+				add_label("%s : %+d (%s)" % [CampaignState.faction_name(f), state.reputation[f], state.reputation_label(f)], 12, CampaignState.FACTIONS[f]["color"])
+			add_label("Un contrat gagné plaît à qui paie et fâche sa rivale ; la réputation fait varier la prime. Sous %d, la faction ferme ses portes." % CampaignState.REP_CLOSED, 11, HINT_COL)
+		"journal":
+			window_title.text = "Journal"
+			if state.log_lines.is_empty():
+				add_label("Rien à signaler pour l'instant.", 12, DIM_COL)
+			for s in state.log_lines:
+				add_label(s, 12, Color(0.8, 0.77, 0.7))
+		"menu":
+			build_menu()
+	scroll.scroll_vertical = 0
+	fit_window()
+
+
+## Ville ou lieu où la compagnie est entrée : contrats, recrues, compagnie, capitaine.
+func build_place() -> void:
 	var here := town_here()
-	var closed := state.closed_message(here) if here >= 0 else ""
-	add_label("COMPAGNIE FRANCHE", 19, GOLD_COL)
-	add_label("Jour %d   ·   %d écus   ·   solde %d écus / jour" % [state.day, int(state.gold), ceili(state.daily_wage())], 14)
-	add_label("Victoires %d   ·   défaites %d   ·   %s   ·   renommée %d" % [state.victories, state.defeats, CampaignState.plural(state.total_men(), "homme", "hommes"), state.fame], 12, Color(0.75, 0.72, 0.65))
-	add_label("Ennemis tués %d   ·   hommes perdus %d   ·   or gagné %d écus" % [state.enemies_killed, state.men_lost, state.gold_earned], 12, Color(0.75, 0.72, 0.65))
-	if notice != "":
-		add_label(notice, 13, Color(1, 0.62, 0.3))
-	build_contact()
-	WorldView.build_encounter(self) # Ancienne rencontre d'une sauvegarde : bataille ou fuite
-
-	add_section("Objectif")
-	add_label(state.objective_status(), 12, Color(1, 0.9, 0.7))
-	if state.is_over():
-		add_button("Voir le bilan de la campagne", show_end_now)
-
 	var ow := state.overworld
-	if here >= 0:
-		build_town(here, closed)
-	elif ow.inside >= 0:
-		add_section("À %s" % MapData.place(ow.inside)["name"])
-		add_label(place_lines(ow.inside)[1], 12, Color(0.75, 0.72, 0.65))
-		if town_open:
-			add_label("Un lieu calme : rien à y faire pour l'instant.", 12, Color(0.75, 0.72, 0.65))
-			add_button("Repartir (le temps reprend)", close_town)
-	else:
-		add_section("En campagne")
-		add_label(where_text(), 12, Color(0.75, 0.72, 0.65))
-
+	if here < 0:
+		window_title.text = str(MapData.place(ow.inside)["name"]) if ow.inside >= 0 else "En campagne"
+		if ow.inside >= 0:
+			add_label(place_lines(ow.inside)[1], 12, DIM_COL)
+		add_label("Un lieu calme : rien à y faire pour l'instant.", 12, DIM_COL)
+		add_button("Repartir (le temps reprend)", close_town)
+		return
+	var closed := state.closed_message(here)
+	build_town(here, closed)
+	build_contracts(here, closed)
+	build_recruits(here, closed)
 	build_company(here, closed)
-	if here >= 0:
-		CompanyPanel.build(self) # Capitaine, traits et équipement (achats en ville)
-		build_recruits(here, closed)
-		build_contracts(here, closed)
+	CompanyPanel.build(self) # Capitaine, traits et équipement (achats en ville)
 
-	WorldView.build_world(self) # Saison, météo, guerres, sièges, nouvelles
 
-	add_section("Réputation")
-	for f in CampaignState.FACTIONS.size():
-		add_label("%s : %+d (%s)" % [CampaignState.faction_name(f), state.reputation[f], state.reputation_label(f)], 12, CampaignState.FACTIONS[f]["color"])
-	add_label("Un contrat gagné plaît à qui paie et fâche sa rivale ; la réputation fait varier la prime. Sous %d, la faction ferme ses portes." % CampaignState.REP_CLOSED, 11, Color(0.6, 0.58, 0.52))
-
-	add_section("Journal")
-	for s in state.log_lines:
-		add_label(s, 11, Color(0.72, 0.69, 0.62))
-
-	box.add_child(HSeparator.new())
-	add_button("Menu principal (Échap)", back_to_menu)
+## Onglet Menu : quitter, escarmouche, nouvelle campagne, aide.
+func build_menu() -> void:
+	window_title.text = "Menu"
+	add_button("Reprendre", toggle_view.bind("menu"))
+	add_button("Menu principal", back_to_menu)
 	add_button("Escarmouche libre (hors campagne)", do_skirmish)
 	if confirm_new:
 		add_label("Effacer la campagne en cours (jour %d) ?" % state.day, 12, Color(1, 0.62, 0.3))
@@ -876,8 +1043,12 @@ func refresh_ui() -> void:
 		add_button("Non", cancel_new_campaign, true, row)
 	elif not state.is_ruined():
 		add_button("Nouvelle campagne", do_new_campaign)
-	add_label("Sauvegarde automatique chaque jour, à chaque arrivée, recrutement et bataille.", 11, Color(0.6, 0.58, 0.52))
-	add_label("Clic gauche : marcher (sur une ville : y entrer ; sur un groupe : le poursuivre). Clic droit : halte. Espace : pause ; 1, 2, 3 : vitesses. ZQSD, flèches, bord de l'écran ou clic molette : déplacer la vue ; molette : zoom ; C : recentrer. La route va plus vite, forêts, collines et marais ralentissent, l'hiver aussi. Chaque jour coûte la solde ; sans or, des hommes désertent. Les bandits et les armées hostiles (cerclés de rouge) vous attaquent s'ils vous rattrapent.", 11, Color(0.6, 0.58, 0.52))
+	add_section("Commandes")
+	add_label("Clic gauche : marcher (sur une ville : y entrer ; sur un groupe : le poursuivre). Clic droit : halte.", 12, DIM_COL)
+	add_label("Espace : pause ; 1, 2, 3 : vitesses. E : compagnie ; M : monde ; J : journal ; Échap : fermer ou menu.", 12, DIM_COL)
+	add_label("ZQSD, flèches, bord de l'écran ou clic molette : déplacer la vue ; molette : zoom ; C : recentrer.", 12, DIM_COL)
+	add_label("La route va plus vite ; forêts, collines, marais et hiver ralentissent. Chaque jour coûte la solde ; sans or, des hommes désertent. Les groupes cerclés de rouge vous attaquent s'ils vous rattrapent.", 11, HINT_COL)
+	add_label("Sauvegarde automatique chaque jour, à chaque arrivée, recrutement et bataille.", 11, HINT_COL)
 
 
 ## Où est la compagnie, et ce qu'elle fait.
@@ -908,7 +1079,7 @@ func build_contact() -> void:
 	if contact == null:
 		return
 	var ow := state.overworld
-	add_section("Rencontre : %s" % CampaignState.cap_first(contact.display_name()))
+	window_title.text = "Rencontre : %s" % CampaignState.cap_first(contact.display_name())
 	var lines := party_lines(contact)
 	add_label(" · ".join(lines.slice(1, lines.size() - 1)), 12, Color(1, 0.5, 0.4) if ow.hostile(state, contact) else Color(0.92, 0.88, 0.78))
 	var enc := Overworld.encounter_script()
@@ -930,7 +1101,7 @@ func build_contact() -> void:
 
 func build_town(here: int, closed: String) -> void:
 	var town: Dictionary = CampaignState.TOWNS[here]
-	add_section("À %s" % town["name"])
+	window_title.text = str(town["name"])
 	var fac := state.town_owner(here)
 	add_label("%s — réputation %+d (%s)" % [CampaignState.faction_name(fac), state.reputation[fac], state.reputation_label(fac)], 12, CampaignState.FACTIONS[fac]["color"])
 	if closed != "":
@@ -939,12 +1110,11 @@ func build_town(here: int, closed: String) -> void:
 	for t in town["recruits"]:
 		names.append(CampaignState.type_name(t).to_lower())
 	add_label("On y lève : %s.   Prix des recrues : %s" % [", ".join(names), price_text(here)], 12, Color(0.75, 0.72, 0.65))
-	add_label("Le temps est arrêté tant que vous êtes dans la ville.", 11, Color(0.6, 0.58, 0.52))
-	add_button("Quitter le panneau (le temps reprend, la compagnie reste en ville)", close_town)
+	add_button("Repartir (le temps reprend)", close_town)
 
 
 func build_company(here: int, closed: String) -> void:
-	add_section("Votre compagnie")
+	add_section("Régiments")
 	if state.is_destroyed():
 		if state.is_ruined():
 			add_label("Plus personne ne marche sous votre bannière, et les caisses sont vides...", 13, Color(1, 0.5, 0.4))
@@ -1370,6 +1540,5 @@ func draw_minimap(ci: Control) -> void:
 	ci.draw_arc(ow.player.pos * k, 4.5, 0, TAU, 12, Color.WHITE, 1.0)
 	if cam != null:
 		var v := view_rect()
-		v.size.x *= map_area().x / get_viewport_rect().size.x # La partie cachée par le panneau
 		ci.draw_rect(Rect2(v.position * k, v.size * k).intersection(Rect2(Vector2.ZERO, size)), Color(1, 1, 1, 0.9), false, 1.0)
 	ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0.6, 0.47, 0.25), false, 1.5)

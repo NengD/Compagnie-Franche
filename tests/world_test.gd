@@ -503,12 +503,16 @@ func _process(_delta: float) -> bool:
 		8:
 			var texts := _texts(node.box)
 			check(texts.has("Livrer bataille") and texts.has("Fuir"), "carte : choix de la rencontre absent")
-			check(_any(texts, "assiégée") and _any(texts, "Hiver") and _any(texts, "nouvelle de test"), "carte : le monde n'est pas affiché")
 			check(WorldView.army_at(node.state, WorldView.army_spot(node.state.world.armies[0])) != null, "carte : armée introuvable sous la souris")
 			node.click_town(1)
 			check(node.state.overworld.player.path.is_empty(), "carte : on marche malgré l'armée qui barre la route")
 			WorldView.flee(node)
 			check(not node.state.world.has_encounter(), "carte : fuite")
+			# Onglet « Monde » : saison, sièges et nouvelles
+			node.toggle_view("world")
+			texts = _texts(node.box)
+			check(_any(texts, "assiégée") and _any(texts, "Hiver") and _any(texts, "nouvelle de test"), "carte : le monde n'est pas affiché")
+			node.toggle_view("world")
 			# Temps réel : une journée passe sur la carte (la compagnie reste dans les murs)
 			var day: int = node.state.day
 			node.advance_time(24.0)
