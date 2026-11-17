@@ -7,6 +7,9 @@ extends RefCounted
 static var current: CampaignState = null
 
 const START_GOLD := 300
+## Compagnie de départ des tests et des bancs ; une vraie campagne part sans un homme et lève ses
+## régiments avec l'or équivalent (new_game, empty).
+const START_COMPANY := ["spear", "spear", "men_at_arms", "archer", "archer", "cavalry"]
 const MAX_REGIMENTS := 8
 const TRAVEL_PX_PER_DAY := 130.0 * MapData.SCALE ## Distance parcourue en une journée de marche abstraite (travel)
 const CONTRACT_DAYS := 14 ## Validité d'un contrat, en jours
@@ -140,7 +143,9 @@ var overworld := Overworld.new() ## Carte en temps réel : heure, compagnie et g
 
 ## Nouvelle partie : une petite compagnie à Valombre.
 ## lenient_mode : mode indulgent (la bataille en cours n'est pas sauvegardée, voir « lenient »).
-static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode := false) -> CampaignState:
+## empty : la compagnie part sans un homme, avec de quoi lever ses premiers régiments
+## (START_GOLD + le prix de START_COMPANY) ; sinon elle part avec START_COMPANY (tests, bancs).
+static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode := false, empty := false) -> CampaignState:
 	var c := CampaignState.new()
 	c.difficulty = Difficulty.sanitize(level)
 	c.lenient = lenient_mode
@@ -150,14 +155,29 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 		c.rng.randomize()
 	c.captain = Captain.recruit(c.rng.seed)
 	c.world = WorldSim.create(c.rng.seed)
-	for t in ["spear", "spear", "men_at_arms", "archer", "archer", "cavalry"]:
-		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
+	if empty:
+		c.gold = float(START_GOLD + c.start_company_value())
+	else:
+		for t in START_COMPANY:
+			c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
 	c.overworld = Overworld.create(c)
-	c.add_log("Jour 1 : la compagnie se forme à %s (difficulté : %s). Trouvez un contrat !" % [TOWNS[0]["name"], Difficulty.display_name(c.difficulty).to_lower()])
+	if empty:
+		c.add_log("Jour 1 : vous arrivez à %s avec %d écus et pas un homme (difficulté : %s). Levez vos premiers régiments, puis trouvez un contrat !" % [TOWNS[0]["name"], int(c.gold), Difficulty.display_name(c.difficulty).to_lower()])
+	else:
+		c.add_log("Jour 1 : la compagnie se forme à %s (difficulté : %s). Trouvez un contrat !" % [TOWNS[0]["name"], Difficulty.display_name(c.difficulty).to_lower()])
 	c.add_log("Objectif : %s" % objective_text())
 	return c
+
+
+## Prix des régiments de START_COMPANY à la ville de départ : l'or d'une compagnie qui part
+## sans un homme (elle peut lever la même troupe, ou une autre).
+func start_company_value() -> int:
+	var v := 0
+	for t in START_COMPANY:
+		v += recruit_cost(t, int(UnitTypes.STATS[t]["count"]), 0)
+	return int(ceil(v / 10.0)) * 10
 
 
 ## But de la campagne, annoncé dès le premier jour.

@@ -1,10 +1,11 @@
 class_name CompanyPanel
 extends RefCounted
 ## Sections du panneau de la carte de campagne pour le capitaine (niveau, compétences, blessure)
-## et pour les traits et l'équipement des régiments (achat en ville, prix affichés).
+## et pour l'équipement des régiments (casque, armes, armure : achat et amélioration en ville).
 ## map : le nœud de campaign_map.gd (add_label, add_button, add_section, state, notice, refresh_ui).
 
 const DIM := Color(0.75, 0.72, 0.65)
+const ROMAN := ["", "I", "II", "III"]
 
 
 static func build(map: Node) -> void:
@@ -33,31 +34,46 @@ static func build_captain(map: Node, state: CampaignState) -> void:
 static func build_equipment(map: Node, state: CampaignState) -> void:
 	if state.company.is_empty():
 		return
-	map.add_section("Traits et équipement")
-	var closed := state.closed_message(state.location)
+	var in_town: bool = map.town_here() >= 0
+	map.add_section("Équipement")
+	if not in_town:
+		map.add_label("Casques, armes et armures s'achètent et s'améliorent en ville.", 11, DIM)
+	var closed := state.closed_message(state.location) if in_town else ""
 	for i in state.company.size():
 		var entry: Dictionary = state.company[i]
-		var desc := Traits.describe(entry)
-		map.add_label("%d. %s : %s" % [i + 1, CampaignState.type_name(str(entry["type"])), desc if desc != "" else "aucun"], 12)
+		var parts: Array[String] = []
+		for slot in Equipment.SLOTS:
+			var w := Equipment.worn(entry, slot)
+			parts.append("%s : %s" % [Equipment.SLOT_NAMES[slot], Equipment.ITEMS[w]["short"] if w != "" else "—"])
+		map.add_label("%d. %s   ·   %s" % [i + 1, CampaignState.type_name(str(entry["type"])), "   ·   ".join(parts)], 12)
+		if not Traits.of(entry).is_empty():
+			var names: Array[String] = []
+			for id in Traits.of(entry):
+				names.append(str(Traits.TRAITS[id]["name"]))
+			map.add_label("    Traits : %s" % ", ".join(names), 11, DIM)
+		if not in_town:
+			continue
 		var row := HBoxContainer.new()
 		var any := false
-		for id in Equipment.ORDER:
-			if id in Equipment.of(entry):
+		for slot in Equipment.SLOTS:
+			var next := Equipment.next_item(entry, slot)
+			if next == "":
 				continue
-			var price := Equipment.cost(state, i, id)
-			var b: Button = map.add_button("%s : %d écus" % [str(Equipment.ITEMS[id]["short"]).capitalize(), price], CompanyPanel.buy.bind(map, i, id), state.gold >= price and closed == "", row)
-			b.tooltip_text = "%s (%s)" % [Equipment.ITEMS[id]["name"], Equipment.ITEMS[id]["text"]]
+			var item: Dictionary = Equipment.ITEMS[next]
+			var price := Equipment.cost(state, i, next)
+			var why := Equipment.refusal(state, i, next)
+			var label := "%s %s : %d écus" % [str(Equipment.SLOT_NAMES[slot]).capitalize(), ROMAN[int(item["tier"])], price]
+			var b: Button = map.add_button(label, CompanyPanel.buy.bind(map, i, next), why == "" and state.gold >= price and closed == "", row)
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			b.tooltip_text = "%s : %s.%s" % [item["name"], item["text"], ("
+" + why) if why != "" else ""]
 			any = true
 		if any:
 			map.box.add_child(row)
 		else:
 			row.free()
-	var help: Array[String] = []
-	for id in Equipment.ORDER:
-		help.append("%s : %s" % [Equipment.ITEMS[id]["short"], Equipment.ITEMS[id]["text"]])
-	for id in Traits.TRAITS:
-		help.append("%s : %s" % [Traits.TRAITS[id]["name"], Traits.TRAITS[id]["text"]])
-	map.add_label("Traits gagnés aux promotions et en route. " + " · ".join(help) + ".", 11, Color(0.6, 0.58, 0.52))
+	if in_town:
+		map.add_label("Améliorer une pièce remplace l'ancienne : on ne paie que la différence. Qualité II : aguerris ; qualité III : vétérans. Survolez un bouton pour ses effets.", 11, Color(0.6, 0.58, 0.52))
 
 
 static func learn(map: Node, skill: String) -> void:

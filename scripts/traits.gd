@@ -83,10 +83,7 @@ static func read_entry(out: Dictionary, saved: Dictionary) -> void:
 	for id in saved.get("traits", []):
 		if TRAITS.has(str(id)) and not str(id) in t:
 			t.append(str(id))
-	var g: Array = []
-	for id in saved.get("gear", []):
-		if Equipment.ITEMS.has(str(id)) and not str(id) in g:
-			g.append(str(id))
+	var g := Equipment.read_list(saved.get("gear", []))
 	if not t.is_empty():
 		out["traits"] = t
 	if not g.is_empty():

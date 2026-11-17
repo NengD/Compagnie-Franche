@@ -168,7 +168,7 @@ func _ready() -> void:
 		else:
 			if CampaignState.has_save():
 				notice = "Sauvegarde illisible : nouvelle campagne."
-			CampaignState.current = CampaignState.new_game()
+			CampaignState.current = CampaignState.new_game(0, Difficulty.NORMAL, false, true)
 	state = CampaignState.current
 	state.world.realtime = true
 	if state.in_battle():
@@ -687,7 +687,7 @@ func do_new_campaign() -> void:
 		refresh_ui()
 		return
 	confirm_new = false
-	CampaignState.current = CampaignState.new_game(0, state.difficulty, state.lenient) # Mêmes réglages qu'avant
+	CampaignState.current = CampaignState.new_game(0, state.difficulty, state.lenient, true) # Mêmes réglages qu'avant
 	state = CampaignState.current
 	state.world.realtime = true
 	state.save()
@@ -1023,9 +1023,14 @@ func build_place() -> void:
 		return
 	var closed := state.closed_message(here)
 	build_town(here, closed)
-	build_contracts(here, closed)
-	build_recruits(here, closed)
-	build_company(here, closed)
+	if state.company.is_empty(): # Sans un homme : d'abord lever des régiments
+		build_company(here, closed)
+		build_recruits(here, closed)
+		build_contracts(here, closed)
+	else:
+		build_contracts(here, closed)
+		build_recruits(here, closed)
+		build_company(here, closed)
 	CompanyPanel.build(self) # Capitaine, traits et équipement (achats en ville)
 
 
@@ -1119,6 +1124,8 @@ func build_company(here: int, closed: String) -> void:
 		if state.is_ruined():
 			add_label("Plus personne ne marche sous votre bannière, et les caisses sont vides...", 13, Color(1, 0.5, 0.4))
 			add_button("Recommencer une campagne", do_new_campaign)
+		elif state.victories + state.defeats == 0:
+			add_label("Votre compagnie n'a encore aucun homme. Levez vos premiers régiments avec vos %d écus (d'autres villes lèvent d'autres troupes), et gardez de quoi payer la solde et les équiper !" % int(state.gold), 13, Color(1, 0.84, 0.4))
 		else:
 			add_label("Plus personne ne marche sous votre bannière. Levez un régiment en ville pour reprendre la route.", 13, Color(1, 0.5, 0.4))
 	var recruits: Array = CampaignState.TOWNS[here]["recruits"] if here >= 0 else []

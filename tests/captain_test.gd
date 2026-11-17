@@ -49,6 +49,7 @@ func _initialize() -> void:
 	_test_captain_campaign()
 	_test_traits()
 	_test_equipment()
+	_test_empty_start()
 	_test_save()
 	_test_sim()
 
@@ -163,22 +164,57 @@ func _test_traits() -> void:
 
 func _test_equipment() -> void:
 	var c := CampaignState.new_game(11)
-	c.gold = 1000.0
-	var price := Equipment.cost(c, 0, "armor")
-	check(price == int(ceil(3 * int(UnitTypes.STATS[c.company[0]["type"]]["count"]) * float(CampaignState.TOWNS[c.location]["price"]))), "prix de l'armure : %d" % price)
-	check(Equipment.buy(c, 0, "armor") == "" and is_equal_approx(c.gold, 1000.0 - price), "achat d'armure")
-	check("armor" in Equipment.of(c.company[0]) and "armure" in Traits.describe(c.company[0]), "armure absente du régiment")
-	check(Equipment.buy(c, 0, "armor") != "", "armure achetée deux fois")
+	c.gold = 5000.0
+	var full := int(UnitTypes.STATS[c.company[0]["type"]]["count"])
+	var town := float(CampaignState.TOWNS[c.location]["price"])
+	var price := Equipment.cost(c, 0, "armor_1")
+	check(price == int(ceil(3 * full * town)), "prix des gambisons : %d" % price)
+	check(Equipment.buy(c, 0, "armor_1") == "" and is_equal_approx(c.gold, 5000.0 - price), "achat de gambisons")
+	check(Equipment.tier(c.company[0], "armor") == 1 and "gambisons" in Traits.describe(c.company[0]), "gambisons absents du régiment")
+	check(Equipment.buy(c, 0, "armor_1") != "", "gambisons achetés deux fois")
+	# Qualité II : réservée aux aguerris ; l'amélioration ne coûte que la différence
+	check(Equipment.buy(c, 0, "armor_2") != "", "brigandines vendues à des bleus")
+	c.company[0]["xp"] = CampaignState.RANK_XP[1]
+	var up := Equipment.cost(c, 0, "armor_2")
+	check(up == int(ceil(6 * full * town)) - int(ceil(3 * full * town)), "amélioration : prix %d" % up)
+	var g := c.gold
+	check(Equipment.buy(c, 0, "armor_2") == "" and is_equal_approx(c.gold, g - up), "amélioration en brigandines")
+	check(Equipment.of(c.company[0]) == ["armor_2"], "l'ancienne armure reste : %s" % str(Equipment.of(c.company[0])))
+	check(Equipment.buy(c, 0, "armor_3") != "", "harnois vendus à des aguerris")
+	check(Equipment.buy(c, 0, "helmet_1") == "" and Equipment.buy(c, 0, "weapon_2") == "", "casque ou armes")
+	check(Equipment.of(c.company[0]) == ["helmet_1", "weapon_2", "armor_2"], "pièces mal rangées : %s" % str(Equipment.of(c.company[0])))
+	check(Equipment.next_item(c.company[0], "weapon") == "weapon_3" and Equipment.next_item({"gear": ["weapon_3"]}, "weapon") == "", "prochaine amélioration")
 	c.gold = 1.0
-	check(Equipment.buy(c, 0, "weapons") != "" and is_equal_approx(c.gold, 1.0), "achat sans assez d'or")
+	check(Equipment.buy(c, 1, "weapon_1") != "" and is_equal_approx(c.gold, 1.0), "achat sans assez d'or")
 	check(Equipment.buy(c, 0, "épée magique") != "", "équipement inconnu accepté")
+	# Hors de la ville : rien à acheter
+	c.gold = 5000.0
+	c.overworld.inside = -1
+	check(Equipment.buy(c, 1, "weapon_1") != "", "achat en rase campagne")
 	# Effets en bataille
 	var r := Regiment.new()
 	r.type = "archer"
 	r.stats = UnitTypes.STATS["archer"]
-	Traits.apply_to(r, {"type": "archer", "gear": ["armor", "weapons"]})
-	check(is_equal_approx(float(r.stats["arrow_armor"]), 0.7) and is_equal_approx(float(r.stats["ranged_damage"]), 2.6 * 1.15), "effets de l'équipement")
+	Traits.apply_to(r, {"type": "archer", "gear": ["helmet_2", "weapon_1", "armor_2"]})
+	check(is_equal_approx(float(r.stats["arrow_armor"]), 0.7) and is_equal_approx(float(r.stats["ranged_damage"]), 2.6 * 1.1), "effets des armes et de l'armure")
+	check(is_equal_approx(float(r.stats["hp"]), 21.0 * 1.15 * 1.12) and is_equal_approx(float(r.stats["speed"]), 48.0 * 0.97), "effets du casque et de l'armure")
 	check(is_equal_approx(float(UnitTypes.STATS["archer"]["arrow_armor"]), 1.0), "UnitTypes.STATS modifié par l'équipement")
+	# Anciennes sauvegardes : « armor » et « weapons » deviennent brigandines et armes de maître
+	check(Equipment.read_list(["weapons", "armor", "armor_1", "inconnu"]) == ["weapon_2", "armor_2"], "anciens équipements mal convertis")
+
+
+## Vraie campagne : la compagnie part sans un homme, avec l'or de la compagnie de départ.
+func _test_empty_start() -> void:
+	var c := CampaignState.new_game(21, Difficulty.NORMAL, false, true)
+	check(c.company.is_empty() and c.total_men() == 0, "départ : la compagnie a déjà des hommes")
+	check(int(c.gold) == CampaignState.START_GOLD + c.start_company_value() and c.start_company_value() > 500, "départ : or %d" % int(c.gold))
+	check(not c.is_ruined() and not c.is_over() and c.daily_wage() == 0.0, "départ : compagnie ruinée ou payée")
+	check(c.overworld.go_to(c, MapData.place_pos(1)) != "", "départ : on marche sans un homme")
+	check(c.recruit("spear") == "" and c.company.size() == 1, "départ : premier régiment refusé")
+	check(c.overworld.go_to(c, MapData.place_pos(1)) == "", "départ : on ne part pas avec un régiment")
+	var d := JSON.parse_string(JSON.stringify(c.to_dict())) as Dictionary
+	var b := CampaignState.from_dict(d)
+	check(b != null and b.company.size() == 1, "départ : sauvegarde mal relue")
 
 
 func _test_save() -> void:
@@ -189,7 +225,7 @@ func _test_save() -> void:
 	c.captain.skills["rally"] = 2
 	c.captain.wounded_until = 9
 	c.company[0]["traits"] = ["tenaces"]
-	c.company[1]["gear"] = ["weapons", "armor"]
+	c.company[1]["gear"] = ["helmet_1", "weapon_2", "armor_3"]
 	var d := JSON.parse_string(JSON.stringify(c.to_dict())) as Dictionary
 	check(int(d["version"]) == CampaignState.SAVE_VERSION and CampaignState.SAVE_VERSION >= 6, "version de sauvegarde")
 
@@ -198,7 +234,7 @@ func _test_save() -> void:
 	if b != null:
 		check(b.captain.name == c.captain.name and b.captain.level == 3 and b.captain.points == 1 and int(b.captain.skills["rally"]) == 2 and b.captain.wounded_until == 9,
 			"capitaine mal relu : %s" % str(b.captain.to_dict()))
-		check(Traits.has(b.company[0], "tenaces") and Equipment.of(b.company[1]) == ["weapons", "armor"], "traits ou équipement mal relus")
+		check(Traits.has(b.company[0], "tenaces") and Equipment.of(b.company[1]) == ["helmet_1", "weapon_2", "armor_3"], "traits ou équipement mal relus")
 	# Valeurs abîmées : bornées ou ignorées
 	d["captain"]["skills"]["aura"] = 99
 	d["company"][0]["traits"] = ["tenaces", "inconnu", "tenaces"]
@@ -340,19 +376,19 @@ func _test_map() -> void:
 	for lb in m.find_children("*", "Label", true, false):
 		texts.append((lb as Label).text)
 	var all := " | ".join(texts)
-	check("Capitaine" in all and c.captain.name in all and "Traits et équipement" in all, "panneau : sections absentes")
+	check("Capitaine" in all and c.captain.name in all and "Équipement" in all, "panneau : sections absentes")
 	var learn: Button = null
 	var armor: Button = null
 	for b in m.find_children("*", "Button", true, false):
 		var t := (b as Button).text
 		if t.begins_with("Ralliement") and learn == null:
 			learn = b
-		if t.begins_with("Armure") and armor == null:
+		if t.begins_with("Armure I ") and armor == null:
 			armor = b
 	check(learn != null and armor != null and "écus" in armor.text, "panneau : boutons du capitaine ou de l'équipement absents")
 	if learn != null and armor != null:
 		armor.pressed.emit()
-		check("armor" in Equipment.of(c.company[0]) and c.gold < 2000.0, "bouton d'armure sans effet")
+		check("armor_1" in Equipment.of(c.company[0]) and c.gold < 2000.0, "bouton d'armure sans effet")
 		learn.pressed.emit()
 		check(int(c.captain.skills["rally"]) == 1 and c.captain.points == 0, "bouton de compétence sans effet")
 	root.remove_child(m)

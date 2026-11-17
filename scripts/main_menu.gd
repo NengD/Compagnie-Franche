@@ -498,7 +498,7 @@ func new_campaign(i := 0) -> void:
 func confirm_new_campaign(level := Difficulty.NORMAL) -> void:
 	CampaignState.use_slot(target_slot)
 	CampaignState.delete_save() # L'ancienne campagne et sa copie de secours disparaissent
-	CampaignState.current = CampaignState.new_game(0, level, lenient_choice)
+	CampaignState.current = CampaignState.new_game(0, level, lenient_choice, true)
 	CampaignState.current.save()
 	page = "main"
 	go(CAMPAIGN_SCENE)

@@ -232,9 +232,23 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
 - **Traits de régiment** : un trait à chaque promotion (dans un ordre propre au type), d'autres en route.
   **Tenaces** (moral +20 %), **rapides** (vitesse +10 %), **adroits** (dégâts +10 %), **pillards** (+1 écu
   de butin par ennemi tué), **frugaux** (solde -20 %).
-- **Équipement** (panneau « Traits et équipement », acheté dans n'importe quelle ville ouverte, au prix
-  local) : **armure** (brigandines, dégâts des flèches -30 %, 3 écus par homme du régiment complet) et
-  **meilleures armes** (dégâts +15 %, 4 écus par homme). L'équipement reste au régiment tant qu'il existe.
+- **Départ sans un homme** : une nouvelle campagne commence à Valombre avec 300 écus plus le prix de
+  l'ancienne compagnie de départ (2 piquiers, 1 homme d'armes, 2 archers, 1 cavalier), soit environ
+  1 160 écus, et pas un régiment : à vous de lever votre troupe (la compagnie ne peut pas quitter la ville
+  avant). Les tests et les bancs gardent la compagnie de départ (`CampaignState.START_COMPANY`).
+- **Équipement** (section « Équipement » de la fenêtre de la ville ; consultable partout, achetable seulement
+  en ville, au prix local) : trois pièces par régiment, chacune en trois qualités. Prix par homme du régiment
+  au complet ; améliorer une pièce remplace l'ancienne et ne coûte que la différence. La qualité II demande
+  des aguerris, la III des vétérans.
+
+  | Pièce | I | II (aguerris) | III (vétérans) |
+  |---|---|---|---|
+  | Casque | chapels de fer : vie +8 %, moral +5 % (2 écus) | bassinets : vie +15 %, moral +10 % (4) | grands bassinets à visière : vie +22 %, moral +15 % (7) |
+  | Armes | bonne trempe : dégâts +10 % (3) | armes de maître : +20 % (6) | armes de Milan : +30 % (10) |
+  | Armure | gambisons : flèches -15 %, vie +5 % (3) | brigandines : flèches -30 %, vie +12 %, vitesse -3 % (6) | harnois : flèches -45 %, vie +22 %, vitesse -8 % (11) |
+
+  Les anciennes sauvegardes gardent leur équipement : « armure » devient des brigandines, « meilleures
+  armes » des armes de maître.
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
   tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
 - **Bilan de fin de bataille** : après quelques secondes de ralenti, un panneau résume la bataille par-dessus
@@ -499,8 +513,8 @@ scripts/siege.gd        Vrai siège (Siege) : bélier, échelles, repoussage, to
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
-scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures armes
-scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » des fenêtres de la carte
+scripts/equipment.gd    Équipement des régiments (Equipment) : casque, armes, armure en trois qualités, améliorations
+scripts/company_panel.gd Sections « Capitaine » et « Équipement » des fenêtres de la carte
 scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, guerres, armées, sièges, prises
                         de villes, rencontres, contrats de guerre ; appelé par CampaignState (pass_day, travel)
 scripts/encounter.gd    Rencontres de la carte (Encounter) : choix par sorte et attitude, résolution, accueil
