@@ -2,7 +2,8 @@ extends SceneTree
 ## Test headless de la carte du monde en temps réel (map_data.gd, overworld.gd, party_ai.gd,
 ## world_army.gd et campaign_map.gd) :
 ##   godot --headless --path . -s tests/overworld_test.gd
-## - MapData : carte 3 fois plus grande, lieux, routes, terrain, chemins qui contournent l'eau ;
+## - MapData : grande carte (deux fois l'ancienne), lieux, routes et ponts, montagnes, régions,
+##   terrain, chemins qui contournent l'eau et les montagnes, tout lieu accessible ;
 ## - déplacement de la compagnie, vitesse sur la route et hors route, hiver plus lent ;
 ## - le jour qui passe (solde, monde vivant), registre des groupes et comportement par défaut ;
 ## - contact : poursuite d'un groupe, groupe hostile qui rattrape la compagnie, choix et bataille ;
@@ -66,16 +67,70 @@ func quiet(seed_value: int) -> CampaignState:
 # ---------------------------------------------------------------- MapData
 
 func _test_map_data() -> void:
-	check(MapData.SIZE.x * MapData.SIZE.y >= 3.0 * 880.0 * 720.0 * 3.0, "carte : pas 3 fois plus grande")
-	check(CampaignState.TOWNS == MapData.TOWNS and MapData.place_count() > CampaignState.TOWNS.size(), "carte : villes ou lieux")
+	check(MapData.SIZE.x * MapData.SIZE.y >= 2.0 * 2640.0 * 2160.0, "carte : pas deux fois plus grande que l'ancienne")
+	check(CampaignState.TOWNS == MapData.TOWNS and MapData.place_count() >= 35, "carte : villes ou lieux (%d)" % MapData.place_count())
+	# Les lieux de l'ancienne carte gardent leur indice (sauvegardes) : le dernier est Fort-Lisière
+	check(MapData.place_named("Fort-Lisière") == 20 and MapData.place_named("Les Aulnes") == 7, "carte : anciens lieux déplacés")
+	var kinds_seen := {}
 	for i in MapData.place_count():
 		var pl := MapData.place(i)
-		check(int(pl["id"]) == i and str(pl["kind"]) in ["town", "village", "castle"], "lieu %d mal décrit" % i)
+		kinds_seen[pl["kind"]] = true
+		check(int(pl["id"]) == i and MapData.KIND_NAMES.has(str(pl["kind"])), "lieu %d mal décrit" % i)
 		check(MapData.walkable(pl["pos"]) and MapData.place_at(pl["pos"]) == i, "lieu %s dans l'eau ou introuvable" % pl["name"])
 		if i < CampaignState.TOWNS.size():
 			check(pl["kind"] == "town" and pl["pos"] == CampaignState.TOWNS[i]["pos"], "ville %d différente de TOWNS" % i)
+		# Un lieu appartient au seigneur de sa région (les repaires et les ruines à personne)
+		var reg := MapData.region_at(pl["pos"])
+		if not str(pl["kind"]) in ["lair", "ruins"]:
+			check(int(MapData.REGIONS[reg]["faction"]) == int(pl["faction"]), "lieu %s : faction %d dans %s" % [pl["name"], pl["faction"], MapData.REGIONS[reg]["name"]])
+		for j in range(i + 1, MapData.place_count()):
+			check(MapData.place_pos(j).distance_to(pl["pos"]) > MapData.PLACE_RADIUS * 2.5, "lieux trop proches : %s, %s" % [pl["name"], MapData.place(j)["name"]])
+	check(kinds_seen.size() >= 9, "carte : sortes de lieux %s" % str(kinds_seen.keys()))
+	# Routes : jamais dans un lac ; des ponts sur les rivières ; les trois sortes de routes
+	var classes := {}
+	for k in MapData.roads().size():
+		classes[MapData.road_class(k)] = true
+		var pts := MapData.road_points(k)
+		var r: Array = MapData.roads()[k]
+		check(pts[0] == MapData.place_pos(r[0]) and pts[-1] == MapData.place_pos(r[1]), "route %d : ne relie pas ses lieux" % k)
+		for p in pts:
+			if MapData.lake_factor(p) < 1.0:
+				check(false, "route %s - %s dans un lac" % [MapData.place(r[0])["name"], MapData.place(r[1])["name"]])
+				break
+	check(classes.size() == 3 and MapData.roads().size() >= MapData.place_count(), "routes : réseau secondaire")
+	check(MapData.bridges().size() >= 10, "ponts : %d" % MapData.bridges().size())
+	for b in MapData.bridges():
+		var mid: Vector2 = (b["a"] + b["b"]) * 0.5
+		check(MapData.walkable(mid) and MapData.ground_name(mid) in ["pont", "route"], "pont infranchissable en %s" % str(mid))
+	# Régions : chacune a des terres à son centre, et toutes les factions en ont
+	var factions := {}
+	for i in MapData.REGIONS.size():
+		factions[int(MapData.REGIONS[i]["faction"])] = true
+	check(factions.size() == CampaignState.FACTIONS.size() + 1 and MapData.REGIONS.size() >= 10, "régions : factions %s" % str(factions.keys()))
+	# Tous les lieux sont accessibles depuis Valombre
+	for i in range(1, MapData.place_count()):
+		var path := MapData.find_path(MapData.place_pos(0), MapData.place_pos(i))
+		check(not path.is_empty() and path[-1].distance_to(MapData.place_pos(i)) < 1.0, "lieu inaccessible : %s" % MapData.place(i)["name"])
+	# Montagnes : infranchissables hors des cols ; un chemin les contourne ou passe le col
+	var peak := Vector2.ZERO
+	var g := MapData.grid_size()
+	for y in g.y:
+		for x in g.x:
+			if MapData.ground_cell(Vector2i(x, y)) == MapData.Ground.MOUNTAIN and not MapData.is_road_cell(Vector2i(x, y)):
+				peak = MapData.cell_center(Vector2i(x, y))
+	check(peak != Vector2.ZERO and not MapData.walkable(peak) and MapData.battle_terrain_at(peak) == "hills", "montagne : praticable ou absente")
+	var over := MapData.find_path(Vector2(2700, 560), Vector2(3250, 560)) # Par-dessus les Monts de Fer
+	var at0 := Vector2(2700, 560)
+	var blocked := 0
+	for q in over:
+		for k in 10:
+			if not MapData.walkable(at0.lerp(q, k / 10.0)):
+				blocked += 1
+		at0 = q
+	check(not over.is_empty() and blocked <= 2, "montagne : le chemin passe à travers (%d)" % blocked)
 	# Terrain : une route est plus rapide que la plaine, la forêt et le marais plus lents
-	var road := (MapData.place_pos(0) + MapData.place_pos(1)) * 0.5
+	var rp := MapData.road_points(0)
+	var road := rp[rp.size() / 2]
 	check(MapData.is_road(road) and is_equal_approx(MapData.speed_at(road), MapData.ROAD_SPEED), "route : vitesse %.2f" % MapData.speed_at(road))
 	var kinds := {}
 	for y in range(8, int(MapData.SIZE.y), 32):
@@ -85,16 +140,17 @@ func _test_map_data() -> void:
 				kinds[MapData.ground_at(p)] = MapData.speed_at(p)
 			var bt := MapData.battle_terrain_at(p)
 			check(bt in MapData.BATTLE_TERRAINS, "terrain de bataille %s" % bt)
-	for g in [MapData.Ground.PLAIN, MapData.Ground.FOREST, MapData.Ground.HILLS, MapData.Ground.MARSH, MapData.Ground.WATER]:
-		check(kinds.has(g), "carte : aucun terrain %s" % MapData.GROUND_NAMES[g])
+	for gr in [MapData.Ground.PLAIN, MapData.Ground.FOREST, MapData.Ground.HILLS, MapData.Ground.MARSH, MapData.Ground.WATER, MapData.Ground.MOUNTAIN]:
+		check(kinds.has(gr), "carte : aucun terrain %s" % MapData.GROUND_NAMES[gr])
 	check(float(kinds.get(MapData.Ground.FOREST, 9.0)) < 1.0 and float(kinds.get(MapData.Ground.MARSH, 9.0)) < float(kinds.get(MapData.Ground.FOREST, 0.0)), "vitesses de terrain")
 	check(MapData.battle_terrain_at(MapData.place_pos(8)) == "village", "terrain de bataille d'un village")
+	check(MapData.battle_terrain_at(MapData.place_pos(MapData.place_named("Gué-aux-Saules"))) == "river", "terrain de bataille d'un gué")
 	var seen := {}
 	for p in [MapData.place_pos(0), MapData.place_pos(3), MapData.place_pos(5), Vector2(MapData.river_x(300) + 60, 300)]:
 		seen[MapData.battle_terrain_at(p)] = true
 	# Chemin : traverse la rivière par un pont, jamais dans l'eau
-	var west := Vector2(MapData.river_x(300) - 200, 300) # Loin des ponts
-	var east := Vector2(MapData.river_x(300) + 200, 300)
+	var west := Vector2(MapData.river_x(3020) - 200, 3020) # Loin des ponts et des gués
+	var east := Vector2(MapData.river_x(3020) + 200, 3020)
 	var path := MapData.find_path(west, east)
 	check(not path.is_empty() and path[-1].distance_to(east) < 1.0, "chemin : n'arrive pas")
 	var at := west
@@ -112,12 +168,14 @@ func _test_map_data() -> void:
 
 # ---------------------------------------------------------------- Déplacements
 
-## Heures de marche de la compagnie de a à b en ligne droite (path forcé).
-func hours_between(c: CampaignState, a: Vector2, b: Vector2) -> float:
+## Heures de marche de la compagnie de a à b en ligne droite (path forcé), ou par les points via.
+func hours_between(c: CampaignState, a: Vector2, b: Vector2, via: Array[Vector2] = []) -> float:
 	var ow := c.overworld
 	ow.inside = -1
 	ow.player.pos = a
-	ow.player.go([b] as Array[Vector2])
+	var path: Array[Vector2] = via.duplicate()
+	path.append(b)
+	ow.player.go(path)
 	var h := 0.0
 	while not ow.player.path.is_empty() and h < 500.0:
 		ow.tick(c, 0.25)
@@ -142,9 +200,16 @@ func _test_movement() -> void:
 	check(hours >= 24.0 and hours <= 72.0 and c.day >= 2, "marche : %d heures pour Saint-Aubin" % int(hours))
 	print("  Valombre → Saint-Aubin : %d heures, jour %d" % [int(hours), c.day])
 	# Vitesse : la route est plus rapide qu'à travers champs
-	var a := MapData.place_pos(0)
-	var b := MapData.place_pos(1)
-	var on_road := hours_between(c, a.lerp(b, 0.2), a.lerp(b, 0.6))
+	# Le long de la grande route Valombre - Saint-Aubin (elle ondule : on suit son tracé)
+	var rp := MapData.road_points(0)
+	var i0 := rp.size() / 5
+	var i1 := rp.size() * 3 / 5
+	var a := rp[i0]
+	var b := rp[i1]
+	var via: Array[Vector2] = []
+	for k in range(i0 + 1, i1):
+		via.append(rp[k])
+	var on_road := hours_between(c, a, b, via)
 	var plain := Vector2(-1, -1)
 	for y in range(100, int(MapData.SIZE.y) - 400, 40): # Une étendue de plaine assez longue
 		for x in range(100, int(MapData.SIZE.x) - 400, 40):
@@ -160,12 +225,12 @@ func _test_movement() -> void:
 		if plain.x >= 0:
 			break
 	check(plain.x >= 0, "vitesse : pas de plaine sur la carte")
-	var d := a.lerp(b, 0.2).distance_to(a.lerp(b, 0.6))
+	var d := MapData.path_length(a, via) + via[-1].distance_to(b)
 	var off_road := hours_between(c, plain, plain + Vector2(d, 0))
 	check(off_road > on_road * 1.15, "vitesse : hors route %.1f h, sur la route %.1f h" % [off_road, on_road])
 	# Hiver : plus lent
 	c.day = 95
-	var winter := hours_between(c, a.lerp(b, 0.2), a.lerp(b, 0.6))
+	var winter := hours_between(c, a, b, via)
 	check(winter > on_road * 1.2, "vitesse : l'hiver n'est pas plus lent (%.1f h contre %.1f h)" % [winter, on_road])
 	print("  %d px : route %.1f h, plaine %.1f h, route en hiver %.1f h" % [int(d), on_road, off_road, winter])
 	print("Déplacements : OK")
@@ -418,7 +483,7 @@ func _process(_delta: float) -> bool:
 			map.zoom_at(1.5, Vector2(300, 300))
 			check(map.cam.zoom.x > 1.4, "scène : zoom")
 			map.queue_redraw()
-			map.minimap.queue_redraw()
+			map.minimap.redraw()
 		7:
 			root.remove_child(map)
 			map.free()
