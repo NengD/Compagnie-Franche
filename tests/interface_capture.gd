@@ -2,7 +2,7 @@ extends SceneTree
 ## Captures de l'interface de bataille (à lancer AVEC fenêtre) :
 ##   godot --path . --resolution 1280x720 -s tests/interface_capture.gd -- --ui=1.5
 ## Écrit hors du dépôt : user://captures_interface/<taille>_ui<taille>_<écran>.png
-## (aide repliée, aide dépliée + formes des camps + sous-titre + info-bulle, bilan de fin).
+## (aide repliée, aide dépliée + formes des camps + sous-titre + info-bulle, cartes cachées, bilan de fin).
 ## N'utilise pas les fichiers du joueur (options de test dans user://).
 
 const OPTIONS_TEST := "user://capture_interface_options.cfg"
@@ -58,6 +58,10 @@ func _process(_delta: float) -> bool:
 			b.add_message("Embuscade !")
 		100:
 			_save("bataille")
+			b.show_cards = false # Tab : cartes cachées
+		106:
+			_save("cartes_cachees")
+			b.show_cards = true
 			for s in b.player_roster()[0].soldiers:
 				s.alive = false
 			b.sim.state = BattleSim.State.VICTORY

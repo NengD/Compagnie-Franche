@@ -9,10 +9,11 @@ extends Control
 ## Les numéros des cartes suivent battle.player_roster() : fixes pendant toute la bataille.
 
 const BAR_H := 32.0 ## Hauteur de la barre du haut
-const CARD_H := 82.0
-const CARD_GAP := 6.0
-const CARD_MAX_W := 140.0
-const CARD_MIN_W := 84.0
+const CARD_H := 56.0
+const CARD_GAP := 5.0
+const CARD_MAX_W := 116.0
+const CARD_MIN_W := 72.0
+const TAB_H := 18.0 ## Onglet qui cache ou montre les cartes
 const MSG_SIZE := 15
 const OBJ_H := 46.0 ## Hauteur du panneau d'objectif (sous la barre du haut)
 const HELP_SIZE := 13
@@ -125,7 +126,7 @@ static func card_rects(vs: Vector2, n: int) -> Array[Rect2]:
 ## Repliée : un simple onglet « F1 : aide ».
 func help_layout(vs: Vector2, lines: Array[String]) -> Dictionary:
 	var top := BAR_H + 8.0
-	var avail_h := vs.y - top - CARD_H - 20.0
+	var avail_h := vs.y - top - cards_height() - 20.0
 	var size := HELP_SIZE
 	var lh := size + 5.0
 	if lines.size() * lh + 14.0 > avail_h:
@@ -164,9 +165,12 @@ func find_hovered(mouse: Vector2, vs: Vector2) -> Regiment:
 		return null
 	if mouse.y < BAR_H or not Rect2(Vector2.ZERO, vs).has_point(mouse):
 		return null
-	for rect in card_rects(vs, battle.player_roster().size()):
-		if rect.grow(4.0).has_point(mouse):
-			return null
+	if cards_tab_rect(vs).has_point(mouse):
+		return null
+	if battle.show_cards:
+		for rect in card_rects(vs, battle.player_roster().size()):
+			if rect.grow(4.0).has_point(mouse):
+				return null
 	var wp := battle.get_canvas_transform().affine_inverse() * mouse
 	var r := battle.sim.regiment_at(wp, Battle.PLAYER)
 	if r == null:
@@ -355,17 +359,55 @@ func draw_top_bar(vs: Vector2) -> void:
 		rx -= w + 18.0
 
 
+## Hauteur prise en bas de la vue par les cartes (ou leur seul onglet quand elles sont cachées).
+func cards_height() -> float:
+	return (CARD_H + 6.0 + TAB_H + 10.0) if battle.show_cards else (TAB_H + 6.0)
+
+
+## Onglet cliquable « Tab : cacher » au-dessus de la première carte, ou « Tab : cartes » en bas
+## au centre quand elles sont cachées.
+func cards_tab_rect(vs: Vector2) -> Rect2:
+	var label := cards_tab_text()
+	var w := text_width(label, 11) + 14.0
+	if not battle.show_cards:
+		return Rect2(roundf((vs.x - w) * 0.5), vs.y - TAB_H - 6.0, w, TAB_H)
+	var rects := card_rects(vs, battle.player_roster().size())
+	var x := rects[0].position.x if not rects.is_empty() else (vs.x - w) * 0.5
+	var y := (rects[0].position.y if not rects.is_empty() else vs.y - CARD_H - 6.0) - TAB_H - 2.0 - 8.0
+	return Rect2(x, y, w, TAB_H)
+
+
+func cards_tab_text() -> String:
+	var key := GameOptions.key_label("cards")
+	if battle.show_cards:
+		return "%s : cacher les cartes" % key
+	return "%s : cartes des régiments (%d)" % [key, battle.player_roster().size()]
+
+
+func draw_cards_tab(vs: Vector2) -> void:
+	var r := cards_tab_rect(vs)
+	draw_rect(r, Color(0.05, 0.04, 0.03, 0.7))
+	draw_rect(r, Color(0.45, 0.4, 0.3), false, 1.0)
+	text(r.position + Vector2(7, 13), cards_tab_text(), 11, Color(0.9, 0.88, 0.8))
+
+
 ## Cartes des régiments du joueur, numéros fixes ; mort ou en fuite : carte grisée.
+## Compactes : nom, effectif et formation, moral et endurance, état et ordres sur une ligne.
 func draw_cards(vs: Vector2) -> void:
+	if battle.player_roster().is_empty():
+		return
+	draw_cards_tab(vs)
+	if not battle.show_cards:
+		return
 	var list: Array[Regiment] = battle.player_roster()
 	var rects := card_rects(vs, list.size())
 	for i in list.size():
 		var r := list[i]
 		var rect := rects[i]
 		var cw := rect.size.x
-		var inner := cw - 12.0
+		var inner := cw - 10.0
 		var out := r.is_dead() or r.routing
-		draw_rect(rect, Color(0.08, 0.07, 0.06, 0.86) if not out else Color(0.1, 0.1, 0.1, 0.6))
+		draw_rect(rect, Color(0.08, 0.07, 0.06, 0.82) if not out else Color(0.1, 0.1, 0.1, 0.55))
 		var border := Color(1, 0.9, 0.4) if r.selected else Color(0.45, 0.4, 0.3)
 		if out:
 			border = Color(0.3, 0.3, 0.3)
@@ -373,54 +415,51 @@ func draw_cards(vs: Vector2) -> void:
 		var o := rect.position
 		var name_col := Color(1, 1, 1) if not out else Color(0.55, 0.55, 0.55)
 		var title := "%d  %s" % [i + 1, r.display_name()]
-		var ns := 14 if text_width(title, 14) <= inner else 12 # Carte étroite : nom en plus petit
-		text(o + Vector2(6, 17), fit(title, ns, inner), ns, name_col)
+		var ns := 12 if text_width(title, 12) <= inner else 11
+		text(o + Vector2(5, 14), fit(title, ns, inner), ns, name_col)
 		if out:
 			var why := "anéanti" if r.is_dead() else "en fuite"
-			text(o + Vector2(6, 36), fit("%s · %d hommes" % [why, r.alive_n] if not r.is_dead() else why, 13, inner), 13, Color(0.9, 0.5, 0.4, 0.85))
+			text(o + Vector2(5, 30), fit("%s · %d" % [why, r.alive_n] if not r.is_dead() else why, 11, inner), 11, Color(0.9, 0.5, 0.4, 0.85))
 			continue
 		var count: int = r.stats["count"]
 		var men := "%d / %d" % [r.alive_n, count]
-		if r.formation == Regiment.Formation.LINE:
-			if text_width(men + " hommes", 13) <= inner:
-				men += " hommes"
-			text(o + Vector2(6, 34), men, 13, Color(0.82, 0.82, 0.76))
-		else:
-			text(o + Vector2(6, 34), men, 13, Color(0.82, 0.82, 0.76))
-			var fx := 6.0 + text_width(men, 13) + 8.0
-			text(o + Vector2(fx, 34), fit(r.formation_name(), 13, cw - fx - 4.0), 13, Color(1, 0.85, 0.45))
+		text(o + Vector2(5, 28), men, 11, Color(0.82, 0.82, 0.76))
+		var mx := 5.0 + text_width(men, 11) + 6.0
+		var hid_w := text_width("caché", 10) if r.hidden else 0.0
+		if r.formation != Regiment.Formation.LINE:
+			text(o + Vector2(mx, 28), fit(r.formation_name(), 11, cw - mx - hid_w - 8.0), 11, Color(1, 0.85, 0.45))
+		if r.hidden:
+			text(o + Vector2(cw - 5.0 - hid_w, 28), "caché", 10, Color(0.4, 1, 0.5))
 		# Moral (rouge → vert) puis endurance (jaune)
 		var k := clampf(r.morale / r.max_morale, 0.0, 1.0)
-		draw_rect(Rect2(o + Vector2(6, 40), Vector2(inner, 4)), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(o + Vector2(6, 40), Vector2(inner * k, 4)), Color(1, 0.2, 0.15).lerp(Color(0.3, 1, 0.3), k))
+		draw_rect(Rect2(o + Vector2(5, 32), Vector2(inner, 3)), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(o + Vector2(5, 32), Vector2(inner * k, 3)), Color(1, 0.2, 0.15).lerp(Color(0.3, 1, 0.3), k))
 		var st := clampf(r.stamina, 0.0, 1.0)
-		draw_rect(Rect2(o + Vector2(6, 46), Vector2(inner, 3)), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(o + Vector2(6, 46), Vector2(inner * st, 3)), Color(0.55, 0.45, 0.2).lerp(Color(1, 0.85, 0.3), st))
-		var status: String = r.stamina_label()
-		var scol := Color(0.78, 0.78, 0.72)
-		if st < UnitTypes.STAMINA_TIRED:
-			scol = Color(1, 0.6, 0.3)
-		if r.running:
-			status += " · course"
-			scol = Color(1, 0.7, 0.25)
-		var hid_w := text_width("caché", 12) if r.hidden else 0.0
-		text(o + Vector2(6, 62), fit(status, 12, inner - hid_w - 4.0), 12, scol)
-		if r.hidden:
-			text(o + Vector2(cw - 6.0 - hid_w, 62), "caché", 12, Color(0.4, 1, 0.5))
-		# Ordres permanents : tenir la position (G), tir retenu (X)
+		draw_rect(Rect2(o + Vector2(5, 36), Vector2(inner, 2)), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(o + Vector2(5, 36), Vector2(inner * st, 2)), Color(0.55, 0.45, 0.2).lerp(Color(1, 0.85, 0.3), st))
+		# Dernière ligne : ordres permanents s'il y en a, sinon l'état (fatigue, course) ; groupe à droite
 		var orders: Array[String] = []
 		if r.hold_position:
-			orders.append("tient [%s]" % GameOptions.key_label("hold"))
+			orders.append("tient")
 		if r.stats["ranged"] and not r.fire_at_will:
-			orders.append("tir retenu [%s]" % GameOptions.key_label("fire"))
+			orders.append("tir retenu")
+		var line := " · ".join(orders)
+		var lcol := Color(0.55, 0.85, 1)
+		if line == "":
+			line = r.stamina_label()
+			lcol = Color(0.78, 0.78, 0.72)
+			if st < UnitTypes.STAMINA_TIRED:
+				lcol = Color(1, 0.6, 0.3)
+			if r.running:
+				line += " · course"
+				lcol = Color(1, 0.7, 0.25)
 		var group := battle.group_label(r)
 		var gw := 0.0
 		if group != "":
-			gw = text_width(group, 12)
-			text(o + Vector2(cw - 6.0 - gw, 77), group, 12, Color(0.75, 0.75, 0.7))
-		if not orders.is_empty():
-			text(o + Vector2(6, 77), fit(" · ".join(orders), 12, inner - gw - 4.0), 12, Color(0.55, 0.85, 1))
-		draw_chevrons(self, o + Vector2(cw - 16, -4.0 - 4.0 * r.rank), r.rank) # Badge au-dessus de la carte
+			gw = text_width(group, 10)
+			text(o + Vector2(cw - 5.0 - gw, 50), group, 10, Color(0.75, 0.75, 0.7))
+		text(o + Vector2(5, 50), fit(line, 10, inner - gw - 4.0), 10, lcol)
+		draw_chevrons(self, o + Vector2(cw - 14, -3.0 - 4.0 * r.rank), r.rank) # Badge au-dessus de la carte
 
 
 ## Messages en haut à gauche, chacun sur un fond sombre.
@@ -499,7 +538,7 @@ func free_width(vs: Vector2) -> float:
 
 ## Sous-titres au-dessus des cartes, centrés dans la place laissée par l'aide.
 func draw_captions(vs: Vector2) -> void:
-	var y := vs.y - CARD_H - 22.0
+	var y := vs.y - cards_height() - 22.0
 	var fw := free_width(vs)
 	for i in range(captions.size() - 1, -1, -1):
 		var c: Array = captions[i]
@@ -535,6 +574,7 @@ static func help_lines(rain_key := true) -> Array[String]:
 		"%s : couper / remettre le son   %s : vitesse" % [GameOptions.key_label("sound"), GameOptions.key_label("speed")],
 		"Alt+Entrée / F11 : plein écran",
 		"Échap : menu pause (options, abandon)",
+		"%s : cacher / montrer les cartes des régiments" % GameOptions.key_label("cards"),
 		"%s : masquer l'aide" % GameOptions.key_label("help"),
 	]
 	return lines

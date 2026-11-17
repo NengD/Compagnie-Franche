@@ -251,6 +251,20 @@ func _test_layout() -> void:
 	var hr: Rect2 = lay["rect"]
 	check(Rect2(Vector2.ZERO, vs).encloses(hr), "aide hors de la vue à 150 %")
 	check(hr.end.y <= cards[0].position.y, "l'aide passe sous les cartes")
+	# Cartes compactes, et Tab les cache puis les remontre (onglet cliquable)
+	check(cards[0].size.y <= 60.0, "cartes trop hautes : %d" % int(cards[0].size.y))
+	var view: Vector2 = b.hud.get_viewport_rect().size
+	var shown: bool = b.show_cards
+	var tab: Rect2 = b.hud.cards_tab_rect(view)
+	check(Rect2(Vector2.ZERO, view).encloses(tab), "onglet des cartes hors de la vue")
+	var k := InputEventKey.new()
+	k.keycode = KEY_TAB
+	k.pressed = true
+	b.orders.handle_key(k)
+	check(b.show_cards != shown and GameOptions.show_cards == b.show_cards, "Tab ne cache pas les cartes")
+	check(Rect2(Vector2.ZERO, view).encloses(b.hud.cards_tab_rect(view)), "onglet des cartes cachées hors de la vue")
+	b.orders.toggle_cards()
+	check(b.show_cards == shown, "les cartes ne reviennent pas")
 
 
 func _test_captions() -> void:

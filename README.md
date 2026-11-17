@@ -44,7 +44,8 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   par défaut (son état est mémorisé), info-bulle au survol de tout régiment ami ou ennemi visible
   (type, effectif, moral, endurance, rang, formation). Les **numéros des régiments** (cartes et touches
   1 à 8) restent fixes toute la bataille et suivent l'ordre de la compagnie : un régiment anéanti ou en
-  fuite garde sa carte, grisée. À 150 % dans une fenêtre 1280×720, cartes, barre du haut et aide se resserrent.
+  fuite garde sa carte, grisée. Les cartes sont compactes (56 px de haut) et se cachent d'un coup de Tab ou
+  d'un clic sur leur onglet (état mémorisé). À 150 % dans une fenêtre 1280×720, cartes, barre du haut et aide se resserrent.
 - **Zoom de la bataille** : la taille de l'interface n'agrandit pas le terrain, et le zoom réel est arrondi
   pour qu'un pixel des sprites fasse un nombre entier de pixels de l'écran (pas de pixels de largeurs
   inégales) ; la molette passe d'une échelle entière à la suivante.
@@ -363,6 +364,7 @@ Les touches marquées * se changent dans **Options**.
 | Capitaine | Clic sur le capitaine : le sélectionner avec son escorte (son aura s'affiche) ; C * : il rejoint le régiment sélectionné |
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
 | Aide (repliée par défaut, état mémorisé) | F1 * |
+| Cartes des régiments : cacher / montrer (état mémorisé ; aussi l'onglet cliquable au-dessus des cartes) | Tab * |
 | Fin de bataille | Entrée : afficher le bilan, puis carte de campagne (contrat) ou rejouer (escarmouche, tutoriel) |
 | Menu pause (reprendre, aide, options, abandonner, menu principal) | Échap ; sur l'écran de fin d'escarmouche : retour au menu |
 

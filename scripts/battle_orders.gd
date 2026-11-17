@@ -79,6 +79,9 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 	var wp := battle.event_world_pos(mb)
 	match mb.button_index:
 		MOUSE_BUTTON_LEFT:
+			if mb.pressed and battle.hud != null and battle.hud.cards_tab_rect(battle.hud.get_viewport_rect().size).has_point(mb.position):
+				toggle_cards() # Onglet des cartes : les cacher ou les montrer
+				return
 			if mb.pressed:
 				dragging = true
 				drag_start = wp
@@ -109,6 +112,13 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 			panning = mb.pressed
 
 
+## Affiche ou cache les cartes des régiments (mémorisé pour les batailles suivantes).
+func toggle_cards() -> void:
+	battle.show_cards = not battle.show_cards
+	GameOptions.show_cards = battle.show_cards
+	GameOptions.save_options()
+
+
 func handle_key(k: InputEventKey) -> void:
 	if k.keycode == KEY_A and k.ctrl_pressed:
 		for r in sim.player_regiments():
@@ -130,6 +140,8 @@ func handle_key(k: InputEventKey) -> void:
 			battle.add_message("Il pleut : les archers tirent moins loin et moins juste." if sim.raining else "La pluie cesse.")
 		KEY_H:
 			halt()
+		KEY_TAB:
+			toggle_cards()
 		KEY_F1:
 			battle.show_help = not battle.show_help
 			GameOptions.show_help = battle.show_help # Mémorisé pour les batailles suivantes

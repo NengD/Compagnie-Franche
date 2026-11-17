@@ -42,6 +42,7 @@ var audio: BattleAudio
 
 var paused := false
 var show_help := false ## Aide F1 dépliée (état mémorisé dans GameOptions.show_help)
+var show_cards := true ## Cartes des régiments affichées (Tab ; mémorisé dans GameOptions.show_cards)
 var messages: Array = [] ## Messages du HUD : [texte, temps restant]
 var game_speed := 1.0 ## Vitesse de la simulation (options, touche V)
 var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
@@ -72,6 +73,7 @@ func _ready() -> void:
 	GameOptions.ensure_loaded()
 	game_speed = GameOptions.speed
 	show_help = GameOptions.show_help
+	show_cards = GameOptions.show_cards
 	if CampaignState.current != null and CampaignState.current.in_battle():
 		campaign = CampaignState.current
 	if seed_override != 0:
