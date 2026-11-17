@@ -646,7 +646,7 @@ accompagné de `CREDITS.md` (obligatoire : licences des assets) et `README.md`, 
 distribuer `build/CompagnieFranche-<version>-windows.zip`. Si le modèle d'export Linux est installé,
 le script exporte aussi `build/linux/CompagnieFranche.x86_64` et `build/CompagnieFranche-<version>-linux.zip`
 (`-NoLinux` pour s'en passer).
-La version (`application/config/version` dans `project.godot`, actuellement 0.5.0) s'affiche en bas à
+La version (`application/config/version` dans `project.godot`, actuellement 0.5.1) s'affiche en bas à
 droite du menu principal : changez-la là avant une nouvelle diffusion.
 1. Installez une fois les **modèles d'export 4.7.2** : dans l'éditeur, *Éditeur → Gérer les modèles d'export →
    Télécharger et installer* (ils vont dans `%APPDATA%\Godot\export_templates\4.7.2.stable\`).
