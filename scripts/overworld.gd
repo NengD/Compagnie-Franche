@@ -21,9 +21,16 @@ const SIGHT := 180.0 ## Distance à laquelle un groupe hostile repère la compag
 const COOLDOWN_HOURS := 10.0 ## Après une rencontre, le même groupe ne vous arrête plus pendant ce temps
 const REPATH_DIST := 40.0 ## Poursuite : on recalcule le chemin quand la cible s'en écarte de tant
 const FLEE_DIST := 220.0 ## Un groupe qui détale part à peu près de tant
-## Population entretenue chaque jour (sorte -> nombre de groupes). Les sessions suivantes en
-## ajouteront d'autres (patrouilles, déserteurs) avec leurs comportements.
-const POPULATION := {"villagers": 4, "bandits": 3, "caravan": 2}
+## Densité de la population entretenue chaque jour (population_cap) : villageois par village,
+## caravanes et patrouilles par ville, bandits par million de pixels² de carte, déserteurs par
+## guerre en cours. Les saisons et les guerres la font varier (voir population_cap).
+const POPULATION := {"villagers": 0.7, "caravan": 0.6, "patrol": 0.8, "bandits": 1.6, "deserters": 2.0}
+const WINTER_CARAVANS := 0.5 ## En hiver, moins de caravanes...
+const WAR_BANDITS := 1.5 ## ... en guerre, plus de bandits
+const PEACE_DESERTERS := 1 ## Déserteurs tolérés en paix
+const MAX_DESERTERS := 8
+const SPAWNS_PER_DAY := 2 ## Réapparitions par sorte et par jour au plus
+const WAR_DESERTER_CHANCE := 0.3 ## Chaque jour de guerre, chance que des soldats désertent (par guerre)
 const BANDIT_NAMES := ["les Écorcheurs", "les Loups de Valfrène", "la bande du Borgne", "les Coupe-Bourses", "les Tard-Venus", "les Malandrins du Gué"]
 const ENCOUNTER_SCRIPT := "res://scripts/encounter.gd"
 
@@ -34,7 +41,10 @@ var inside := 0 ## Lieu (MapData.places) où la compagnie est entrée, -1 : en c
 var enter_goal := -1 ## Lieu où entrer en arrivant au bout du chemin (-1 : aucun)
 var marched := false ## La compagnie a marché aujourd'hui (évènements de route, froid)
 var cooldown := {} ## id de groupe -> heures pendant lesquelles il ne provoque plus de rencontre
+var truce := {} ## id de groupe -> heures pendant lesquelles aucun autre groupe ne l'attaque (vaincu qui détale)
 var rng := RandomNumberGenerator.new()
+var steps := 0 ## Pas de simulation écoulés (les groupes regardent autour d'eux un pas sur deux)
+var spawning := true ## Faux : plus aucune réapparition (tests de comportement ; non sauvegardé)
 
 
 func _init() -> void:
@@ -50,8 +60,7 @@ static func create(c: CampaignState) -> Overworld:
 	ow.rng.seed = hash([c.rng.seed, "overworld"])
 	ow.player.pos = MapData.place_pos(c.location)
 	ow.inside = c.location
-	for i in 4: # Toute la population dès le premier jour
-		ow.populate(c)
+	ow.populate(c, true) # Toute la population dès le premier jour
 	return ow
 
 
@@ -92,6 +101,7 @@ func remove(c: CampaignState, p: Party) -> void:
 			if msg != "":
 				c.add_log("Jour %d : %s" % [c.day, msg])
 	cooldown.erase(str(p.id))
+	truce.erase(str(p.id))
 
 
 ## Groupes à moins de radius de pos (sans la compagnie ni exclude), du plus proche au plus loin.
@@ -113,11 +123,14 @@ func count(kind: String) -> int:
 	return n
 
 
-## Ce groupe attaque-t-il la compagnie ? (bandits ; armées d'après le monde vivant)
+## Ce groupe attaque-t-il la compagnie ? (bandits ; armées d'après le monde vivant ; tout groupe
+## qui la poursuit pour l'attaquer, comme une patrouille d'une faction hostile)
 func hostile(c: CampaignState, p: Party) -> bool:
 	if p is WorldArmy:
 		return c.world.hostile_to_player(c, p)
-	return p.kind == "bandits"
+	if p.kind == "bandits":
+		return true
+	return p.target_id == player.id and p.state in PartyAI.ATTACK_STATES
 
 
 ## Vitesse d'un groupe à sa position (pixels par heure) : sorte, terrain ou route, saison.
@@ -219,6 +232,7 @@ func tick(c: CampaignState, hours: float) -> Dictionary:
 
 func step(c: CampaignState, h: float) -> Dictionary:
 	var out := {}
+	steps += 1
 	sync_player(c)
 	# La compagnie
 	if player.target_id >= 0:
@@ -244,12 +258,17 @@ func step(c: CampaignState, h: float) -> Dictionary:
 		elif not p.path.is_empty():
 			if p.advance(speed_of(c, p) * h):
 				arrived(c, p)
-	parties = parties.filter(func(p: Party) -> bool: return not p.is_dead())
 	c.world.tick(c, h) # Les armées de faction
+	PartyAI.skirmishes(c, self) # Combats entre groupes qui se touchent
+	parties = parties.filter(func(p: Party) -> bool: return not p.is_dead())
 	for k in cooldown.keys():
 		cooldown[k] = float(cooldown[k]) - h
 		if float(cooldown[k]) <= 0.0:
 			cooldown.erase(k)
+	for k in truce.keys():
+		truce[k] = float(truce[k]) - h
+		if float(truce[k]) <= 0.0:
+			truce.erase(k)
 	if out.is_empty():
 		var who := contact(c)
 		if who != null:
@@ -297,46 +316,176 @@ func end_of_day(c: CampaignState) -> void:
 
 # ---------------------------------------------------------------- Population
 
-## Entretient la population de groupes (POPULATION), un nouveau groupe par sorte et par jour au plus.
-func populate(c: CampaignState) -> void:
+## Nombre de groupes d'une sorte que la carte entretient (POPULATION) : d'après le nombre de
+## villages et de villes et la taille de la carte, moins de caravanes en hiver, plus de bandits et
+## de déserteurs en guerre.
+func population_cap(c: CampaignState, kind: String) -> int:
+	var k := float(POPULATION.get(kind, 0.0))
+	var wars := c.world.wars.size()
+	match kind:
+		"villagers":
+			return ceili(PartyAI.places_of(["village"]).size() * k)
+		"caravan":
+			var n := PartyAI.places_of(["town"]).size() * k
+			if WorldSim.season_of(c.day) == WorldSim.WINTER:
+				n *= WINTER_CARAVANS
+			return maxi(1, ceili(n))
+		"patrol":
+			return ceili(PartyAI.places_of(["town"]).size() * k)
+		"bandits":
+			var n := MapData.SIZE.x * MapData.SIZE.y / 1.0e6 * k
+			if wars > 0:
+				n *= WAR_BANDITS
+			return maxi(1, ceili(n))
+		"deserters":
+			return mini(MAX_DESERTERS, PEACE_DESERTERS + ceili(wars * k))
+	return 0
+
+
+## Entretient la population de groupes (population_cap) : SPAWNS_PER_DAY nouveaux groupes par
+## sorte et par jour au plus (fill : jusqu'au plafond, pour une carte neuve). Les batailles du
+## monde vivant (WorldSim.aftermath) et les guerres jettent des déserteurs sur les chemins.
+func populate(c: CampaignState, fill := false) -> void:
+	if not spawning:
+		c.world.aftermath.clear()
+		return
 	for kind in POPULATION:
-		if count(kind) < int(POPULATION[kind]):
-			spawn(c, kind)
+		if kind == "deserters":
+			continue
+		var cap := population_cap(c, kind)
+		var n := 0
+		while count(kind) < cap and (fill or n < SPAWNS_PER_DAY):
+			if spawn(c, kind) == null:
+				break
+			n += 1
+	# Déserteurs : après les batailles du monde vivant, et chaque jour de guerre
+	var cap_d := population_cap(c, "deserters")
+	for e in c.world.aftermath:
+		if count("deserters") < cap_d and rng.randf() < 0.7:
+			var at: Vector2 = e.get("pos", Vector2.ZERO)
+			spawn_deserters(c, PartyAI.random_point(self, at, 150.0), int(e.get("faction", -1)), int(e.get("men", 0)))
+	c.world.aftermath.clear()
+	for k in c.world.wars.keys():
+		if count("deserters") >= cap_d or rng.randf() >= WAR_DESERTER_CHANCE:
+			continue
+		var pair := str(k).split("-")
+		var f := int(pair[rng.randi() % pair.size()])
+		var towns := c.world.towns_of(f)
+		if towns.is_empty():
+			continue
+		var t := towns[rng.randi() % towns.size()]
+		spawn_deserters(c, PartyAI.far_point(self, MapData.place_pos(t)), f, 0)
+	if fill and count("deserters") < cap_d:
+		spawn(c, "deserters")
 
 
-## Fait apparaître un groupe d'une sorte : villageois près d'un village, caravane dans une ville,
-## bandits dans un bois loin des villes.
+## Fait apparaître un groupe d'une sorte : villageois dans un village, caravane dans une ville,
+## patrouille dans une ville de sa faction, bandits dans un bois loin des villes, déserteurs loin
+## des villes. null si aucun endroit ne convient.
 func spawn(c: CampaignState, kind: String) -> Party:
 	var p := Party.new()
 	p.kind = kind
-	var villages: Array[int] = []
-	for pl in MapData.places():
-		if pl["kind"] == "village":
-			villages.append(int(pl["id"]))
 	match kind:
 		"villagers":
-			p.home = villages[rng.randi() % villages.size()]
+			var villages := PartyAI.places_of(["village"])
+			if villages.is_empty():
+				return null
+			# De préférence un village qui n'a pas déjà ses villageois sur les chemins
+			var free: Array[int] = []
+			for v in villages:
+				var taken := false
+				for q in parties:
+					if q.kind == "villagers" and q.home == v:
+						taken = true
+						break
+				if not taken:
+					free.append(v)
+			var pool := free if not free.is_empty() else villages
+			p.home = pool[rng.randi() % pool.size()]
 			p.pos = MapData.place_pos(p.home)
-			p.faction = int(MapData.place(p.home)["faction"])
+			p.faction = PartyAI.place_owner(c, p.home)
 			p.troops = [{"type": "spear", "men": rng.randi_range(8, 16), "xp": 0.0}]
-			p.goods = rng.randi_range(4, 12) * 10
+			p.state = "home"
+			p.busy_hours = rng.randf_range(0.0, 12.0) # Pas tous au marché à la même heure
 		"caravan":
-			p.home = rng.randi() % CampaignState.TOWNS.size()
+			var towns := PartyAI.places_of(["town"])
+			if towns.is_empty():
+				return null
+			p.home = towns[rng.randi() % towns.size()]
 			p.pos = MapData.place_pos(p.home)
-			p.faction = c.town_owner(p.home)
+			p.faction = PartyAI.place_owner(c, p.home)
 			p.troops = [{"type": "spear", "men": rng.randi_range(6, 10), "xp": 50.0}, {"type": "crossbow", "men": rng.randi_range(4, 8), "xp": 50.0}]
 			p.goods = rng.randi_range(20, 50) * 10
+			p.gold = rng.randi_range(2, 8) * 10
+		"patrol":
+			var towns: Array[int] = []
+			for t in PartyAI.places_of(["town"]):
+				if PartyAI.place_owner(c, t) >= 0 and not (t < CampaignState.TOWNS.size() and c.world.besieged(t)):
+					towns.append(t)
+			if towns.is_empty():
+				return null
+			p.home = towns[rng.randi() % towns.size()]
+			p.pos = MapData.place_pos(p.home)
+			p.faction = PartyAI.place_owner(c, p.home)
+			var k := 1.5 if c.world.at_war_any(p.faction) else 1.0
+			p.troops = [{"type": "spear", "men": int(rng.randi_range(10, 18) * k), "xp": rng.randf_range(60.0, 120.0)},
+				{"type": "crossbow", "men": int(rng.randi_range(6, 10) * k), "xp": rng.randf_range(60.0, 120.0)},
+				{"type": "cavalry", "men": int(rng.randi_range(4, 8) * k), "xp": rng.randf_range(60.0, 120.0)}]
+			p.gold = rng.randi_range(2, 6) * 10
+			p.speed_bonus = 1.4 # Sergents montés : ils rattrapent les brigands
+			p.state = "garrison"
+			p.busy_hours = rng.randf_range(0.0, 8.0)
 		"bandits":
-			p.pos = lair(c)
+			p.base = lair(c)
+			p.pos = p.base
 			p.home = MapData.nearest_place(p.pos)
-			p.name = str(BANDIT_NAMES[rng.randi() % BANDIT_NAMES.size()])
+			p.name = bandit_name()
 			p.troops = [{"type": "spear", "men": rng.randi_range(12, 24), "xp": rng.randf_range(0.0, 80.0)},
 				{"type": "archer", "men": rng.randi_range(6, 14), "xp": rng.randf_range(0.0, 80.0)}]
 			p.gold = rng.randi_range(3, 15) * 10
+			p.state = "lurk"
+			p.busy_hours = rng.randf_range(2.0, 12.0)
+			p.hidden = MapData.ground_at(p.pos) == MapData.Ground.FOREST
+		"deserters":
+			var towns := PartyAI.places_of(["town"])
+			if towns.is_empty():
+				return null
+			var t := towns[rng.randi() % towns.size()]
+			return spawn_deserters(c, PartyAI.far_point(self, MapData.place_pos(t)), PartyAI.place_owner(c, t), 0)
 		_:
 			p.pos = MapData.place_pos(rng.randi() % MapData.place_count())
 			p.troops = [{"type": "spear", "men": 10, "xp": 0.0}]
 	return add(c, p)
+
+
+## Des déserteurs (anciens soldats de la faction f) apparaissent en pos ; men : hommes perdus dans
+## la bataille d'où ils viennent (0 : inconnu), dont une petite part déserte.
+func spawn_deserters(c: CampaignState, pos: Vector2, f: int, men: int) -> Party:
+	var p := Party.new()
+	p.kind = "deserters"
+	p.faction = f
+	p.pos = MapData.walkable_point(pos)
+	var n := clampi(int(men * 0.1), 8, 30) if men > 0 else rng.randi_range(8, 20)
+	@warning_ignore("integer_division")
+	var archers := n / 3
+	p.troops = [{"type": "men_at_arms" if rng.randf() < 0.3 else "spear", "men": n - archers, "xp": rng.randf_range(40.0, 100.0)},
+		{"type": "crossbow" if rng.randf() < 0.5 else "archer", "men": archers, "xp": rng.randf_range(40.0, 100.0)}]
+	p.state = "idle"
+	p.gold = rng.randi_range(0, 4) * 10
+	return add(c, p)
+
+
+## Nom d'une bande de brigands (tiré par rng).
+func bandit_name() -> String:
+	return str(BANDIT_NAMES[rng.randi() % BANDIT_NAMES.size()])
+
+
+## Nouvelle d'un combat ou d'un évènement entre groupes de la carte : aux nouvelles du monde, et
+## au journal de la compagnie si c'est près d'elle ou important.
+func report(c: CampaignState, text: String, pos: Vector2, important: bool) -> void:
+	if important or pos.distance_to(player.pos) <= PartyAI.LOG_RANGE:
+		c.add_log("Jour %d : %s" % [c.day, CampaignState.cap_first(text)])
+	c.world.post(c, text)
 
 
 ## Repaire de bandits : un point praticable, de préférence en forêt, loin des villes et de la compagnie.
@@ -525,8 +674,8 @@ func to_dict() -> Dictionary:
 		list.append(p.to_dict())
 	return {
 		"hour": hour, "player": player.to_dict(), "parties": list,
-		"inside": inside, "enter_goal": enter_goal, "marched": marched,
-		"cooldown": cooldown.duplicate(), "rng_seed": str(rng.seed), "rng_state": str(rng.state),
+		"inside": inside, "enter_goal": enter_goal, "marched": marched, "steps": steps,
+		"cooldown": cooldown.duplicate(), "truce": truce.duplicate(), "rng_seed": str(rng.seed), "rng_state": str(rng.state),
 	}
 
 
@@ -551,10 +700,15 @@ static func from_dict(d: Variant, c: CampaignState) -> Overworld:
 	ow.inside = clampi(int(d.get("inside", -1)), -1, MapData.place_count() - 1)
 	ow.enter_goal = clampi(int(d.get("enter_goal", -1)), -1, MapData.place_count() - 1)
 	ow.marched = bool(d.get("marched", false))
+	ow.steps = maxi(0, int(d.get("steps", 0)))
 	var cd: Variant = d.get("cooldown", {})
 	if cd is Dictionary:
 		for k in cd:
 			ow.cooldown[str(k)] = float(cd[k])
+	var tr: Variant = d.get("truce", {})
+	if tr is Dictionary:
+		for k in tr:
+			ow.truce[str(k)] = float(tr[k])
 	ow.rng.seed = str(d.get("rng_seed", "1")).to_int()
 	ow.rng.state = str(d.get("rng_state", "1")).to_int()
 	return ow

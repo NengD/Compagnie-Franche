@@ -125,11 +125,34 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   - **Groupes** : villageois, caravanes marchandes, bandits (cerclés de rouge) et armées des factions se
     déplacent sur la carte (infobulle au survol). Cliquez sur un groupe pour le **poursuivre** ; au contact,
     le temps s'arrête et une **rencontre** s'ouvre (« Attaquer » ou « Passer son chemin », ou les choix du
-    module des rencontres). Les bandits et les armées hostiles fondent sur la compagnie quand elle passe à
+    module des rencontres). Les bandits, les patrouilles et armées hostiles fondent sur la compagnie quand elle passe à
     portée en rase campagne (jamais dans les murs d'une ville) ; fuir coûte 8 % de l'or en bagages.
     Une bataille se livre sur le **terrain de l'endroit** (village près d'un lieu habité, rivière près de
     l'eau ou des marais, forêt, collines, sinon plaine) ; au retour, la carte reprend à l'endroit du combat.
     Un groupe vaincu est dispersé et son or va au butin.
+  - **Une carte vivante** (`scripts/party_ai.gd`) : chaque sorte de groupe a son comportement.
+    - **Villageois** : ils mènent leurs marchandises du village au marché le plus proche (ville ou bourg), y
+      restent quelques heures, puis rentrent ; ils fuient les bandits qu'ils voient.
+    - **Bandits** : tapis près de leur repaire (cachés en forêt, invisibles tant qu'on ne tombe pas dessus),
+      ils rôdent, fondent sur les proies faibles (villageois, caravanes peu gardées, déserteurs, et la
+      compagnie si elle ne pèse pas plus d'environ 1,7 fois leur force), rentrent au repaire avec le butin et y
+      recrutent (une recrue par 25 écus, 90 hommes au plus). Ils fuient patrouilles et armées plus fortes.
+    - **Caravanes** : de ville en ville voisine par les grandes routes, elles vendent avec bénéfice à
+      l'arrivée, rechargent leurs chariots et font un détour devant des bandits repérés. Une caravane
+      escortée paie l'escorte à l'arrivée.
+    - **Patrouilles** de faction (montées, plus rapides que les brigands) : depuis une ville, une tournée de
+      deux ou trois lieux de leur territoire puis retour ; elles pourchassent bandits et déserteurs, et la
+      compagnie si leur faction la hait (portes fermées) ou est en guerre avec celle qu'elle sert.
+    - **Déserteurs** : ils naissent des batailles du monde vivant (armées défaites, sièges levés, villes
+      prises) et des guerres, errent loin des villes et tournent au brigandage au bout de trois à cinq jours.
+    - **Combats entre groupes** : quand un groupe en attaque un autre (bandits contre villageois ou
+      caravane, patrouille contre bandits, patrouilles de factions en guerre...), l'issue est tirée au sort
+      d'après la force ; le vaincu perd l'essentiel de ses hommes et détale (ou se disperse), le vainqueur
+      prend le butin. Aux nouvelles du monde ; au journal seulement près de la compagnie ou si c'est
+      important (caravane escortée, bande nommée détruite).
+    - **Peuplement** : la carte entretient environ 30 groupes, d'après son nombre de villages et de villes et
+      sa taille (`Overworld.POPULATION`, `population_cap`) ; deux réapparitions par sorte et par jour au
+      plus. Moins de caravanes en hiver, plus de bandits et de déserteurs en guerre.
   - **Caméra** : ZQSD (touches physiques) ou flèches, bord de l'écran, clic molette pour déplacer la vue,
     molette pour zoomer (de x0,3 à x2,5), **C** pour recentrer sur la compagnie. **Mini-carte** en bas à
     gauche : toute la carte, les lieux, les groupes et le cadre de la vue (clic ou glisser : y regarder).
@@ -442,9 +465,11 @@ scripts/map_data.gd     Géographie (MapData, seule source de vérité) : taille
 scripts/map_render.gd   Rendu du fond de la carte (MapRender) : textures de champs, shader du terrain, pics,
                         collines, routes, ponts, noms des régions et des lieux naturels
 scripts/overworld.gd    Carte en temps réel sans rendu (Overworld) : heure, compagnie, registre des groupes,
-                        contact et rencontres, fin de journée, population, sauvegarde
+                        contact et rencontres, fin de journée, population (plafonds, saisons, guerres,
+                        déserteurs des batailles), sauvegarde
 scripts/party.gd        Groupe de la carte (Party) : sorte, position, chemin, régiments, état
-scripts/party_ai.gd     Comportements des groupes (PartyAI.think, par sorte ; errance par défaut)
+scripts/party_ai.gd     Comportements des groupes (PartyAI.think -> think_<sorte> : villageois, bandits,
+                        caravanes, patrouilles, déserteurs) et combats entre groupes (skirmishes, fight)
 scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
 scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, taille de l'interface, vitesse, difficulté, touches
@@ -524,6 +549,8 @@ tests/overworld_test.gd Test de la carte en temps réel (MapData : lieux, routes
                         régions et factions des lieux, tout lieu accessible ; marche, vitesse sur et hors route, hiver, jour
                         qui passe, registre et errance, poursuite, bandits, armées, rencontres, sauvegarde v9 et
                         migration v8, scène : clics, pause, vitesses, rencontre, retour de bataille)
+tests/party_ai_test.gd  Test des groupes de la carte : marché des villageois, chasse et fuite des bandits,
+                        caravanes et escorte, patrouilles, déserteurs, peuplement, déterminisme, performances
 tests/overworld_capture.gd Captures de la carte (ville, marche, nuit, rencontre) dans user://captures (avec fenêtre)
 tests/map_capture.gd    Captures de la grande carte (vue éloignée, moyenne, rapprochée, montagnes, sud ; avec fenêtre ;
                         option --out)
@@ -580,6 +607,7 @@ godot --headless --path . -s tests/stats_test.gd      # statistiques et succès 
 godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent
 godot --headless --path . -s tests/world_test.gd      # monde vivant : saisons, guerres, armées, sièges, sauvegarde
 godot --headless --path . -s tests/overworld_test.gd  # carte en temps réel : marche, terrain, jour, groupes, rencontres
+godot --headless --path . -s tests/party_ai_test.gd   # groupes de la carte : comportements, peuplement, déterminisme
 godot --path . --resolution 1280x720 -s tests/overworld_capture.gd   # carte_ville/marche/nuit/rencontre.png
 godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, campagne
 godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
