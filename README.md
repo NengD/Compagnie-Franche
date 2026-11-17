@@ -227,6 +227,34 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   - **Camper un jour** (section « Le pays ») : la solde est due, le monde avance d'un jour.
   - **Nouvelles du monde** : les dernières sont listées dans la section « Le pays ».
   - Réglages : constantes en tête de `scripts/world_sim.gd`.
+- **Rencontres de la carte en temps réel** (`scripts/encounter.gd`, panneau `scripts/encounter_panel.gd`) :
+  quand la compagnie entre en contact avec un groupe (villageois, bandits, caravane, patrouille, armée,
+  déserteurs), un panneau affiche l'accueil, la force estimée des deux camps (« Ils sont environ 60, surtout
+  des archers ») et des choix numérotés (touches **1 à 9**, **Échap** pour passer son chemin quand c'est permis) :
+  - **Bandits** : attaquer, payer un tribut (3 écus par bandit, arrondi), les **intimider** s'ils sont au plus
+    moitié moins forts (ils fuient, ou se rendent avec leur bourse : +4 auprès de la faction locale), fuir.
+  - **Villageois** : acheter des **vivres** (15 % de la solde du jour ; la solde du lendemain baisse de 30 %),
+    vendre du **butin** (60 % de sa valeur, dans la limite de leur bourse), recruter des **volontaires**
+    (piquiers, ou archers si la faction locale vous aime ; 80 % du prix), les **rançonner** (si vous êtes 1,5 fois
+    plus forts ; -6 de réputation), les attaquer (-8), passer.
+  - **Caravane** : commercer (butin repris à 90 %), proposer une **escorte** jusqu'à sa destination (petit
+    contrat de 40 à 250 écus payé à l'arrivée, +3 de réputation), la **piller** (-15 ; elle se rend sans combat
+    si ses gardes sont quatre fois plus faibles), passer.
+  - **Patrouille ou armée** : parler (guerres en cours, contrats de sa faction), **se joindre** à elle (réputation
+    20 et plus), attaquer si vous êtes en guerre contre elle ou qu'elle est hostile ; hostile et plus forte :
+    **se rendre** (25 % de l'or confisqué) ou fuir.
+  - **Déserteurs** : les recruter (40 % du prix, mais moral bas : moitié moins aguerris), les **livrer** à leur
+    faction (3 écus par homme, +3 ; s'ils sont nettement plus faibles), les attaquer.
+  - Un groupe qui **fond sur la compagnie** ne laisse que : combattre, payer (ou se rendre) et fuir.
+  - **Fuir** : la chance dépend surtout des vitesses, puis de la taille des deux groupes (de 5 à 95 % ; sous
+    10 %, la fuite n'est pas proposée). Une fuite manquée force la bataille.
+  - Une bataille contre un groupe est un contrat sans prime (`CampaignState.party_contract`) : l'ennemi est le
+    groupe lui-même, découpé en régiments complets (10 au plus). Après la bataille, `apply_party_battle`
+    reporte ses pertes sur le groupe (les survivants et les fuyards revenus), donne son or et ses marchandises
+    (butin à revendre) au vainqueur, et la réputation (villageois -8, caravane -15, bandits +4 à la faction
+    locale, armée -5 / +5 à ses ennemis).
+  - Aucun tirage pendant l'affichage : le hasard (fuite, intimidation, terrain) est tiré dans `resolve` avec une
+    graine dérivée du groupe, du jour et du choix ; le `rng` de la campagne n'est pas touché.
 - **Mode indulgent** (option de la nouvelle campagne) : la bataille en cours n'est pas sauvegardée. Fermer
   la fenêtre en pleine bataille revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
 
@@ -397,6 +425,8 @@ scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures a
 scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » du panneau de la carte
 scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, guerres, armées, sièges, prises
                         de villes, rencontres, contrats de guerre ; appelé par CampaignState (pass_day, travel)
+scripts/encounter.gd    Rencontres de la carte (Encounter) : choix par sorte et attitude, résolution, accueil
+scripts/encounter_panel.gd Panneau d'une rencontre (EncounterPanel) : choix numérotés, Échap, signal closed
 scripts/world_army.gd   Armée de faction sur la carte (WorldArmy) : marche, siège, sauvegarde
 scripts/world_view.gd   Affichage du monde sur la carte (WorldView) : armées, sièges, météo, section « Le pays »
 scripts/soldier.gd      Soldat individuel
@@ -420,6 +450,9 @@ tests/campaign_test.gd  Test de la campagne (règles, vétérans, réputation, d
 tests/ai_test.gd        Test de l'IA (formations, course, colline, gués, défense, retraite, embuscade)
 tests/objectives_test.gd Test des objectifs (détruire, tenir, escorter, prendre, poursuivre : IA, victoire,
                         défaite, panneau, bilan ; contrats de campagne et supplément de l'escorte)
+tests/encounter_test.gd Test des rencontres : chaque sorte et chaque choix, contrat, pertes, butin, réputation,
+                        fuite, sauvegarde, panneau (touches)
+tests/encounter_capture.gd Captures du panneau de rencontre dans user://captures (avec fenêtre ; option --out)
 tests/objectives_capture.gd Captures de chaque objectif en bataille (avec fenêtre ; option --out)
 
 tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
@@ -493,6 +526,8 @@ godot --headless --path . -s tests/world_test.gd      # monde vivant : saisons, 
 godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, campagne
 godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
+godot --headless --path . -s tests/encounter_test.gd  # rencontres de la carte : choix, bataille, réputation, fuite
+godot --path . -s tests/encounter_capture.gd          # rencontre_villageois.png, rencontre_bandits.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
 godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)
 godot --path . --resolution 1280x720 -s tests/interface_capture.gd -- --ui=1.5   # captures user://captures_interface/
