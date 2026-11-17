@@ -29,7 +29,8 @@ const WINTER_CARAVANS := 0.5 ## En hiver, moins de caravanes...
 const WAR_BANDITS := 1.5 ## ... en guerre, plus de bandits
 const PEACE_DESERTERS := 1 ## Déserteurs tolérés en paix
 const MAX_DESERTERS := 8
-const SPAWNS_PER_DAY := 2 ## Réapparitions par sorte et par jour au plus
+const SPAWNS_PER_DAY := 2 ## Réapparitions par sorte et par jour, au moins (voir spawns_per_day)
+const SPAWN_DAYS := 5.0 ## Une sorte vidée retrouve son plafond en à peu près tant de jours
 const WAR_DESERTER_CHANCE := 0.3 ## Chaque jour de guerre, chance que des soldats désertent (par guerre)
 const BANDIT_NAMES := ["les Écorcheurs", "les Loups de Valfrène", "la bande du Borgne", "les Coupe-Bourses", "les Tard-Venus", "les Malandrins du Gué"]
 const ENCOUNTER_SCRIPT := "res://scripts/encounter.gd"
@@ -345,6 +346,12 @@ func population_cap(c: CampaignState, kind: String) -> int:
 ## Entretient la population de groupes (population_cap) : SPAWNS_PER_DAY nouveaux groupes par
 ## sorte et par jour au plus (fill : jusqu'au plafond, pour une carte neuve). Les batailles du
 ## monde vivant (WorldSim.aftermath) et les guerres jettent des déserteurs sur les chemins.
+## Réapparitions par jour pour un plafond : SPAWNS_PER_DAY au moins, et assez pour que la grande
+## carte se repeuple en SPAWN_DAYS jours environ.
+static func spawns_per_day(cap: int) -> int:
+	return maxi(SPAWNS_PER_DAY, ceili(cap / SPAWN_DAYS))
+
+
 func populate(c: CampaignState, fill := false) -> void:
 	if not spawning:
 		c.world.aftermath.clear()
@@ -354,7 +361,7 @@ func populate(c: CampaignState, fill := false) -> void:
 			continue
 		var cap := population_cap(c, kind)
 		var n := 0
-		while count(kind) < cap and (fill or n < SPAWNS_PER_DAY):
+		while count(kind) < cap and (fill or n < spawns_per_day(cap)):
 			if spawn(c, kind) == null:
 				break
 			n += 1

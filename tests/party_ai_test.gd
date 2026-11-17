@@ -350,7 +350,7 @@ func _test_population() -> void:
 			ow.remove(c, p)
 	ow.inside = 0
 	ow.tick(c, 24.0)
-	check(ow.count("villagers") > 0 and ow.count("villagers") <= Overworld.SPAWNS_PER_DAY + 1, "peuplement : réapparitions (%d villageois en un jour)" % ow.count("villagers"))
+	check(ow.count("villagers") > 0 and ow.count("villagers") <= Overworld.spawns_per_day(ow.population_cap(c, "villagers")) + 1, "peuplement : réapparitions (%d villageois en un jour)" % ow.count("villagers"))
 	for i in 6:
 		ow.tick(c, 24.0)
 		ow.inside = 0
