@@ -115,7 +115,7 @@ func turn() -> void:
 			int(camp.gold), camp.fame, camp.company.size(), camp.total_men(), camp.daily_wage(), camp.contracts.size()])
 	if camp.world.has_encounter():
 		var a := camp.world.encounter_army()
-		if a != null and ratio(company_power(), encounter_power(a.men)) >= FLEE_RATIO:
+		if a != null and ratio(company_power(), encounter_power(a.force)) >= FLEE_RATIO:
 			camp.world.fight(camp)
 		else:
 			camp.world.flee(camp)

@@ -10,7 +10,7 @@ const GOLD := Color(1, 0.84, 0.4)
 const WARN := Color(1, 0.5, 0.4)
 const WOOD := Color(0.48, 0.32, 0.17)
 const ARMY_PICK := 16.0 ## Rayon de survol d'une armée
-const MAP_SIZE := Vector2(880, 720) ## Comme campaign_map.gd
+const MAP_SIZE := MapData.SIZE
 
 
 # ---------------------------------------------------------------- Panneau
@@ -27,7 +27,7 @@ static func build_encounter(map: Node) -> void:
 		map.add_label("L'armée s'est éloignée.", 12, DIM)
 		map.add_button("Reprendre la route", WorldView.clear_encounter.bind(map))
 		return
-	map.add_label("%s (%s) vous attend sur la route de %s." % [CampaignState.cap_first(a.display_name()), CampaignState.plural(a.men, "homme", "hommes"), WorldSim.town_name(int(w.encounter["town"]))], 13, WARN)
+	map.add_label("%s (%s) vous attend sur la route de %s." % [CampaignState.cap_first(a.display_name()), CampaignState.plural(a.force, "homme", "hommes"), WorldSim.town_name(int(w.encounter["town"]))], 13, WARN)
 	map.add_label("Combattre : pas de prime, mais le butin ; la disperser fâche %s (%+d) et plaît à ses ennemis (%+d). Fuir : un jour de détour et %d %% de l'or abandonné avec les bagages." % [WorldSim.short(a.faction), -WorldSim.REP_ARMY, WorldSim.REP_ARMY, int(WorldSim.FLEE_GOLD * 100)], 12, DIM)
 	map.add_button("Livrer bataille", WorldView.fight.bind(map), not state.is_destroyed())
 	map.add_button("Fuir", WorldView.flee.bind(map))
@@ -51,8 +51,6 @@ static func build_world(map: Node) -> void:
 		var s := state.town_siege(t)
 		if not s.is_empty():
 			map.add_label("%s est assiégée par %s (%s, %s de siège ; garnison %d)." % [WorldSim.town_name(t), WorldSim.short(int(s["faction"])), CampaignState.plural(int(s["men"]), "homme", "hommes"), CampaignState.plural(int(s["days"]), "jour", "jours"), int(s["garrison"])], 12, WARN)
-	var free: bool = not map.walking and not map.ambushed and not w.has_encounter() and not state.is_over()
-	map.add_button("Camper un jour à %s (solde %d écus)" % [WorldSim.town_name(state.location), ceili(state.daily_wage())], WorldView.camp.bind(map), free)
 	if not w.news.is_empty():
 		map.add_label("Nouvelles du monde", 13, GOLD)
 		for i in mini(5, w.news.size()):
@@ -88,7 +86,8 @@ static func clear_encounter(map: Node) -> void:
 	map.refresh_ui()
 
 
-## Un jour passe sans marcher : on regarde le monde bouger (la solde est due).
+## Un jour passe d'un coup sans marcher (la solde est due). La carte en temps réel n'en a plus
+## besoin (le temps s'écoule tout seul) ; gardé pour les outils et les tests.
 static func camp(map: Node) -> void:
 	var state: CampaignState = map.state
 	state.pass_day()
@@ -149,7 +148,7 @@ static func draw_army(map: Node2D, state: CampaignState, a: WorldArmy) -> void:
 	if hostile:
 		map.draw_arc(p + Vector2(0, 2), 13.0, 0, TAU, 20, Color(0.9, 0.15, 0.1, 0.9), 1.5)
 	# Petits soldats : un par tranche de 80 hommes (de 1 à 4)
-	var n := clampi(ceili(a.men / 80.0), 1, 4)
+	var n := clampi(ceili(a.force / 80.0), 1, 4)
 	for k in n:
 		var s := p + Vector2(-6 + k * 4, 4 - (k % 2) * 2)
 		map.draw_rect(Rect2(s + Vector2(0, -4), Vector2(3, 5)), col.darkened(0.3))
@@ -160,15 +159,16 @@ static func draw_army(map: Node2D, state: CampaignState, a: WorldArmy) -> void:
 	map.draw_rect(Rect2(p + Vector2(-7, -12), Vector2(9, 6)), col)
 	map.draw_rect(Rect2(p + Vector2(-7, -12), Vector2(9, 6)), Color(0, 0, 0, 0.6), false, 1.0)
 	var font: Font = map.font
-	var label := str(a.men)
+	var label := str(a.force)
 	map.draw_string(font, p + Vector2(-13, 19), label, HORIZONTAL_ALIGNMENT_CENTER, 26, 10, Color(0, 0, 0, 0.85))
 	map.draw_string(font, p + Vector2(-14, 18), label, HORIZONTAL_ALIGNMENT_CENTER, 26, 10, Color(1, 0.6, 0.5) if hostile else Color(1, 0.95, 0.85))
 
 
-## Voile de saison et pluie animée sur toute la carte.
-static func draw_weather(map: Node2D) -> void:
+## Voile de saison et pluie animée sur la partie visible de la carte (view, coordonnées de la carte).
+static func draw_weather(map: Node2D, view := Rect2(Vector2.ZERO, MAP_SIZE)) -> void:
 	var state: CampaignState = map.state
-	var size := MAP_SIZE
+	var size := view.size
+	map.draw_set_transform(view.position)
 	var season := WorldSim.season_of(state.day)
 	match season:
 		WorldSim.WINTER:
@@ -190,6 +190,7 @@ static func draw_weather(map: Node2D) -> void:
 			var x := fposmod(k * 61.7 + t * 40.0, size.x)
 			var y := fposmod(k * 37.9 + t * 260.0, size.y)
 			map.draw_line(Vector2(x, y), Vector2(x - 3, y + 9), drop, 1.0)
+	map.draw_set_transform(Vector2.ZERO)
 
 
 ## Cartouche du calendrier et des guerres, en haut à droite de la carte.
@@ -216,7 +217,7 @@ static func draw_calendar(map: Node2D) -> void:
 static func draw_army_tooltip(map: Node2D, a: WorldArmy) -> void:
 	var state: CampaignState = map.state
 	var font: Font = map.font
-	var lines: Array[String] = [CampaignState.cap_first(a.display_name()), CampaignState.plural(a.men, "homme", "hommes") + ", " + a.doing()]
+	var lines: Array[String] = [CampaignState.cap_first(a.display_name()), CampaignState.plural(a.force, "homme", "hommes") + ", " + a.doing()]
 	if state.world.hostile_to_player(state, a):
 		lines.append("Hostile : elle attaquera la compagnie qui croise sa route")
 	var wd := 0.0

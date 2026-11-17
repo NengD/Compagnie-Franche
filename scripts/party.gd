@@ -24,15 +24,17 @@ const KIND_NAMES := {
 	"deserters": "des déserteurs",
 }
 
-## Vitesse de base (pixels de carte par heure de jeu) par sorte, avant terrain, route et saison.
+## Vitesse de base (pixels de carte par heure de jeu) par sorte, avant terrain, route et saison
+## (MapData.speed_at : x1,3 sur la route). La compagnie fait environ 400 px par jour sur la route,
+## comme les 130 px par jour de l'ancienne carte, trois fois plus petite.
 const BASE_SPEED := {
-	"player": 6.0,
-	"villagers": 4.0,
-	"bandits": 6.5,
-	"caravan": 3.5,
-	"patrol": 6.0,
-	"army": 4.5,
-	"deserters": 5.5,
+	"player": 12.5,
+	"villagers": 8.5,
+	"bandits": 13.5,
+	"caravan": 7.5,
+	"patrol": 12.5,
+	"army": 9.6,
+	"deserters": 11.5,
 }
 
 var id := 0
