@@ -20,6 +20,7 @@ const CONTACT_RANGE := 22.0 ## Distance (carte) à laquelle deux groupes se touc
 const SIGHT := 180.0 ## Distance à laquelle un groupe hostile repère la compagnie
 const COOLDOWN_HOURS := 10.0 ## Après une rencontre, le même groupe ne vous arrête plus pendant ce temps
 const REPATH_DIST := 40.0 ## Poursuite : on recalcule le chemin quand la cible s'en écarte de tant
+const FLEE_DIST := 220.0 ## Un groupe qui détale part à peu près de tant
 ## Population entretenue chaque jour (sorte -> nombre de groupes). Les sessions suivantes en
 ## ajouteront d'autres (patrouilles, déserteurs) avec leurs comportements.
 const POPULATION := {"villagers": 4, "bandits": 3, "caravan": 2}
@@ -86,6 +87,10 @@ func remove(c: CampaignState, p: Party) -> void:
 		c.world.armies.erase(p)
 	else:
 		parties.erase(p)
+		if not c.escort_for(p.id).is_empty(): # Caravane escortée disparue : escorte manquée
+			var msg := c.finish_escort(p.id, false)
+			if msg != "":
+				c.add_log("Jour %d : %s" % [c.day, msg])
 	cooldown.erase(str(p.id))
 
 
@@ -131,6 +136,7 @@ func go_to(c: CampaignState, pos: Vector2) -> String:
 	var place := MapData.place_at(pos)
 	var dest := MapData.place_pos(place) if place >= 0 else pos
 	player.go(MapData.find_path(player.pos, dest))
+	player.state = "idle" # Un nouvel ordre met fin à une marche à la suite d'un autre groupe
 	enter_goal = place
 	if player.path.is_empty():
 		if place >= 0:
@@ -164,6 +170,7 @@ func chase(c: CampaignState, id: int) -> String:
 func halt() -> void:
 	player.path.clear()
 	player.target_id = -1
+	player.state = "idle"
 	enter_goal = -1
 
 
@@ -235,7 +242,8 @@ func step(c: CampaignState, h: float) -> Dictionary:
 		if p.busy_hours > 0.0:
 			p.busy_hours = maxf(0.0, p.busy_hours - h)
 		elif not p.path.is_empty():
-			p.advance(speed_of(c, p) * h)
+			if p.advance(speed_of(c, p) * h):
+				arrived(c, p)
 	parties = parties.filter(func(p: Party) -> bool: return not p.is_dead())
 	c.world.tick(c, h) # Les armées de faction
 	for k in cooldown.keys():
@@ -268,6 +276,8 @@ func contact(c: CampaignState) -> Party:
 	for p in near(c, player.pos, CONTACT_RANGE):
 		if p.hidden or cooldown.has(str(p.id)):
 			continue
+		if p.id == player.target_id and player.state == "follow":
+			continue # La compagnie marche avec ce groupe (« Se joindre à eux »)
 		if p.id == player.target_id or hostile(c, p):
 			return p
 	return null
@@ -385,29 +395,59 @@ func options(c: CampaignState, other: Party) -> Array[Dictionary]:
 ## bataille est mise en attente (c.pending) ; le groupe ne vous arrête plus un moment.
 func resolve(c: CampaignState, other: Party, option_id: String) -> Dictionary:
 	var out := {}
+	var logged := false # encounter.gd tient déjà le journal
 	var enc := encounter_script()
 	if enc != null and _has_static(enc, "resolve"):
 		var got: Variant = enc.call("resolve", c, player, other, option_id)
 		if got is Dictionary:
 			out = got
+			logged = true
 	if out.is_empty():
 		out = default_resolve(c, other, option_id)
 	cooldown[str(other.id)] = COOLDOWN_HOURS
+	if bool(out.get("other_flees", false)):
+		run_away(other, player.pos)
+	if bool(out.get("player_flees", false)):
+		cooldown[str(other.id)] = COOLDOWN_HOURS * 2.0 # Distancé : il ne vous retrouve pas de sitôt
 	if bool(out.get("battle", false)):
 		var k: Dictionary = out.get("contract", {})
-		if k.is_empty():
-			k = party_battle(c, other)
+		if k.is_empty() or other is WorldArmy:
+			k = party_battle(c, other) # Une armée de faction : bataille du monde vivant (dispersée si vaincue)
 		k["party"] = other.id
-		if not k.has("terrain"):
-			k["terrain"] = MapData.battle_terrain_at(player.pos)
+		if not k.has("siege"):
+			k["terrain"] = MapData.battle_terrain_at(player.pos) # Le terrain de l'endroit du contact
 		out["contract"] = k
 		c.pending = k
 	if bool(out.get("remove_other", false)):
 		remove(c, other)
 	var text := str(out.get("text", ""))
-	if text != "":
+	if text != "" and not logged:
 		c.add_log("Jour %d : %s" % [c.day, text])
 	return out
+
+
+## Un groupe détale loin de from (sur un point praticable) et cesse toute poursuite.
+func run_away(p: Party, from: Vector2) -> void:
+	var dir := (p.pos - from).normalized()
+	if dir == Vector2.ZERO:
+		dir = Vector2.RIGHT.rotated(rng.randf() * TAU)
+	var to := MapData.walkable_point((p.pos + dir * FLEE_DIST).clamp(Vector2(20, 20), MapData.SIZE - Vector2(20, 20)))
+	p.go(MapData.find_path(p.pos, to))
+	p.target_id = -1
+	p.state = "flee"
+	p.busy_hours = 0.0
+
+
+## Un groupe arrive au bout de son chemin : une caravane escortée jusqu'à son but paie l'escorte.
+func arrived(c: CampaignState, p: Party) -> void:
+	var e := c.escort_for(p.id)
+	if e.is_empty():
+		return
+	var goal := int(e.get("goal", -1))
+	if goal < 0 or p.pos.distance_to(MapData.place_pos(goal)) <= MapData.PLACE_RADIUS:
+		var msg := c.finish_escort(p.id, true)
+		if msg != "":
+			c.add_log("Jour %d : %s" % [c.day, CampaignState.cap_first(msg)])
 
 
 func default_resolve(c: CampaignState, other: Party, option_id: String) -> Dictionary:
@@ -460,10 +500,13 @@ func after_battle(c: CampaignState, victory: bool, result: Dictionary) -> String
 	if other == null or other is WorldArmy:
 		return ""
 	if c.has_method("apply_party_battle"):
-		c.call("apply_party_battle", other, result)
+		var r := result.duplicate()
+		r["victory"] = victory # Le bilan n'est pas encore complet (finish_report vient après)
+		var note := str(c.call("apply_party_battle", other, r))
+		cooldown[str(other.id)] = COOLDOWN_HOURS
 		if other.is_dead():
 			remove(c, other)
-		return ""
+		return (" " + note) if note != "" else ""
 	cooldown[str(other.id)] = COOLDOWN_HOURS
 	if not victory:
 		return ""

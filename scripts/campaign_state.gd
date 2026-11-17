@@ -1705,6 +1705,10 @@ func party_contract(other: Party, terrain: String) -> Dictionary:
 	}
 
 
+const PARTY_REGROUP := 0.3 ## Groupe vaincu : au plus cette part de ses hommes engagés se regroupe
+const PARTY_MIN_MEN := 6 ## Groupe vaincu réduit à moins d'hommes : il se disperse
+
+
 ## Après la bataille contre un groupe (à appeler après finish_battle, avec son bilan) : pertes
 ## reportées sur other.troops, butin et réputation. result : « victory » et, pour l'effectif ennemi
 ## restant, « enemy_survivors » (debout + fuyards revenus), ou « totals » du bilan de bataille
@@ -1723,8 +1727,12 @@ func apply_party_battle(other: Party, result: Dictionary) -> String:
 		survivors = int(t.get("enemy_standing", 0)) + int(t.get("enemy_fled", 0))
 	else:
 		survivors = engaged - int(result.get("killed", 0))
+	if victory: # Vaincus : seule une partie des fuyards se regroupe
+		survivors = mini(survivors, int(engaged * PARTY_REGROUP))
 	# Les hommes restés hors de la bataille survivent
 	survivors = clampi(survivors + before - engaged, 0, before)
+	if victory and survivors < PARTY_MIN_MEN:
+		survivors = 0 # Trop peu pour tenir la campagne : le groupe se disperse
 	scale_troops(other, survivors, before)
 	for r in other.troops:
 		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (0.0 if victory else XP_VICTORY), XP_MAX)

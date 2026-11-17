@@ -373,6 +373,18 @@ func update_hover() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
 	if k != null and k.pressed and not k.echo:
+		# Rencontre : les touches 1 à 9 de la rangée du haut (ou du pavé) choisissent
+		if contact != null:
+			var digit := -1
+			if k.physical_keycode >= KEY_1 and k.physical_keycode <= KEY_9:
+				digit = k.physical_keycode - KEY_1
+			elif k.keycode >= KEY_KP_1 and k.keycode <= KEY_KP_9:
+				digit = k.keycode - KEY_KP_1
+			if digit >= 0:
+				var opts := state.overworld.options(state, contact)
+				if digit < opts.size() and bool(opts[digit].get("enabled", true)):
+					choose(str(opts[digit].get("id", "")))
+				return
 		match k.keycode:
 			KEY_ESCAPE:
 				back_to_menu()
@@ -501,6 +513,9 @@ func choose(option_id: String) -> void:
 	contact = null
 	var out := state.overworld.resolve(state, other, option_id)
 	notice = str(out.get("text", ""))
+	# Commercer, parler, recruter : la rencontre continue (le temps reste arrêté)
+	if not bool(out.get("close", true)) and not bool(out.get("battle", false)) and not bool(out.get("remove_other", false)) and not other.is_dead():
+		contact = other
 	if bool(out.get("battle", false)) and state.in_battle():
 		start_battle()
 	else:
@@ -844,10 +859,21 @@ func build_contact() -> void:
 	add_section("Rencontre : %s" % CampaignState.cap_first(contact.display_name()))
 	var lines := party_lines(contact)
 	add_label(" · ".join(lines.slice(1, lines.size() - 1)), 12, Color(1, 0.5, 0.4) if ow.hostile(state, contact) else Color(0.92, 0.88, 0.78))
+	var enc := Overworld.encounter_script()
+	if enc != null:
+		add_label(str(enc.call("greeting", state, ow.player, contact)), 12, Color(0.92, 0.88, 0.78))
 	add_label("Terrain du combat : %s." % str(Terrain.NAMES.get(MapData.battle_terrain_at(ow.player.pos), "plaine")).to_lower(), 12, Color(0.75, 0.72, 0.65))
+	var n := 0
 	for o in ow.options(state, contact):
-		var text := str(o.get("text", o.get("label", o.get("id", "?"))))
-		add_button(text, choose.bind(str(o.get("id", ""))), bool(o.get("enabled", true)) and (str(o.get("id", "")) != "attack" or not state.is_destroyed()))
+		n += 1
+		var text := "%d. %s" % [n, str(o.get("text", o.get("label", o.get("id", "?"))))]
+		var hint := str(o.get("hint", ""))
+		var on := bool(o.get("enabled", true)) and (str(o.get("id", "")) != "attack" or not state.is_destroyed())
+		if not on and str(o.get("reason", "")) != "":
+			hint = str(o["reason"])
+		if hint != "":
+			text += " — " + hint
+		add_button(text, choose.bind(str(o.get("id", ""))), on)
 
 
 func build_town(here: int, closed: String) -> void:

@@ -291,12 +291,16 @@ func _test_contact() -> void:
 	# Attaquer : la bataille est en attente sur le terrain de l'endroit, contre les régiments du groupe
 	out = ow.resolve(c, b, "attack")
 	check(bool(out["battle"]) and c.in_battle() and int(c.pending["party"]) == b.id and str(c.pending["terrain"]) == MapData.battle_terrain_at(ow.player.pos), "bandits : bataille mal préparée")
-	check(c.pending["enemy"].size() == 2, "bandits : armée ennemie")
+	var foes := 0
+	for r in c.pending["enemy"]:
+		foes += int(r["men"])
+	check(c.pending["enemy"].size() >= 2 and foes == b.men(), "bandits : armée ennemie")
 	var back := CampaignState.from_dict(JSON.parse_string(JSON.stringify(c.to_dict())))
 	check(back != null and int(back.pending.get("party", -1)) == b.id and back.overworld.by_id(back, b.id) != null, "bataille contre un groupe perdue à la sauvegarde")
 	var gold := c.gold
+	var before_men := b.men()
 	var res := c.finish_battle(true, [], [])
-	check(ow.by_id(c, b.id) == null and c.gold > gold and str(res["text"]).contains("dispersé"), "bandits : vaincus mais toujours là (%s)" % res["text"])
+	check((ow.by_id(c, b.id) == null or b.men() <= int(before_men * CampaignState.PARTY_REGROUP)) and c.gold > gold, "bandits : vaincus mais toujours aussi forts (%s ; %d/%d hommes, or %d -> %d)" % [res["text"], b.men(), before_men, gold, c.gold])
 	# Une armée hostile : bataille de WorldSim (dispersée si on gagne)
 	c.world.declare_war(c, 0, 1)
 	c.reputation[0] = 30
@@ -384,7 +388,7 @@ func _process(_delta: float) -> bool:
 			check(absf(c.overworld.hour - h - map.HOURS_PER_SECOND * 4.0) < 0.01, "scène : vitesse x4")
 			# Un groupe sur la route : clic pour le poursuivre, rencontre au contact
 			var v := Party.new()
-			v.kind = "caravan"
+			v.kind = "villagers"
 			v.troops = [{"type": "spear", "men": 8, "xp": 0.0}]
 			v.pos = c.overworld.player.pos + Vector2(60, 0)
 			v.busy_hours = 50.0
@@ -395,7 +399,7 @@ func _process(_delta: float) -> bool:
 				if map.contact != null:
 					break
 				map.advance_time(0.5)
-			check(map.contact == v and map.time_stopped() and _texts(map.box).has("Attaquer"), "scène : pas de rencontre affichée")
+			check(map.contact == v and map.time_stopped() and _texts(map.box).any(func(t: String) -> bool: return "attaquer" in t.to_lower()), "scène : pas de rencontre affichée")
 			map.choose("attack")
 			check(map.ambushed and c.in_battle() and int(c.pending["party"]) == v.id, "scène : attaquer ne lance pas la bataille")
 			fought_id = v.id
