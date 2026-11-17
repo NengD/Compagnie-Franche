@@ -80,7 +80,7 @@ Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disput
 le **Comté de Valfrène** (Valombre, Saint-Aubin), la **Baronnie de Montfaucon** (Montfaucon, Castelroux,
 Hautemure) et la **Ligue des villes** (Brévannes, Pontrieux) au début de la campagne. Le liseré sous chaque
 ville donne la faction qui la tient aujourd'hui (les villes changent de mains, voir « Monde vivant »).
-- **Objectif** (annoncé au journal dès le jour 1, rappelé par l'encart en haut à gauche de la carte et dans
+- **Objectif** (annoncé au journal dès le jour 1, rappelé dans
   le panneau) : faire de la compagnie la plus célèbre du comté. À **150 de renommée**, la faction qui vous
   estime le plus (parmi celles qui ne vous ferment pas leurs portes) vous convoque dans sa capitale
   (Saint-Aubin, Montfaucon ou Pontrieux, drapeau doré) pour la **bataille décisive** contre sa rivale :
@@ -92,9 +92,33 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
 - **Game over** : si la compagnie n'a plus un homme et ne peut plus lever un seul régiment complet dans la
   ville où elle se trouve (pas assez d'or, ou faction hostile), elle est dissoute : écran de fin avec le
   bilan, puis menu. Une compagnie anéantie mais encore riche peut recruter et repartir.
-- **Marcher** : cliquez sur une ville reliée par une route à la vôtre. Chaque jour de marche coûte la **solde**
-  (par homme et par jour : voir la colonne « solde » du tableau des unités ci-dessous).
-  Si les caisses sont vides, une partie des hommes **déserte** chaque jour.
+- **Carte du monde en temps réel** (`scripts/overworld.gd`, `scripts/map_data.gd`) : une carte trois fois
+  plus grande que l'ancienne (2640 × 2160), les 7 villes, des villages et des châteaux reliés par des chemins,
+  une rivière (des ponts sur les routes), deux lacs entourés de marais, des forêts et des collines.
+  - **Le temps s'écoule** en heures de jeu (barre en haut à gauche : jour, heure, saison, météo ; 24 h = un
+    jour de campagne, avec sa solde, ses contrats qui expirent, sa météo et le monde vivant). **Espace** :
+    pause ; boutons ou touches **1, 2, 3** de la rangée du haut (& é " en AZERTY) : vitesses x1, x2, x4
+    (x1 = 1,5 heure par seconde). Le temps s'arrête quand le panneau d'une ville ou une rencontre est ouvert.
+    La carte s'assombrit la nuit et rougeoie à l'aube et au crépuscule. Sauvegarde automatique chaque jour.
+  - **Marcher** : clic gauche sur la carte, la compagnie y va (chemin A* qui préfère les routes et contourne
+    l'eau ; pointillés jusqu'au but). Sur la route on marche à x1,3 ; en forêt x0,6, dans les collines x0,7,
+    dans les marais x0,5 ; en hiver tout est x0,7. Valombre → Saint-Aubin prend environ deux jours.
+    Clic droit : halte. Chaque jour coûte la **solde** (par homme et par jour : voir la colonne « solde » du
+    tableau des unités ci-dessous) ; si les caisses sont vides, une partie des hommes **déserte** chaque jour.
+    Un jour où la compagnie a marché peut amener un évènement de route (voir plus bas) et, en hiver, le froid.
+  - **Entrer dans une ville** : cliquez sur une ville (ou un village, un château) : la compagnie y marche et y
+    entre à l'arrivée. Le panneau de la ville s'ouvre (recrutement, contrats, capitaine et équipement) et le
+    temps s'arrête ; « Quitter le panneau » le fait repartir, la compagnie restant à l'abri des murs.
+  - **Groupes** : villageois, caravanes marchandes, bandits (cerclés de rouge) et armées des factions se
+    déplacent sur la carte (infobulle au survol). Cliquez sur un groupe pour le **poursuivre** ; au contact,
+    le temps s'arrête et une **rencontre** s'ouvre (« Attaquer » ou « Passer son chemin », ou les choix du
+    module des rencontres). Les bandits et les armées hostiles fondent sur la compagnie quand elle passe à
+    portée en rase campagne (jamais dans les murs d'une ville) ; fuir coûte 8 % de l'or en bagages.
+    Une bataille se livre sur le **terrain de l'endroit** (village près d'un lieu habité, rivière près de
+    l'eau ou des marais, forêt, collines, sinon plaine) ; au retour, la carte reprend à l'endroit du combat.
+    Un groupe vaincu est dispersé et son or va au butin.
+  - **Caméra** : ZQSD (touches physiques) ou flèches, bord de l'écran, clic molette pour déplacer la vue,
+    molette pour zoomer, **C** pour recentrer sur la compagnie. **Mini-carte** en bas à gauche (clic : y regarder).
 - **Recruter** : chaque ville lève certains types de troupes, à son prix (de -15 % à Brévannes à +25 %
   à Hautemure). On peut lever un régiment complet (8 régiments au plus) ou **compléter** un régiment entamé.
 - **Unités** : sept types, chacun levé dans certaines villes (le prix est par homme, avant le prix de la ville).
@@ -185,17 +209,19 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
-  cours) ; les versions 1 à 6 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
-  cours, monde neuf et en paix).
+  Format versionné (version 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
+  8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
+  cours) ; les versions 1 à 8 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
+  armées sont replacées sur la grande carte).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
   Quitter par le menu pause compte toujours comme une retraite.
 - **Monde vivant** (`scripts/world_sim.gd`) : le pays vit sans vous.
-  - **Saisons** de 30 jours (printemps, été, automne, hiver ; cartouche en haut à droite de la carte et
-    section « Le pays » du panneau). En **hiver**, la compagnie et les armées marchent à x0,7 (les jours de
-    marche affichés sur les routes en tiennent compte), les armées fondent plus vite, et chaque jour de marche
+  - **Saisons** de 30 jours (printemps, été, automne, hiver ; barre du temps en haut à gauche de la carte et
+    section « Le pays » du panneau). En **hiver**, la compagnie et les armées marchent à x0,7,
+    les armées fondent plus vite, et chaque jour de marche
     a une chance sur deux que le **froid** emporte 2 % des hommes. La carte se couvre de neige.
   - **Météo du jour** : pluie 25 % au printemps, 10 % en été, **50 % en automne**, 30 % en hiver. Une bataille
     livrée un jour de pluie se fait **sous la pluie** (la pluie tombe aussi sur la carte).
@@ -224,7 +250,6 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     **fuir** (un jour de détour, 8 % de l'or abandonné avec les bagages). La bataille se livre en chemin : en
     rase campagne, dans les bois ou sur des collines (le terrain de la ville s'il s'y prête), jamais sur la
     palissade de Hautemure ou de Castelroux.
-  - **Camper un jour** (section « Le pays ») : la solde est due, le monde avance d'un jour.
   - **Nouvelles du monde** : les dernières sont listées dans la section « Le pays ».
   - Réglages : constantes en tête de `scripts/world_sim.gd`.
 - **Mode indulgent** (option de la nouvelle campagne) : la bataille en cours n'est pas sauvegardée. Fermer
@@ -367,7 +392,14 @@ scenes/campaign.tscn    Carte de campagne
 scenes/end.tscn         Écran de fin de campagne (victoire ou game over, bilan)
 scenes/main.tscn        Bataille (un seul nœud, tout est construit par le code)
 scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, contrats
-scripts/campaign_map.gd    Carte de campagne : rendu, marche, panneau de recrutement et contrats, objectif
+scripts/campaign_map.gd    Carte du monde en temps réel : rendu, caméra, mini-carte, jour et nuit, ordres de marche,
+                        panneau (compagnie, ville, recrutement, contrats, rencontre, monde, journal)
+scripts/map_data.gd     Géographie (MapData, seule source de vérité) : taille, lieux, routes, terrain sur une
+                        grille, vitesse (speed_at), terrain de bataille (battle_terrain_at), chemins A*
+scripts/overworld.gd    Carte en temps réel sans rendu (Overworld) : heure, compagnie, registre des groupes,
+                        contact et rencontres, fin de journée, population, sauvegarde
+scripts/party.gd        Groupe de la carte (Party) : sorte, position, chemin, régiments, état
+scripts/party_ai.gd     Comportements des groupes (PartyAI.think, par sorte ; errance par défaut)
 scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
 scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, taille de l'interface, vitesse, difficulté, touches
@@ -397,7 +429,7 @@ scripts/equipment.gd    Équipement achetable (Equipment) : armure, meilleures a
 scripts/company_panel.gd Sections « Capitaine » et « Traits et équipement » du panneau de la carte
 scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, guerres, armées, sièges, prises
                         de villes, rencontres, contrats de guerre ; appelé par CampaignState (pass_day, travel)
-scripts/world_army.gd   Armée de faction sur la carte (WorldArmy) : marche, siège, sauvegarde
+scripts/world_army.gd   Armée de faction sur la carte (WorldArmy, une Party « army ») : marche, siège, sauvegarde
 scripts/world_view.gd   Affichage du monde sur la carte (WorldView) : armées, sièges, météo, section « Le pays »
 scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques et capacités des unités (seule source lue par la simulation)
@@ -438,6 +470,10 @@ tests/world_test.gd     Test du monde vivant (saisons, 200 jours sur 5 graines, 
                         guerre, réputation, rencontre, bataille décisive chez son patron, contrats au nom du
                         maître actuel, sièges qui lèvent ou prennent une ville, terrain des rencontres,
                         sauvegarde, pluie en bataille, carte)
+tests/overworld_test.gd Test de la carte en temps réel (MapData, marche, vitesse sur et hors route, hiver, jour
+                        qui passe, registre et errance, poursuite, bandits, armées, rencontres, sauvegarde v9 et
+                        migration v8, scène : clics, pause, vitesses, rencontre, retour de bataille)
+tests/overworld_capture.gd Captures de la carte (ville, marche, nuit, rencontre) dans user://captures (avec fenêtre)
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
@@ -490,6 +526,8 @@ godot --headless --path . -s tests/perf_test.gd      # performance à 2x les eff
 godot --headless --path . -s tests/stats_test.gd      # statistiques et succès (fichier de test, jamais le vrai)
 godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent
 godot --headless --path . -s tests/world_test.gd      # monde vivant : saisons, guerres, armées, sièges, sauvegarde
+godot --headless --path . -s tests/overworld_test.gd  # carte en temps réel : marche, terrain, jour, groupes, rencontres
+godot --path . --resolution 1280x720 -s tests/overworld_capture.gd   # carte_ville/marche/nuit/rencontre.png
 godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, campagne
 godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png

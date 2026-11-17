@@ -8,7 +8,7 @@ static var current: CampaignState = null
 
 const START_GOLD := 300
 const MAX_REGIMENTS := 8
-const TRAVEL_PX_PER_DAY := 130.0 ## Distance parcourue sur la carte en une journée de marche
+const TRAVEL_PX_PER_DAY := 130.0 * MapData.SCALE ## Distance parcourue en une journée de marche abstraite (travel)
 const CONTRACT_DAYS := 14 ## Validité d'un contrat, en jours
 const DESERT_RATE := 0.15 ## Part des hommes qui désertent chaque jour sans solde
 const WOUNDED_RECOVER := 0.3 ## Part des tombés relevés blessés après une victoire
@@ -56,20 +56,10 @@ const FINAL_FAME := 150
 ## Game over : la compagnie n'a plus un homme et ne peut plus lever de régiment (ruinée).
 const ENDINGS := ["", "victory", "ruin"]
 
-## Villes de la carte (positions en pixels d'écran), faction, prix des recrues (x RECRUIT_COST)
-## et types de troupes qu'on peut y lever. Nouvelles unités : les villes de la Ligue lèvent des
-## arbalétriers, le Comté (Saint-Aubin) et Hautemure des chevaliers à pied, la Baronnie
-## (Montfaucon, Castelroux) des archers montés.
-const TOWNS := [
-	{"name": "Valombre", "pos": Vector2(140, 560), "faction": 0, "price": 1.0, "recruits": ["spear", "archer"]},
-	{"name": "Saint-Aubin", "pos": Vector2(330, 420), "faction": 0, "price": 0.9, "recruits": ["spear", "men_at_arms", "foot_knight"]},
-	{"name": "Montfaucon", "pos": Vector2(230, 200), "faction": 1, "price": 1.15, "recruits": ["archer", "cavalry", "horse_archer"]},
-	{"name": "Brévannes", "pos": Vector2(500, 600), "faction": 2, "price": 0.85, "recruits": ["spear", "archer", "crossbow"]},
-	{"name": "Castelroux", "pos": Vector2(560, 290), "faction": 1, "price": 1.1, "recruits": ["men_at_arms", "cavalry", "horse_archer"]},
-	{"name": "Hautemure", "pos": Vector2(770, 140), "faction": 1, "price": 1.25, "recruits": ["men_at_arms", "foot_knight", "archer", "cavalry"]},
-	{"name": "Pontrieux", "pos": Vector2(760, 470), "faction": 2, "price": 0.95, "recruits": ["spear", "men_at_arms", "archer", "crossbow"]},
-]
-const ROADS := [[0, 1], [0, 3], [1, 2], [1, 3], [1, 4], [2, 4], [3, 6], [4, 6], [4, 5], [5, 6]]
+## Villes de la carte (voir MapData, seule source de vérité de la géographie) : nom, position
+## sur la grande carte, faction de départ, prix des recrues (x RECRUIT_COST) et troupes qu'on y lève.
+const TOWNS := MapData.TOWNS
+const ROADS := MapData.TOWN_ROADS ## Grandes routes entre les villes (marche abstraite, armées)
 
 ## Modèles de contrats, du niveau 1 au niveau MAX_LEVEL : composition de l'ennemi, effectifs
 ## (part du plein), prime de base et expérience des régiments ennemis (« ranks » : chance d'être
@@ -145,6 +135,7 @@ var enemies_killed := 0
 var gold_earned := 0 ## Primes, butin et escortes
 var captain := Captain.new() ## Capitaine de la compagnie (voir captain.gd)
 var world := WorldSim.new() ## Monde vivant : saisons, météo, guerres et armées (voir world_sim.gd)
+var overworld := Overworld.new() ## Carte en temps réel : heure, compagnie et groupes (voir overworld.gd)
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
@@ -163,6 +154,7 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 		c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
+	c.overworld = Overworld.create(c)
 	c.add_log("Jour 1 : la compagnie se forme à %s (difficulté : %s). Trouvez un contrat !" % [TOWNS[0]["name"], Difficulty.display_name(c.difficulty).to_lower()])
 	c.add_log("Objectif : %s" % objective_text())
 	return c
@@ -205,15 +197,17 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 9 : carte en temps réel (heure, position et chemin de la compagnie, groupes ; voir
+## overworld.gd) sur une carte trois fois plus grande (positions des armées agrandies à la relecture).
 ## Version 8 : objectif des contrats (« objective ») et faction ennemie (« enemy_faction »).
 ## Version 7 : monde vivant (villes conquises, guerres, armées, météo ; voir world_sim.gd).
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée), 2, 3, 4, 5, 6 et 7 restent lisibles
+## Les versions 1 (sans expérience, réputation ni renommée) à 8 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
-## monde neuf et en paix, contrats « détruire l'ennemi »).
-const SAVE_VERSION := 8
+## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
+const SAVE_VERSION := 9
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -275,6 +269,7 @@ func to_dict() -> Dictionary:
 		"men_lost": men_lost, "enemies_killed": enemies_killed, "gold_earned": gold_earned,
 		"captain": captain.to_dict(),
 		"world": world.to_dict(),
+		"overworld": overworld.to_dict(),
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -328,6 +323,10 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 			out["target"] = target
 	if str(k.get("terrain", "")) in WorldSim.ROAD_TERRAINS: # Rencontre sur la route (make_battle)
 		out["terrain"] = str(k["terrain"])
+	if str(k.get("terrain", "")) in MapData.BATTLE_TERRAINS: # Carte en temps réel : terrain de l'endroit
+		out["terrain"] = str(k["terrain"])
+	if k.has("party"): # Bataille contre un groupe de la carte (overworld.gd)
+		out["party"] = int(k["party"])
 	return out
 
 
@@ -388,9 +387,12 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.rng.seed = str(d.get("rng_seed", "1")).to_int()
 	c.rng.state = str(d.get("rng_state", "1")).to_int()
 	c.captain = Captain.from_dict(d.get("captain", {}), c.rng.seed) # Version 5 et avant : capitaine neuf
-	c.world = WorldSim.from_dict(d.get("world", {}), c.rng.seed, c.day) # Version 6 et avant : monde neuf
+	# Version 6 et avant : monde neuf ; version 8 et avant : petite carte (positions agrandies)
+	c.world = WorldSim.from_dict(d.get("world", {}), c.rng.seed, c.day, MapData.SCALE if version <= 8 else 1.0)
 	if c.world == null:
 		return null
+	# Version 8 et avant : la compagnie est placée dans sa ville, au matin
+	c.overworld = Overworld.from_dict(d.get("overworld", {}) if version >= 9 else {}, c)
 	# Version 2 et avant : campagne en cours, bilan à zéro
 	c.ended = str(d.get("ended", ""))
 	if not c.ended in ENDINGS:
@@ -531,7 +533,9 @@ func status_text() -> String:
 			return "Terminée : compagnie ruinée au jour %d" % end_day
 	if in_battle():
 		return "Bataille en cours : %s" % str(pending.get("title", ""))
-	return "En cours, à %s" % TOWNS[location]["name"]
+	if overworld.inside >= 0:
+		return "En cours, à %s" % MapData.place(overworld.inside)["name"]
+	return "En cours, en route près de %s" % TOWNS[MapData.nearest_town(overworld.player.pos)]["name"]
 
 
 # ---------------------------------------------------------------- Factions et réputation
@@ -785,10 +789,31 @@ func travel(to: int) -> String:
 		if kind == "storm":
 			days += 1
 	location = to
+	overworld.halt()
+	overworld.enter(self, to)
 	add_log("Jour %d : arrivée à %s après %s de marche." % [day, TOWNS[to]["name"], plural(done, "jour", "jours")])
 	refresh_contracts(to)
 	check_ruin()
 	return ""
+
+
+## Carte en temps réel : la journée s'achève et la compagnie a marché (Overworld.end_of_day).
+## Froid de l'hiver et évènements de route, comme un jour de marche de travel. to : ville vers
+## laquelle on marche. Une embuscade laisse une bataille en attente, sur le terrain de l'endroit ;
+## des intempéries immobilisent la compagnie une demi-journée.
+func march_day(to: int, ow: Overworld) -> void:
+	world.cold_day(self)
+	if is_destroyed() or in_battle():
+		return
+	if forced_event == "" and rng.randf() >= event_chance:
+		return
+	var kind := forced_event if forced_event != "" else roll_event()
+	road_event(kind, to)
+	match kind:
+		"ambush":
+			pending["terrain"] = MapData.battle_terrain_at(ow.player.pos)
+		"storm":
+			ow.player.busy_hours = 12.0
 
 
 # ---------------------------------------------------------------- Évènements de route
@@ -1572,6 +1597,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			change_reputation(f, loss)
 			rep_note = " Réputation : %s %+d." % [FACTIONS[f]["short"], loss]
 	rep_note += world.after_battle(self, victory) # Armée rencontrée : dispersée ou non
+	rep_note += overworld.after_battle(self, victory, out) # Groupe de la carte en temps réel
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)

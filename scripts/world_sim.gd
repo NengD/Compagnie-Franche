@@ -24,7 +24,7 @@ const COLD_CHANCE := 0.5 ## En hiver, chance par jour de marche que le froid emp
 const COLD_RATE := 0.02 ## ... part des hommes de chaque régiment
 const ATTRITION := [0.005, 0.005, 0.01, 0.025] ## Pertes quotidiennes d'une armée en campagne, par saison
 
-const ARMY_SPEED := 100.0 ## Pixels de carte parcourus par jour par une armée (la compagnie : 130)
+const ARMY_SPEED := 100.0 * MapData.SCALE ## Pixels de carte parcourus par jour par une armée (marche abstraite ; en temps réel : Party.BASE_SPEED)
 const STRENGTH := [170, 210, 150] ## Taille de base d'une armée, par faction (la Baronnie est la plus guerrière)
 const WAR_SIZE := 1.6 ## Facteur de taille d'une armée en guerre...
 const PEACE_SIZE := 0.5 ## ... et d'une patrouille en temps de paix
@@ -54,8 +54,8 @@ const REP_FRIEND := 20 ## Les armées ennemies d'une faction amie (>= 20) attaqu
 const WAR_REWARD := 1.3 ## Prime des contrats d'une ville en guerre
 const REP_ARMY := 5 ## Disperser une armée : réputation -5 auprès d'elle, +5 auprès de ses ennemis
 const FLEE_GOLD := 0.08 ## Fuir une armée : part de l'or abandonnée avec les bagages
-const ENCOUNTER_RANGE := 40.0 ## Distance (carte) à laquelle une armée hostile croise la compagnie
-const CLASH_RANGE := 30.0 ## Distance à laquelle deux armées ennemies se livrent bataille
+const ENCOUNTER_RANGE := 40.0 * MapData.SCALE ## Distance (carte) à laquelle une armée hostile croise la compagnie
+const CLASH_RANGE := 30.0 * MapData.SCALE ## Distance à laquelle deux armées ennemies se livrent bataille
 const NEWS_MAX := 10
 const SIEGE_BROKEN := 0.4 ## Défense gagnée par la compagnie : part de l'armée assiégeante qui repart
 const ROAD_TERRAINS := ["plain", "forest", "hills"] ## Terrains d'une rencontre sur la route
@@ -71,6 +71,9 @@ var news: Array[String] = [] ## Nouvelles du monde, de la plus récente à la pl
 var encounter: Dictionary = {} ## Rencontre en attente : {"army": id, "town": destination de la marche}
 var captures := 0 ## Villes prises depuis le début de la campagne
 var rng := RandomNumberGenerator.new()
+## Temps réel (overworld.gd) : les armées avancent à chaque instant (tick) et plus d'un bond par
+## jour dans advance. Non sauvegardé : la carte en temps réel le remet en marche.
+var realtime := false
 
 
 func _init() -> void:
@@ -137,7 +140,7 @@ func advance(c: CampaignState) -> void:
 	spawn_armies(c)
 	move_armies(c)
 	clashes(c)
-	armies = armies.filter(func(a: WorldArmy) -> bool: return a.men >= MIN_ARMY)
+	armies = armies.filter(func(a: WorldArmy) -> bool: return a.force >= MIN_ARMY)
 	for t in owner.size():
 		if not besieged(t):
 			garrison[t] = mini(garrison_max(t), garrison[t] + GARRISON_REGEN)
@@ -422,11 +425,12 @@ func add_army(f: int, from: int, to: int, men: int, mode: String) -> WorldArmy:
 	a.id = next_id
 	next_id += 1
 	a.faction = f
-	a.men = men
+	a.force = men
 	a.pos = town_pos(from)
-	a.path = find_path(from, to)
+	a.route = find_path(from, to)
 	a.target = to
 	a.mode = mode
+	a.sync_troops()
 	armies.append(a)
 	return a
 
@@ -435,23 +439,41 @@ func move_armies(c: CampaignState) -> void:
 	var season := season_of(c.day)
 	var speed := ARMY_SPEED * float(MARCH_FACTOR[season])
 	for a in armies.duplicate():
-		if a.men <= 0:
+		if a.force <= 0:
 			continue
-		a.men -= maxi(1, int(round(a.men * float(ATTRITION[season]))))
+		a.force -= maxi(1, int(round(a.force * float(ATTRITION[season]))))
 		if a.mode == "siege":
 			siege_day(c, a)
 			continue
 		# But devenu inutile (trêve) : l'armée rentre
 		if a.mode == "march" and a.target >= 0 and owner[a.target] != a.faction and not at_war(a.faction, owner[a.target]):
 			send_home(a)
-		if a.step(speed):
+		if not realtime and a.step(speed):
 			arrive(c, a)
+	for a in armies:
+		a.sync_troops()
+
+
+## Temps réel : les armées qui marchent avancent de hours heures (vitesse de la sorte « army »,
+## route ou terrain, saison). Appelé par Overworld.tick ; la vie quotidienne reste dans advance.
+func tick(c: CampaignState, hours: float) -> void:
+	realtime = true
+	var season := float(MARCH_FACTOR[season_of(c.day)])
+	for a in armies.duplicate():
+		if a.force <= 0 or a.mode == "siege" or a.route.is_empty():
+			if a.force > 0 and a.mode != "siege" and a.route.is_empty():
+				arrive(c, a)
+			continue
+		var speed: float = a.base_speed() * MapData.speed_at(a.pos) * season
+		if a.step(speed * hours):
+			arrive(c, a)
+	armies = armies.filter(func(a: WorldArmy) -> bool: return a.force > 0)
 
 
 func arrive(c: CampaignState, a: WorldArmy) -> void:
 	var t := a.target
 	if t < 0:
-		a.men = 0
+		a.force = 0
 		return
 	var o := owner[t]
 	if o != a.faction and at_war(a.faction, o):
@@ -463,13 +485,13 @@ func arrive(c: CampaignState, a: WorldArmy) -> void:
 			var from: Array[int] = [t]
 			var pick := nearest_enemy_town(a.faction, from)
 			if not pick.is_empty():
-				a.path = find_path(t, pick[1])
+				a.route = find_path(t, pick[1])
 				a.target = pick[1]
 				return
 		# Patrouille terminée ou repli : l'armée rejoint la garnison
 		@warning_ignore("integer_division")
-		garrison[t] = mini(garrison_max(t), garrison[t] + a.men / 2)
-		a.men = 0
+		garrison[t] = mini(garrison_max(t), garrison[t] + a.force / 2)
+		a.force = 0
 	else:
 		send_home(a)
 
@@ -481,16 +503,16 @@ func send_home(a: WorldArmy) -> void:
 		if home < 0 or a.pos.distance_to(town_pos(t)) < a.pos.distance_to(town_pos(home)):
 			home = t
 	if home < 0:
-		a.men = 0
+		a.force = 0
 		return
 	# Repart de la ville la plus proche de sa position (elle peut être sur une route)
 	var near := 0
 	for t in CampaignState.TOWNS.size():
 		if a.pos.distance_to(town_pos(t)) < a.pos.distance_to(town_pos(near)):
 			near = t
-	a.path = find_path(near, home)
+	a.route = find_path(near, home)
 	if a.pos.distance_to(town_pos(near)) > 0.5:
-		a.path.push_front(near)
+		a.route.push_front(near)
 	a.target = home
 	a.mode = "retreat"
 	a.siege_days = 0
@@ -502,20 +524,20 @@ func siege_day(c: CampaignState, a: WorldArmy) -> void:
 		send_home(a)
 		return
 	a.siege_days += 1
-	garrison[t] -= int(a.men * SIEGE_HIT * rng.randf_range(0.6, 1.4))
-	a.men -= int(maxi(garrison[t], 0) * SIEGE_LOSS)
+	garrison[t] -= int(a.force * SIEGE_HIT * rng.randf_range(0.6, 1.4))
+	a.force -= int(maxi(garrison[t], 0) * SIEGE_LOSS)
 	if garrison[t] <= 0:
 		capture(c, a, t)
-	elif a.men < MIN_ARMY:
+	elif a.force < MIN_ARMY:
 		post(c, "le siège de %s est levé : %s se disperse." % [town_name(t), a.display_name()])
-		a.men = 0
+		a.force = 0
 
 
 ## La ville tombe aux mains de l'armée : elle change de faction et ses contrats sont caducs.
 func capture(c: CampaignState, a: WorldArmy, t: int) -> void:
 	@warning_ignore("integer_division")
-	var men := maxi(40, a.men / 2)
-	a.men = 0
+	var men := maxi(40, a.force / 2)
+	a.force = 0
 	take_town(c, a.faction, t, men)
 
 
@@ -546,17 +568,17 @@ func clashes(c: CampaignState) -> void:
 		for j in range(i + 1, armies.size()):
 			var a := armies[i]
 			var b := armies[j]
-			if a.men < MIN_ARMY or b.men < MIN_ARMY or not at_war(a.faction, b.faction):
+			if a.force < MIN_ARMY or b.force < MIN_ARMY or not at_war(a.faction, b.faction):
 				continue
 			if a.pos.distance_to(b.pos) > CLASH_RANGE:
 				continue
-			var pa := a.men * rng.randf_range(0.75, 1.25)
-			var pb := b.men * rng.randf_range(0.75, 1.25)
+			var pa := a.force * rng.randf_range(0.75, 1.25)
+			var pb := b.force * rng.randf_range(0.75, 1.25)
 			var win := a if pa >= pb else b
 			var lose := b if pa >= pb else a
 			var ratio := minf(minf(pa, pb) / maxf(pa, pb), 1.0)
-			win.men -= int(lose.men * 0.5 * ratio + win.men * 0.05)
-			lose.men = int(lose.men * 0.25)
+			win.force -= int(lose.force * 0.5 * ratio + win.force * 0.05)
+			lose.force = int(lose.force * 0.25)
 			post(c, "bataille près de %s : %s met en déroute %s." % [town_name(nearest_town(win.pos)), win.display_name(), lose.display_name()])
 			send_home(lose)
 
@@ -574,7 +596,7 @@ static func nearest_town(p: Vector2) -> int:
 ## Armée qui assiège la ville (null sinon).
 func siege_at(town: int) -> WorldArmy:
 	for a in armies:
-		if a.mode == "siege" and a.target == town and a.men >= MIN_ARMY and at_war(a.faction, owner[town]):
+		if a.mode == "siege" and a.target == town and a.force >= MIN_ARMY and at_war(a.faction, owner[town]):
 			return a
 	return null
 
@@ -588,7 +610,7 @@ func siege_info(town: int) -> Dictionary:
 	var a := siege_at(town)
 	if a == null:
 		return {}
-	return {"faction": a.faction, "defender": owner[town], "men": a.men, "days": a.siege_days,
+	return {"faction": a.faction, "defender": owner[town], "men": a.force, "days": a.siege_days,
 		"garrison": maxi(garrison[town], 0), "army": a.id}
 
 
@@ -611,6 +633,19 @@ func hostile_to_player(c: CampaignState, a: WorldArmy) -> bool:
 ## Un jour de marche de from vers to (k : part du chemin parcourue) : froid de l'hiver et
 ## rencontre d'une armée hostile (le joueur choisira à l'arrivée : bataille ou fuite).
 func on_march_day(c: CampaignState, from: int, to: int, k: float) -> void:
+	cold_day(c)
+	if not encounter.is_empty() or c.in_battle() or c.is_destroyed():
+		return
+	var p := town_pos(from).lerp(town_pos(to), clampf(k, 0.0, 1.0))
+	for a in armies:
+		if a.force >= MIN_ARMY and hostile_to_player(c, a) and a.pos.distance_to(p) <= ENCOUNTER_RANGE:
+			encounter = {"army": a.id, "town": to}
+			travel_note(c, "%s (%s) barre la route de %s : livrer bataille ou fuir ?" % [a.display_name(), CampaignState.plural(a.force, "homme", "hommes"), town_name(to)])
+			return
+
+
+## Un jour de marche en hiver : le froid emporte parfois des hommes.
+func cold_day(c: CampaignState) -> void:
 	if season_of(c.day) == WINTER and not c.company.is_empty() and rng.randf() < COLD_CHANCE:
 		var lost := 0
 		for r in c.company:
@@ -622,14 +657,6 @@ func on_march_day(c: CampaignState, from: int, to: int, k: float) -> void:
 		c.company = c.company.filter(func(r: Dictionary) -> bool: return int(r["men"]) > 0)
 		c.men_lost += lost
 		travel_note(c, "le froid emporte %s." % CampaignState.plural(lost, "homme", "hommes"))
-	if not encounter.is_empty() or c.in_battle() or c.is_destroyed():
-		return
-	var p := town_pos(from).lerp(town_pos(to), clampf(k, 0.0, 1.0))
-	for a in armies:
-		if a.men >= MIN_ARMY and hostile_to_player(c, a) and a.pos.distance_to(p) <= ENCOUNTER_RANGE:
-			encounter = {"army": a.id, "town": to}
-			travel_note(c, "%s (%s) barre la route de %s : livrer bataille ou fuir ?" % [a.display_name(), CampaignState.plural(a.men, "homme", "hommes"), town_name(to)])
-			return
 
 
 func travel_note(c: CampaignState, msg: String) -> void:
@@ -674,9 +701,9 @@ func flee(c: CampaignState) -> String:
 
 
 ## Bataille contre une armée de faction : ni prime ni contrat, seulement le butin (et la réputation).
-func make_battle(c: CampaignState, a: WorldArmy, town: int) -> Dictionary:
+func make_battle(c: CampaignState, a: WorldArmy, town: int, land_override := "") -> Dictionary:
 	var types: Array = ARMY_TYPES[a.faction]
-	var n := clampi(int(round(a.men / 40.0)), 3, types.size())
+	var n := clampi(int(round(a.force / 40.0)), 3, types.size())
 	var enemy: Array[Dictionary] = []
 	for i in n:
 		var t := str(types[i])
@@ -688,6 +715,8 @@ func make_battle(c: CampaignState, a: WorldArmy, town: int) -> Dictionary:
 	var land := Terrain.for_contract(town, 1, CampaignState.TOWNS)
 	if not land in ROAD_TERRAINS:
 		land = str(ROAD_TERRAINS[rng.randi() % ROAD_TERRAINS.size()])
+	if land_override != "": # Carte en temps réel : le terrain de l'endroit (MapData.battle_terrain_at)
+		land = land_override
 	return {
 		"town": town, "faction": -1, "world_army": a.id, "terrain": land,
 		"title": "%s barre la route de %s" % [CampaignState.cap_first(a.display_name()), town_name(town)],
@@ -718,7 +747,7 @@ func after_siege(c: CampaignState, victory: bool) -> String:
 		var a := siege_at(town)
 		if a == null:
 			return ""
-		a.men = int(a.men * SIEGE_BROKEN)
+		a.force = int(a.force * SIEGE_BROKEN)
 		post(c, "la compagnie brise le siège de %s : %s se retire." % [town_name(town), a.display_name()])
 		send_home(a)
 		return " Le siège de %s est levé : %s se retire." % [town_name(town), a.display_name()]
@@ -741,9 +770,9 @@ func after_encounter(c: CampaignState, victory: bool) -> String:
 		return ""
 	var f := a.faction
 	if not victory:
-		a.men = int(a.men * 0.8)
+		a.force = int(a.force * 0.8)
 		return ""
-	a.men = 0
+	a.force = 0
 	armies.erase(a)
 	c.change_reputation(f, -REP_ARMY)
 	var parts: Array[String] = ["%s %+d" % [short(f), -REP_ARMY]]
@@ -791,9 +820,10 @@ func to_dict() -> Dictionary:
 	}
 
 
+## pos_scale : agrandissement des positions des armées (sauvegarde d'avant la grande carte).
 ## Relit le monde sauvegardé ; d vide (sauvegarde de version 6 ou avant) : monde neuf, en paix.
 ## Renvoie null si les données sont invalides.
-static func from_dict(d: Variant, seed_value: int, day := 1) -> WorldSim:
+static func from_dict(d: Variant, seed_value: int, day := 1, pos_scale := 1.0) -> WorldSim:
 	if not d is Dictionary or (d as Dictionary).is_empty():
 		var fresh := create(seed_value)
 		fresh.roll_weather(day)
@@ -820,7 +850,7 @@ static func from_dict(d: Variant, seed_value: int, day := 1) -> WorldSim:
 				return null
 			src[1][pair_key(int(ab[0]), int(ab[1]))] = int(dict[k])
 	for a in d.get("armies", []):
-		var army := WorldArmy.from_dict(a)
+		var army := WorldArmy.army_from_dict(a, pos_scale)
 		if army == null:
 			return null
 		w.armies.append(army)

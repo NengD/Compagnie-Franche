@@ -119,7 +119,7 @@ func _test_simulation() -> void:
 					var s := c.town_siege(t)
 					check(int(s["faction"]) != int(s["defender"]) and w.at_war(int(s["faction"]), int(s["defender"])), "200 jours : siège sans guerre")
 			for a in w.armies:
-				if a.men < WorldSim.MIN_ARMY or a.pos.x < 0 or a.pos.y < 0 or a.pos.x > 880 or a.pos.y > 720:
+				if a.force < WorldSim.MIN_ARMY or a.pos.x < 0 or a.pos.y < 0 or a.pos.x > MapData.SIZE.x or a.pos.y > MapData.SIZE.y:
 					check(false, "200 jours : armée incohérente (graine %d, jour %d, %s)" % [seed_value, c.day, str(a.to_dict())])
 			for k in c.contracts:
 				if not k.get("final", false) and int(k["faction"]) != c.town_owner(int(k["town"])):
@@ -155,7 +155,7 @@ func _test_capture() -> void:
 		if c.town_owner(1) == 1:
 			break
 	check(seen_siege, "prise : pas de siège avant la prise")
-	check(c.town_owner(1) == 1 and w.captures >= 1, "prise : Saint-Aubin n'est pas tombée (garnison %d, armée %d)" % [w.garrison[1], army.men])
+	check(c.town_owner(1) == 1 and w.captures >= 1, "prise : Saint-Aubin n'est pas tombée (garnison %d, armée %d)" % [w.garrison[1], army.force])
 	check(not w.armies.has(army), "prise : l'armée victorieuse n'a pas rejoint la garnison")
 	var news := false
 	for s in c.log_lines:
@@ -196,7 +196,7 @@ func _test_reputation() -> void:
 	var w := c.world
 	var a := WorldArmy.new()
 	a.faction = 1
-	a.men = 200
+	a.force = 200
 	check(not w.hostile_to_player(c, a), "réputation : armée hostile à une compagnie neutre")
 	c.reputation[1] = CampaignState.REP_CLOSED
 	check(w.hostile_to_player(c, a), "réputation : une faction fermée n'attaque pas")
@@ -377,9 +377,9 @@ func _test_siege_effects() -> void:
 	c.contracts.append(k)
 	c.location = 1
 	check(c.accept(k) == "", "sièges : défense refusée")
-	var men := a.men
+	var men := a.force
 	var out := c.finish_battle(true, [], [])
-	check(not c.town_besieged(1) and a.mode == "retreat" and a.men <= int(men * WorldSim.SIEGE_BROKEN), "sièges : siège non levé après la défense (%s, %d hommes)" % [a.mode, a.men])
+	check(not c.town_besieged(1) and a.mode == "retreat" and a.force <= int(men * WorldSim.SIEGE_BROKEN), "sièges : siège non levé après la défense (%s, %d hommes)" % [a.mode, a.force])
 	check(str(out["text"]).contains("siège de Saint-Aubin est levé"), "sièges : compte rendu de la défense")
 	# Assaut : une ville voisine de la Baronnie, prise pour le Comté
 	var s := c.make_siege(c.make_contract(1), "assault")
@@ -490,7 +490,7 @@ func _process(_delta: float) -> bool:
 			c.reputation[1] = -10
 			var a := c.world.add_army(1, 2, 1, 300, "march")
 			a.pos = WorldSim.town_pos(1)
-			a.path.clear()
+			a.route.clear()
 			a.mode = "siege"
 			c.world.raining = true
 			c.world.encounter = {"army": a.id, "town": 1}
@@ -506,12 +506,13 @@ func _process(_delta: float) -> bool:
 			check(_any(texts, "assiégée") and _any(texts, "Hiver") and _any(texts, "nouvelle de test"), "carte : le monde n'est pas affiché")
 			check(WorldView.army_at(node.state, WorldView.army_spot(node.state.world.armies[0])) != null, "carte : armée introuvable sous la souris")
 			node.click_town(1)
-			check(not node.walking, "carte : on marche malgré l'armée qui barre la route")
+			check(node.state.overworld.player.path.is_empty(), "carte : on marche malgré l'armée qui barre la route")
 			WorldView.flee(node)
-			check(not node.state.world.has_encounter() and _texts(node.box).has("Camper un jour à Valombre (solde %d écus)" % ceili(node.state.daily_wage())), "carte : fuite ou camp")
+			check(not node.state.world.has_encounter(), "carte : fuite")
+			# Temps réel : une journée passe sur la carte (la compagnie reste dans les murs)
 			var day: int = node.state.day
-			WorldView.camp(node)
-			check(node.state.day == day + 1, "carte : camper ne fait pas passer le jour")
+			node.advance_time(24.0)
+			check(node.state.day == day + 1, "carte : le jour ne passe pas en temps réel")
 		10:
 			_free()
 			CampaignState.current = null

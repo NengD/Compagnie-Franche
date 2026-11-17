@@ -673,6 +673,16 @@ func _try_retreat() -> bool:
 	return true
 
 
+## Fait avancer le temps de la carte jusqu'à done() (au plus 10 jours) ; passe son chemin aux rencontres.
+func _walk_map(done: Callable) -> void:
+	for i in 480:
+		if done.call():
+			return
+		if map.contact != null:
+			map.choose("leave")
+		map.advance_time(0.5)
+
+
 func _test_map() -> bool:
 	var resumed: CampaignState = CampaignState.current
 	check(resumed != null and resumed != camp and resumed.day == camp.day and resumed.total_men() == camp.total_men()
@@ -682,21 +692,20 @@ func _test_map() -> bool:
 	var from := camp.location
 	var to: int = camp.neighbours(from)[0]
 	var day := camp.day
+	# Carte en temps réel : clic sur une ville voisine, la compagnie y marche et y entre
 	map.click_town(to)
-	check(map.walking, "carte : la marche ne démarre pas")
-	for i in 40:
-		map._process(0.2)
-	check(camp.location == to and camp.day > day, "carte : la compagnie n'est pas arrivée")
+	check(not camp.overworld.player.path.is_empty() and not map.town_open, "carte : la marche ne démarre pas")
+	_walk_map(func() -> bool: return camp.overworld.inside == to)
+	check(camp.location == to and camp.day > day and map.town_open, "carte : la compagnie n'est pas arrivée (jour %d, lieu %d)" % [camp.day, camp.overworld.inside])
 	var after := CampaignState.load_game()
-	check(after != null and after.location == to, "carte : la marche n'est pas sauvegardée")
-	# Embuscade en marchant : la carte lance la bataille dès l'arrivée
+	check(after != null and after.location == to and after.overworld.inside == to, "carte : la marche n'est pas sauvegardée")
+	# Embuscade en marchant : la carte lance la bataille à la fin de la journée de marche
 	CampaignState.forced_event = "ambush"
 	map.auto_launch = false
 	map.click_town(from)
-	for i in 40:
-		map._process(0.2)
+	_walk_map(func() -> bool: return map.ambushed)
 	CampaignState.forced_event = ""
-	check(map.ambushed and camp.in_battle() and camp.location == from, "carte : l'embuscade ne lance pas de bataille")
+	check(map.ambushed and camp.in_battle() and str(camp.pending.get("terrain", "")) in MapData.BATTLE_TERRAINS, "carte : l'embuscade ne lance pas de bataille")
 	var amb := (load("res://scenes/main.tscn") as PackedScene).instantiate()
 	root.add_child(amb)
 	var foes: Array = amb.regiments.filter(func(r): return r.team == 1)
@@ -713,7 +722,7 @@ func _test_map() -> bool:
 	map.cancel_new_campaign()
 	map.do_recruit(CampaignState.TOWNS[to]["recruits"][0])
 	map.queue_redraw()
-	print("Carte : marche %s → %s puis retour avec embuscade, %d éléments dans le panneau" % [CampaignState.TOWNS[from]["name"], CampaignState.TOWNS[went]["name"], map.box.get_child_count()])
+	print("Carte : marche %s → %s puis embuscade en route, %d éléments dans le panneau" % [CampaignState.TOWNS[from]["name"], CampaignState.TOWNS[went]["name"], map.box.get_child_count()])
 	root.remove_child(map)
 	map.free()
 	_test_end_scenes()
