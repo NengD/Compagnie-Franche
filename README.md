@@ -92,16 +92,29 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
 - **Game over** : si la compagnie n'a plus un homme et ne peut plus lever un seul régiment complet dans la
   ville où elle se trouve (pas assez d'or, ou faction hostile), elle est dissoute : écran de fin avec le
   bilan, puis menu. Une compagnie anéantie mais encore riche peut recruter et repartir.
-- **Carte du monde en temps réel** (`scripts/overworld.gd`, `scripts/map_data.gd`) : une carte trois fois
-  plus grande que l'ancienne (2640 × 2160), les 7 villes, des villages et des châteaux reliés par des chemins,
-  une rivière (des ponts sur les routes), deux lacs entourés de marais, des forêts et des collines.
+- **Carte du monde en temps réel** (`scripts/overworld.gd`, `scripts/map_data.gd`, rendu `scripts/map_render.gd`) :
+  une grande carte de 3840 × 3120 (deux fois la précédente, prolongée vers l'est et le sud), **45 lieux** : les
+  7 villes, des villages, châteaux, abbayes, moulins, un pont fortifié, un gué, des mines, des ruines et des
+  repaires de bandits. Grandes routes entre les villes, **chemins** qui relient villages et lieux, **sentiers**
+  (en pointillés) vers les ruines, repaires et mines. Quatre cours d'eau (la Vionne, l'Orbe, la Sorgue, le Ru
+  de la Combe ; des **ponts** là où les routes les franchissent), six lacs entourés de marais, neuf grandes
+  forêts nommées, des collines et trois **chaînes de montagnes** infranchissables (Monts de Fer, Montagnes
+  Noires, Dents de Gaste) qu'on ne passe que par les **cols** des routes. Treize **régions** nommées
+  (Val d'Ombre, Marches de Fer, Plaines d'Orient, Terres Gastes...) appartiennent au Comté, à la Baronnie,
+  à la Ligue ou à personne : frontières en tirets bordées de la couleur de la faction, noms des régions en
+  vue éloignée (ils s'effacent quand on zoome), noms des forêts, chaînes, lacs et rivières sur la carte.
+  - **Rendu** : le terrain est précalculé une fois dans deux petites textures de champs (eau, relief, forêt,
+    montagne, marais, ondulation des frontières) qu'un shader peint en pixels de 2 px : herbe et champs secs,
+    ombrage du relief (lumière du nord-ouest), arbres stylisés avec leur ombre, roche, marais, eau et rives
+    sablonneuses. Pics des montagnes, bosses des collines, routes, ponts et noms sont tracés une seule fois ;
+    chaque lieu a son icône (ville, village, château, abbaye, moulin, pont, gué, mine, ruines, repaire).
   - **Le temps s'écoule** en heures de jeu (barre en haut à gauche : jour, heure, saison, météo ; 24 h = un
     jour de campagne, avec sa solde, ses contrats qui expirent, sa météo et le monde vivant). **Espace** :
     pause ; boutons ou touches **1, 2, 3** de la rangée du haut (& é " en AZERTY) : vitesses x1, x2, x4
     (x1 = 1,5 heure par seconde). Le temps s'arrête quand le panneau d'une ville ou une rencontre est ouvert.
     La carte s'assombrit la nuit et rougeoie à l'aube et au crépuscule. Sauvegarde automatique chaque jour.
   - **Marcher** : clic gauche sur la carte, la compagnie y va (chemin A* qui préfère les routes et contourne
-    l'eau ; pointillés jusqu'au but). Sur la route on marche à x1,3 ; en forêt x0,6, dans les collines x0,7,
+    l'eau et les montagnes ; pointillés jusqu'au but). Sur la route on marche à x1,3 ; en forêt x0,6, dans les collines x0,7,
     dans les marais x0,5 ; en hiver tout est x0,7. Valombre → Saint-Aubin prend environ deux jours.
     Clic droit : halte. Chaque jour coûte la **solde** (par homme et par jour : voir la colonne « solde » du
     tableau des unités ci-dessous) ; si les caisses sont vides, une partie des hommes **déserte** chaque jour.
@@ -118,7 +131,8 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     l'eau ou des marais, forêt, collines, sinon plaine) ; au retour, la carte reprend à l'endroit du combat.
     Un groupe vaincu est dispersé et son or va au butin.
   - **Caméra** : ZQSD (touches physiques) ou flèches, bord de l'écran, clic molette pour déplacer la vue,
-    molette pour zoomer, **C** pour recentrer sur la compagnie. **Mini-carte** en bas à gauche (clic : y regarder).
+    molette pour zoomer (de x0,3 à x2,5), **C** pour recentrer sur la compagnie. **Mini-carte** en bas à
+    gauche : toute la carte, les lieux, les groupes et le cadre de la vue (clic ou glisser : y regarder).
 - **Recruter** : chaque ville lève certains types de troupes, à son prix (de -15 % à Brévannes à +25 %
   à Hautemure). On peut lever un régiment complet (8 régiments au plus) ou **compléter** un régiment entamé.
 - **Unités** : sept types, chacun levé dans certaines villes (le prix est par homme, avant le prix de la ville).
@@ -422,8 +436,11 @@ scenes/main.tscn        Bataille (un seul nœud, tout est construit par le code)
 scripts/campaign_state.gd  État de la campagne : or, jours, compagnie, villes, contrats
 scripts/campaign_map.gd    Carte du monde en temps réel : rendu, caméra, mini-carte, jour et nuit, ordres de marche,
                         panneau (compagnie, ville, recrutement, contrats, rencontre, monde, journal)
-scripts/map_data.gd     Géographie (MapData, seule source de vérité) : taille, lieux, routes, terrain sur une
+scripts/map_data.gd     Géographie (MapData, seule source de vérité) : taille, lieux et leurs sortes, routes
+                        (tracés, sortes, ponts), rivières, lacs, montagnes, forêts, régions, terrain sur une
                         grille, vitesse (speed_at), terrain de bataille (battle_terrain_at), chemins A*
+scripts/map_render.gd   Rendu du fond de la carte (MapRender) : textures de champs, shader du terrain, pics,
+                        collines, routes, ponts, noms des régions et des lieux naturels
 scripts/overworld.gd    Carte en temps réel sans rendu (Overworld) : heure, compagnie, registre des groupes,
                         contact et rencontres, fin de journée, population, sauvegarde
 scripts/party.gd        Groupe de la carte (Party) : sorte, position, chemin, régiments, état
@@ -503,10 +520,13 @@ tests/world_test.gd     Test du monde vivant (saisons, 200 jours sur 5 graines, 
                         guerre, réputation, rencontre, bataille décisive chez son patron, contrats au nom du
                         maître actuel, sièges qui lèvent ou prennent une ville, terrain des rencontres,
                         sauvegarde, pluie en bataille, carte)
-tests/overworld_test.gd Test de la carte en temps réel (MapData, marche, vitesse sur et hors route, hiver, jour
+tests/overworld_test.gd Test de la carte en temps réel (MapData : lieux, routes hors des lacs, ponts, montagnes,
+                        régions et factions des lieux, tout lieu accessible ; marche, vitesse sur et hors route, hiver, jour
                         qui passe, registre et errance, poursuite, bandits, armées, rencontres, sauvegarde v9 et
                         migration v8, scène : clics, pause, vitesses, rencontre, retour de bataille)
 tests/overworld_capture.gd Captures de la carte (ville, marche, nuit, rencontre) dans user://captures (avec fenêtre)
+tests/map_capture.gd    Captures de la grande carte (vue éloignée, moyenne, rapprochée, montagnes, sud ; avec fenêtre ;
+                        option --out)
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)

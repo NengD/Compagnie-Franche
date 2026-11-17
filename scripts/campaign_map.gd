@@ -14,13 +14,13 @@ const PANEL_SHARE := 0.3125 ## Part de la largeur de la vue prise par le panneau
 const PANEL_MIN := 340.0
 const PANEL_MAX := 480.0
 const MAP_BG := Color(0.09, 0.07, 0.05)
-const PIX := 4 ## Taille d'un « pixel » du fond de carte (pixels de carte)
 const HOURS_PER_SECOND := 1.5 ## Heures de jeu par seconde à la vitesse x1
 const SPEEDS := [1, 2, 4]
-const ZOOM_MIN := 0.45
+const ZOOM_MIN := 0.3
 const ZOOM_MAX := 2.5
 const PAN_SPEED := 900.0 ## Défilement au clavier, pixels d'écran par seconde
 const EDGE := 12.0 ## Largeur du bord d'écran qui fait défiler
+const MINIMAP_W := 250.0 ## Largeur de la mini-carte (pixels d'écran)
 const PICK := 16.0 ## Rayon de clic d'un groupe (pixels d'écran)
 const GOLD_COL := Color(1, 0.84, 0.4)
 const BLUE := Color(0.22, 0.38, 0.85)
@@ -31,14 +31,13 @@ const KIND_COLORS := {"villagers": Color(0.7, 0.55, 0.3), "bandits": Color(0.55,
 const END_SCENE := "res://scenes/end.tscn"
 const BATTLE_SCENE := "res://scenes/main.tscn"
 
-static var land_tex: ImageTexture = null ## Fond de carte, construit une fois (la carte ne change pas)
-static var tree_spots: Array[Vector2] = []
-
 var state: CampaignState
 var font: Font
 var sprites := SpriteBank.new()
 var cam: Camera2D
-var land: Node2D
+var land: Node2D ## Fond uni autour de la carte
+var terrain: Node2D ## Terrain peint par le shader (MapRender)
+var roads_layer: Node2D ## Routes, ponts et noms des forêts, chaînes, lacs et rivières
 var light: CanvasModulate
 var notice := "" ## Message d'information ou de refus affiché dans le panneau
 var box: VBoxContainer
@@ -75,17 +74,53 @@ class RankIcon extends Control:
 		Hud.draw_chevrons(self, Vector2(2, 3), rank)
 
 
-## Fond de carte (texture, routes, arbres) : dessiné une fois, sous la couche vivante.
+## Fond uni autour de la carte : dessiné une fois.
 class LandLayer extends Node2D:
-	var map: Node2D
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2(-600, -600), MapData.SIZE + Vector2(1200, 1200)), MAP_BG)
+
+
+## Terrain : un rectangle de la taille de la carte peint par le shader de MapRender (champs
+## précalculés une fois). Dessiné une fois ; le GPU s'occupe du reste.
+class TerrainLayer extends Node2D:
+	func _draw() -> void:
+		draw_texture_rect(MapRender.fields_tex, Rect2(Vector2.ZERO, MapData.SIZE), false)
+
+
+## Routes, ponts, noms des forêts, chaînes, lacs et rivières : dessinés une fois.
+class RoadLayer extends Node2D:
+	var font: Font
 
 	func _draw() -> void:
-		map.draw_land(self)
+		MapRender.draw_relief(self)
+		MapRender.draw_roads(self)
+		MapRender.draw_feature_names(self, font)
 
 
-## Mini-carte : toute la carte, les lieux, les groupes et le cadre de la caméra. Clic : y regarder.
+## Mini-carte : toute la carte (le shader du fond, sans détails), les lieux, les groupes et le
+## cadre de la caméra. Clic ou glisser : y regarder.
 class MiniMap extends Control:
 	var map: Node2D
+	var overlay: Control
+
+	func setup() -> void:
+		var tr := TextureRect.new()
+		tr.texture = MapRender.fields_tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_SCALE
+		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		tr.material = MapRender.material(0.0)
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(tr)
+		overlay = MiniOverlay.new()
+		overlay.map = map
+		overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+		overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(overlay)
+
+	func redraw() -> void:
+		if overlay != null:
+			overlay.queue_redraw()
 
 	func _gui_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
@@ -94,6 +129,14 @@ class MiniMap extends Control:
 			var p: Vector2 = (mb.position if mb != null else mm.position) / size * MapData.SIZE
 			map.look_at_point(p)
 			accept_event()
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size).grow(3), Color(0.1, 0.07, 0.05))
+
+
+## Ce que la mini-carte montre par-dessus le terrain : routes, lieux, groupes, vue de la caméra.
+class MiniOverlay extends Control:
+	var map: Node2D
 
 	func _draw() -> void:
 		map.draw_minimap(self)
@@ -132,11 +175,18 @@ func _ready() -> void:
 	if state.is_over():
 		show_end() # Retour de la bataille décisive (ou de la dernière défaite) : place au bilan
 	town_open = state.overworld.inside >= 0 and not ambushed
-	build_land()
+	MapRender.build()
 	land = LandLayer.new()
-	land.map = self
-	land.z_index = -1
+	land.z_index = -4
 	add_child(land)
+	terrain = TerrainLayer.new()
+	terrain.z_index = -3
+	terrain.material = MapRender.material(1.0)
+	add_child(terrain)
+	roads_layer = RoadLayer.new()
+	roads_layer.font = ThemeDB.fallback_font
+	roads_layer.z_index = -2
+	add_child(roads_layer)
 	light = CanvasModulate.new()
 	add_child(light)
 	cam = Camera2D.new()
@@ -213,7 +263,7 @@ func _process(delta: float) -> void:
 	update_top()
 	queue_redraw()
 	if minimap != null:
-		minimap.queue_redraw()
+		(minimap as MiniMap).redraw()
 
 
 ## Fait passer hours heures de jeu et réagit aux évènements (arrivée, rencontre, embuscade, fin).
@@ -652,17 +702,19 @@ func build_ui() -> void:
 		speed_buttons.append(b)
 	refresh_speed_buttons()
 	# Mini-carte en bas à gauche
-	minimap = MiniMap.new()
-	minimap.map = self
-	minimap.custom_minimum_size = Vector2(220, 180)
-	minimap.size = Vector2(220, 180)
-	minimap.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	minimap.position = Vector2(10, get_viewport_rect().size.y - 190)
-	minimap.offset_top = -190
-	minimap.offset_bottom = -10
-	minimap.offset_left = 10
-	minimap.offset_right = 230
-	layer.add_child(minimap)
+	var mm := MiniMap.new()
+	mm.map = self
+	var ms := Vector2(MINIMAP_W, roundf(MINIMAP_W * MapData.SIZE.y / MapData.SIZE.x))
+	mm.custom_minimum_size = ms
+	mm.size = ms
+	mm.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	mm.offset_top = -ms.y - 10
+	mm.offset_bottom = -10
+	mm.offset_left = 10
+	mm.offset_right = 10 + ms.x
+	layer.add_child(mm)
+	mm.setup()
+	minimap = mm
 	# Infobulle
 	tip = PanelContainer.new()
 	tip.theme = th
@@ -969,7 +1021,6 @@ func price_text(town: int) -> String:
 func place_lines(i: int) -> Array[String]:
 	var pl := MapData.place(i)
 	var lines: Array[String] = [str(pl["name"])]
-	var kind_name := {"town": "ville", "village": "village", "castle": "château"}
 	if i < CampaignState.TOWNS.size():
 		var fi := state.town_owner(i)
 		lines.append("Ville de %s (%s)" % [CampaignState.faction_name(fi), state.reputation_label(fi)])
@@ -983,7 +1034,8 @@ func place_lines(i: int) -> Array[String]:
 			lines.append("Assiégée !")
 	else:
 		var f := int(pl["faction"])
-		lines.append("%s%s" % [CampaignState.cap_first(str(kind_name.get(pl["kind"], pl["kind"]))), (" de %s" % CampaignState.FACTIONS[f]["short"]) if f >= 0 else ""])
+		lines.append("%s%s" % [CampaignState.cap_first(str(MapData.KIND_NAMES.get(pl["kind"], pl["kind"]))), (" de %s" % CampaignState.FACTIONS[f]["short"]) if f >= 0 else ""])
+	lines.append("Région : %s" % MapData.REGIONS[MapData.region_at(pl["pos"])]["name"])
 	var ow := state.overworld
 	if ow.inside == i:
 		lines.append("Vous êtes ici")
@@ -1010,98 +1062,16 @@ func party_lines(q: Party) -> Array[String]:
 	return lines
 
 
-# ---------------------------------------------------------------- Fond de carte
-
-## Fond pixel art construit une fois par partie d'après MapData (la carte est toujours la même).
-func build_land() -> void:
-	if land_tex != null:
-		return
-	var g := MapData.grid_size()
-	var w := int(MapData.SIZE.x) / PIX
-	var h := int(MapData.SIZE.y) / PIX
-	var per := int(MapData.CELL) / PIX
-	var cols: Array[Color] = [Color(0.56, 0.63, 0.34), Color(0.3, 0.45, 0.22), Color(0.62, 0.58, 0.4), Color(0.42, 0.5, 0.38), Color(0.3, 0.47, 0.66)]
-	var cell_col := PackedColorArray()
-	cell_col.resize(g.x * g.y)
-	var river_cell := PackedByteArray() # Case d'eau de la rivière (pas d'un lac) : dessinée au pixel près
-	river_cell.resize(g.x * g.y)
-	for cy in g.y:
-		for cx in g.x:
-			var c := Vector2i(cx, cy)
-			var gr := MapData.ground_cell(c)
-			var col: Color = cols[gr]
-			var hgt := MapData.height_cell(c)
-			if gr != MapData.Ground.WATER:
-				col = col.lerp(col.darkened(0.25), clampf(hgt, 0.0, 1.0))
-			cell_col[cy * g.x + cx] = col
-			if gr == MapData.Ground.WATER and MapData.lake_factor(MapData.cell_center(c)) >= 1.0:
-				river_cell[cy * g.x + cx] = 1
-				cell_col[cy * g.x + cx] = Color(0.5, 0.52, 0.34) # Berge
-			if gr == MapData.Ground.FOREST and (cx * 7 + cy * 13) % 3 == 0:
-				tree_spots.append(MapData.cell_center(c) + Vector2(((cx * 31 + cy * 17) % 9) - 4, ((cx * 11 + cy * 29) % 9) - 4))
-	var data := PackedByteArray()
-	data.resize(w * h * 3)
-	var k := 0
-	var water: Color = cols[MapData.Ground.WATER]
-	for y in h:
-		var cy := mini(y / per, g.y - 1)
-		var rx := MapData.river_x((y + 0.5) * PIX)
-		for x in w:
-			var ci := cy * g.x + mini(x / per, g.x - 1)
-			var col := cell_col[ci]
-			var dr := absf((x + 0.5) * PIX - rx)
-			if dr < MapData.RIVER_HALF:
-				col = water
-			elif river_cell[ci] == 0 and dr < MapData.RIVER_HALF + 6.0 and MapData.ground_cell(Vector2i(mini(x / per, g.x - 1), cy)) != MapData.Ground.WATER:
-				col = Color(0.5, 0.52, 0.34)
-			var hsh := (x * 73856093) ^ (y * 19349663)
-			var bump := 0.06 if hsh % 17 == 0 else (-0.04 if hsh % 23 == 0 else 0.0)
-			data[k] = clampi(int((col.r + bump) * 255.0), 0, 255)
-			data[k + 1] = clampi(int((col.g + bump) * 255.0), 0, 255)
-			data[k + 2] = clampi(int((col.b + bump) * 255.0), 0, 255)
-			k += 3
-	var img := Image.create_from_data(w, h, false, Image.FORMAT_RGB8, data)
-	land_tex = ImageTexture.create_from_image(img)
-	tree_spots.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.y < b.y)
-
-
-## Dessin du fond (LandLayer) : fond, routes, ponts, arbres.
-func draw_land(ci: CanvasItem) -> void:
-	ci.draw_rect(Rect2(Vector2(-400, -400), MapData.SIZE + Vector2(800, 800)), MAP_BG)
-	ci.draw_texture_rect(land_tex, Rect2(Vector2.ZERO, MapData.SIZE), false)
-	for road in MapData.roads():
-		var a := MapData.place_pos(road[0])
-		var b := MapData.place_pos(road[1])
-		var big: bool = road[0] < CampaignState.TOWNS.size() and road[1] < CampaignState.TOWNS.size()
-		ci.draw_line(a, b, Color(0.35, 0.25, 0.14), 8.0 if big else 5.0)
-		ci.draw_line(a, b, Color(0.72, 0.6, 0.4) if big else Color(0.62, 0.52, 0.34), 4.0 if big else 2.5)
-		# Pont là où la route franchit la rivière
-		var n := int(a.distance_to(b) / 8.0)
-		for i in n:
-			var p := a.lerp(b, float(i) / n)
-			if MapData.river_distance(p) < 4.0:
-				var r := Rect2(p - Vector2(12, 7), Vector2(24, 14))
-				ci.draw_rect(r, Color(0.45, 0.33, 0.2))
-				ci.draw_rect(r, Color(0.25, 0.17, 0.1), false, 2.0)
-				break
-	for t in tree_spots:
-		if sprites.has_trees():
-			var tr := sprites.tree_at(t)
-			var src: Rect2 = tr["src"]
-			ci.draw_texture_rect_region(tr["tex"], Rect2(t.round() - Vector2(8, 15), src.size), src)
-		else:
-			ci.draw_rect(Rect2(t.x - 1, t.y - 3, 2, 3), WOOD)
-			ci.draw_rect(Rect2(t.x - 4, t.y - 10, 8, 7), Color(0.15, 0.32, 0.14))
-
-
 # ---------------------------------------------------------------- Rendu de la couche vivante
 
 func _draw() -> void:
 	var ow := state.overworld
 	var view := view_rect().grow(80)
+	var z := cam.zoom.x if cam != null else 1.0
+	MapRender.draw_region_names(self, font, z, view)
 	for i in MapData.place_count():
 		if view.has_point(MapData.place_pos(i)):
-			draw_place(i)
+			draw_place(i, z)
 	WorldView.draw_world(self) # Sièges et armées des factions
 	for q in ow.parties:
 		if not q.hidden and view.has_point(q.pos):
@@ -1124,31 +1094,53 @@ func _draw() -> void:
 	WorldView.draw_weather(self, view_rect()) # Voile de saison, pluie ou neige
 
 
-## Un lieu : ville fortifiée, village ou château, avec son nom.
-func draw_place(i: int) -> void:
+## Un lieu : son icône selon sa sorte et son nom. En vue éloignée, seuls les noms des villes
+## restent (agrandis pour rester lisibles).
+func draw_place(i: int, zoom := 1.0) -> void:
 	var pl := MapData.place(i)
 	var p := (pl["pos"] as Vector2).round()
 	var ow := state.overworld
 	var here := ow.inside == i
 	var r := MapData.PLACE_RADIUS
+	var kind := str(pl["kind"])
 	if here:
 		draw_circle(p, r, Color(1, 0.84, 0.4, 0.22))
 		draw_arc(p, r, 0, TAU, 32, GOLD_COL, 2.0)
 	elif i == hover_place:
 		draw_arc(p, r, 0, TAU, 32, Color(1, 1, 1, 0.8), 2.0)
-	match str(pl["kind"]):
+	var f := int(pl["faction"])
+	match kind:
 		"town":
 			draw_town(i)
 		"castle":
-			draw_castle(p, int(pl["faction"]))
+			draw_castle(p, f)
+		"abbey":
+			draw_abbey(p)
+		"mill":
+			draw_mill(p)
+		"bridge":
+			draw_bridge_tower(p, f)
+		"ford":
+			draw_ford(p)
+		"mine":
+			draw_mine(p)
+		"ruins":
+			draw_ruins(p)
+		"lair":
+			draw_lair(p)
 		_:
 			draw_village(p)
+	var town := kind == "town"
+	if not town and not here and i != hover_place and zoom < 0.55:
+		return
 	var name := str(pl["name"])
-	var size := 14 if pl["kind"] == "town" else 11
-	var col := GOLD_COL if here else (Color(1, 1, 1) if pl["kind"] == "town" else Color(0.9, 0.86, 0.78))
-	draw_string(font, p + Vector2(-79, 37), name, HORIZONTAL_ALIGNMENT_CENTER, 160, size, Color(0, 0, 0, 0.8))
-	draw_string(font, p + Vector2(-80, 36), name, HORIZONTAL_ALIGNMENT_CENTER, 160, size, col)
-
+	var size := 14 if town else 11
+	var col := GOLD_COL if here else (Color(1, 1, 1) if town else (Color(1, 0.7, 0.6) if kind == "lair" else Color(0.92, 0.88, 0.8)))
+	var k := maxf(1.0, 1.1 / zoom) if town else 1.0
+	draw_set_transform(p + Vector2(0, 36), 0.0, Vector2(k, k))
+	draw_string_outline(font, Vector2(-80, 0), name, HORIZONTAL_ALIGNMENT_CENTER, 160, size, 3, Color(0, 0, 0, 0.7))
+	draw_string(font, Vector2(-80, 0), name, HORIZONTAL_ALIGNMENT_CENTER, 160, size, col)
+	draw_set_transform(Vector2.ZERO)
 
 ## Petite ville fortifiée dessinée en pixels (x2), drapeau des contrats, couleurs de la faction.
 func draw_town(i: int) -> void:
@@ -1206,9 +1198,108 @@ func draw_castle(p: Vector2, f: int) -> void:
 		draw_rect(Rect2(p + Vector2(-10 + k * 8, -10), Vector2(4, 2)), stone)
 	draw_rect(Rect2(p + Vector2(-2, 2), Vector2(4, 6)), Color(0.25, 0.2, 0.18))
 	draw_line(p + Vector2(0, -20), p + Vector2(0, -30), WOOD, 1.5)
-	var col: Color = CampaignState.FACTIONS[f]["color"] if f >= 0 else Color(0.6, 0.6, 0.6)
-	draw_rect(Rect2(p + Vector2(1, -30), Vector2(8, 5)), col)
+	draw_rect(Rect2(p + Vector2(1, -30), Vector2(8, 5)), faction_color(f))
 
+
+static func faction_color(f: int) -> Color:
+	return CampaignState.FACTIONS[f]["color"] if f >= 0 else Color(0.6, 0.6, 0.6)
+
+
+## Abbaye : église (nef, clocher, croix) et cloître.
+func draw_abbey(p: Vector2) -> void:
+	var wall := Color(0.86, 0.82, 0.72)
+	var slate := Color(0.36, 0.4, 0.5)
+	draw_rect(Rect2(p + Vector2(-12, -2), Vector2(26, 13)), Color(0, 0, 0, 0.3))
+	draw_rect(Rect2(p + Vector2(-2, 0), Vector2(14, 9)), wall.darkened(0.12)) # Cloître
+	draw_rect(Rect2(p + Vector2(0, 2), Vector2(10, 5)), Color(0.45, 0.6, 0.32))
+	draw_rect(Rect2(p + Vector2(-13, -4), Vector2(14, 9)), wall) # Nef
+	draw_colored_polygon(PackedVector2Array([p + Vector2(-14, -4), p + Vector2(2, -4), p + Vector2(-1, -9), p + Vector2(-11, -9)]), slate)
+	draw_rect(Rect2(p + Vector2(-17, -14), Vector2(6, 19)), wall.lightened(0.05)) # Clocher
+	draw_colored_polygon(PackedVector2Array([p + Vector2(-18, -14), p + Vector2(-10, -14), p + Vector2(-14, -22)]), slate)
+	draw_line(p + Vector2(-14, -22), p + Vector2(-14, -28), Color(0.95, 0.85, 0.5), 1.5)
+	draw_line(p + Vector2(-16, -26), p + Vector2(-12, -26), Color(0.95, 0.85, 0.5), 1.5)
+	draw_rect(Rect2(p + Vector2(-15, -2), Vector2(2, 3)), Color(0.25, 0.2, 0.16))
+	draw_rect(Rect2(p + Vector2(-7, 1), Vector2(3, 4)), Color(0.25, 0.2, 0.16))
+
+
+## Moulin à vent : tour, toit, quatre ailes.
+func draw_mill(p: Vector2) -> void:
+	draw_rect(Rect2(p + Vector2(-6, 2), Vector2(14, 8)), Color(0, 0, 0, 0.3))
+	draw_colored_polygon(PackedVector2Array([p + Vector2(-6, 8), p + Vector2(6, 8), p + Vector2(4, -8), p + Vector2(-4, -8)]), Color(0.85, 0.8, 0.68))
+	draw_colored_polygon(PackedVector2Array([p + Vector2(-6, -8), p + Vector2(6, -8), p + Vector2(0, -15)]), Color(0.55, 0.3, 0.18))
+	draw_rect(Rect2(p + Vector2(-1.5, 3), Vector2(3, 5)), Color(0.3, 0.2, 0.12))
+	var hub := p + Vector2(0, -7)
+	for k in 4:
+		var d := Vector2.from_angle(PI * 0.25 + k * PI * 0.5)
+		draw_line(hub, hub + d * 13.0, WOOD.darkened(0.2), 1.5)
+		var side := d.orthogonal() * 2.5
+		draw_colored_polygon(PackedVector2Array([hub + d * 4.0, hub + d * 13.0, hub + d * 13.0 + side, hub + d * 4.0 + side]), Color(0.95, 0.92, 0.84))
+	draw_circle(hub, 1.5, Color(0.25, 0.18, 0.1))
+
+
+## Pont fortifié : une tour de garde à la tête du pont.
+func draw_bridge_tower(p: Vector2, f: int) -> void:
+	var stone := Color(0.66, 0.63, 0.58)
+	draw_rect(Rect2(p + Vector2(-6, -4), Vector2(14, 14)), Color(0, 0, 0, 0.3))
+	draw_rect(Rect2(p + Vector2(-7, -12), Vector2(12, 20)), stone)
+	for k in 3:
+		draw_rect(Rect2(p + Vector2(-7 + k * 4.5, -14), Vector2(3, 2)), stone)
+	draw_rect(Rect2(p + Vector2(-3, 1), Vector2(4, 7)), Color(0.25, 0.2, 0.18))
+	draw_rect(Rect2(p + Vector2(-2, -8), Vector2(2, 3)), Color(0.2, 0.16, 0.14))
+	draw_line(p + Vector2(-1, -14), p + Vector2(-1, -22), WOOD, 1.5)
+	draw_rect(Rect2(p + Vector2(0, -22), Vector2(7, 4)), faction_color(f))
+
+
+## Gué : pierres plates en travers du courant et un poteau.
+func draw_ford(p: Vector2) -> void:
+	for k in 5:
+		var s := p + Vector2(-12 + k * 6, 4 + (k % 2) * 2)
+		draw_circle(s + Vector2(1, 1), 2.6, Color(0, 0, 0, 0.3))
+		draw_circle(s, 2.6, Color(0.7, 0.68, 0.62))
+	draw_line(p + Vector2(10, 2), p + Vector2(10, -12), WOOD, 1.5)
+	draw_rect(Rect2(p + Vector2(4, -12), Vector2(10, 4)), Color(0.78, 0.66, 0.44))
+
+
+## Mine : entrée boisée dans un flanc de roche, tas de minerai.
+func draw_mine(p: Vector2) -> void:
+	draw_colored_polygon(PackedVector2Array([p + Vector2(-16, 8), p + Vector2(-5, -12), p + Vector2(4, -6), p + Vector2(15, 8)]), Color(0.5, 0.45, 0.4))
+	draw_colored_polygon(PackedVector2Array([p + Vector2(-5, -12), p + Vector2(4, -6), p + Vector2(15, 8), p + Vector2(2, 8)]), Color(0.38, 0.34, 0.31))
+	draw_rect(Rect2(p + Vector2(-5, -1), Vector2(9, 9)), Color(0.1, 0.08, 0.07))
+	draw_line(p + Vector2(-6, 8), p + Vector2(-6, -2), WOOD, 2.0)
+	draw_line(p + Vector2(5, 8), p + Vector2(5, -2), WOOD, 2.0)
+	draw_line(p + Vector2(-7, -2), p + Vector2(6, -2), WOOD, 2.0)
+	for k in 3:
+		draw_circle(p + Vector2(10 + k * 2.5, 7 - (k % 2) * 2), 2.0, Color(0.65, 0.3, 0.2))
+
+
+## Ruines : pans de murs brisés et pierres tombées.
+func draw_ruins(p: Vector2) -> void:
+	var stone := Color(0.58, 0.56, 0.52)
+	draw_rect(Rect2(p + Vector2(-12, 4), Vector2(26, 6)), Color(0, 0, 0, 0.25))
+	draw_rect(Rect2(p + Vector2(-12, -8), Vector2(5, 15)), stone)
+	draw_rect(Rect2(p + Vector2(-7, -2), Vector2(8, 9)), stone.darkened(0.1))
+	draw_rect(Rect2(p + Vector2(5, -12), Vector2(5, 19)), stone)
+	draw_rect(Rect2(p + Vector2(10, -4), Vector2(3, 11)), stone.darkened(0.15))
+	draw_rect(Rect2(p + Vector2(-12, -10), Vector2(2, 2)), stone)
+	draw_rect(Rect2(p + Vector2(7, -14), Vector2(3, 2)), stone)
+	for s in [Vector2(-3, 9), Vector2(2, 8), Vector2(14, 9)]:
+		draw_rect(Rect2(p + s, Vector2(3, 2)), stone.darkened(0.25))
+	draw_rect(Rect2(p + Vector2(-5, 0), Vector2(2, 3)), Color(0.32, 0.5, 0.25)) # Lierre
+
+
+## Repaire de bandits : tentes sombres, palissade, feu de camp.
+func draw_lair(p: Vector2) -> void:
+	draw_rect(Rect2(p + Vector2(-13, 4), Vector2(28, 6)), Color(0, 0, 0, 0.25))
+	for t in [Vector2(-8, 6), Vector2(6, 4)]:
+		draw_colored_polygon(PackedVector2Array([p + t + Vector2(-7, 0), p + t + Vector2(7, 0), p + t + Vector2(0, -11)]), Color(0.36, 0.22, 0.16))
+		draw_colored_polygon(PackedVector2Array([p + t + Vector2(0, -11), p + t + Vector2(7, 0), p + t + Vector2(2, 0)]), Color(0.25, 0.15, 0.11))
+		draw_line(p + t + Vector2(0, -11), p + t + Vector2(0, -14), WOOD, 1.0)
+	for k in 6:
+		draw_line(p + Vector2(-16 + k * 6, 10), p + Vector2(-16 + k * 6, 4), WOOD.darkened(0.3), 2.0)
+	draw_circle(p + Vector2(0, 8), 2.5, Color(1, 0.55, 0.15))
+	draw_circle(p + Vector2(0, 7), 1.2, Color(1, 0.9, 0.5))
+	draw_line(p + Vector2(-14, -10), p + Vector2(-14, 2), WOOD, 1.5)
+	draw_rect(Rect2(p + Vector2(-13, -10), Vector2(7, 5)), Color(0.15, 0.12, 0.1))
 
 ## Un groupe errant : quelques silhouettes de sa couleur, sa bannière, son effectif.
 func draw_group(q: Party) -> void:
@@ -1249,31 +1340,36 @@ func draw_company(base: Vector2) -> void:
 	draw_set_transform(Vector2.ZERO)
 
 
-## Mini-carte (MiniMap._draw).
+## Mini-carte, par-dessus le terrain (MiniOverlay._draw) : routes, lieux, groupes, vue de la caméra.
 func draw_minimap(ci: Control) -> void:
 	var size := ci.size
 	var k := size / MapData.SIZE
-	ci.draw_rect(Rect2(Vector2.ZERO, size).grow(2), Color(0.1, 0.07, 0.05))
-	ci.draw_texture_rect(land_tex, Rect2(Vector2.ZERO, size), false)
-	for road in MapData.roads():
-		ci.draw_line(MapData.place_pos(road[0]) * k, MapData.place_pos(road[1]) * k, Color(0.72, 0.6, 0.4), 1.0)
+	for r in MapData.roads().size():
+		if MapData.road_class(r) == MapData.RoadClass.TRAIL:
+			continue
+		var pts := MapData.road_points(r)
+		var main := MapData.road_class(r) == MapData.RoadClass.MAIN
+		ci.draw_line(pts[0] * k, pts[-1] * k, Color(0.85, 0.72, 0.48, 0.9 if main else 0.5), 1.0)
 	for i in MapData.place_count():
 		var pl := MapData.place(i)
-		var col := Color(0.9, 0.86, 0.78)
+		var col := Color(0.92, 0.88, 0.8)
 		if i < CampaignState.TOWNS.size():
 			col = CampaignState.FACTIONS[state.town_owner(i)]["color"]
-		var r := 3.0 if pl["kind"] == "town" else 1.5
+		elif pl["kind"] == "lair":
+			col = Color(0.75, 0.2, 0.15)
+		var r := 3.0 if pl["kind"] == "town" else 1.2
+		ci.draw_rect(Rect2(MapData.place_pos(i) * k - Vector2(r, r), Vector2(r, r) * 2).grow(1.0), Color(0, 0, 0, 0.6))
 		ci.draw_rect(Rect2(MapData.place_pos(i) * k - Vector2(r, r), Vector2(r, r) * 2), col)
 	var ow := state.overworld
 	for q in ow.all(state):
 		if q == ow.player or q.hidden:
 			continue
-		var col: Color = Color(0.9, 0.15, 0.1) if ow.hostile(state, q) else (CampaignState.FACTIONS[q.faction]["color"] if q is WorldArmy else Color(1, 1, 1, 0.8))
+		var col: Color = Color(0.95, 0.2, 0.12) if ow.hostile(state, q) else (CampaignState.FACTIONS[q.faction]["color"] if q is WorldArmy else Color(1, 1, 1, 0.85))
 		ci.draw_circle(q.pos * k, 2.0 if q is WorldArmy else 1.5, col)
 	ci.draw_circle(ow.player.pos * k, 3.0, BLUE.lightened(0.3))
-	ci.draw_arc(ow.player.pos * k, 4.0, 0, TAU, 12, Color.WHITE, 1.0)
+	ci.draw_arc(ow.player.pos * k, 4.5, 0, TAU, 12, Color.WHITE, 1.0)
 	if cam != null:
 		var v := view_rect()
 		v.size.x *= map_area().x / get_viewport_rect().size.x # La partie cachée par le panneau
-		ci.draw_rect(Rect2(v.position * k, v.size * k), Color(1, 1, 1, 0.8), false, 1.0)
-	ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0.6, 0.47, 0.25), false, 1.0)
+		ci.draw_rect(Rect2(v.position * k, v.size * k).intersection(Rect2(Vector2.ZERO, size)), Color(1, 1, 1, 0.9), false, 1.0)
+	ci.draw_rect(Rect2(Vector2.ZERO, size), Color(0.6, 0.47, 0.25), false, 1.5)
