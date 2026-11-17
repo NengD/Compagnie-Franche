@@ -213,7 +213,8 @@ func _test_day() -> void:
 func _test_registry() -> void:
 	var c := CampaignState.new_game(6)
 	var ow := c.overworld
-	check(ow.count("villagers") == 4 and ow.count("bandits") == 3 and ow.count("caravan") == 2, "population de départ")
+	for kind in ["villagers", "bandits", "caravan", "patrol"]:
+		check(ow.count(kind) == ow.population_cap(c, kind) and ow.count(kind) > 0, "population de départ : %d %s" % [ow.count(kind), kind])
 	var ids := {}
 	for p in ow.all(c):
 		check(not ids.has(p.id), "identifiant %d en double" % p.id)
@@ -245,7 +246,7 @@ func _test_registry() -> void:
 	for p in ow.parties:
 		if starts.has(p.id) and p.pos.distance_to(starts[p.id]) > 50.0:
 			moved += 1
-		check(p.state in ["idle", "travel", "rest", "chase"] and MapData.walkable(p.pos) or MapData.is_road(p.pos), "groupe %s égaré (%s)" % [p.kind, str(p.pos)])
+		check(p.state in PartyAI.STATES and (MapData.walkable(p.pos) or MapData.is_road(p.pos)), "groupe %s égaré (%s, %s)" % [p.kind, p.state, str(p.pos)])
 	check(moved >= 4, "comportement : %d groupes seulement ont bougé en 3 jours" % moved)
 	print("Registre et comportements : OK")
 

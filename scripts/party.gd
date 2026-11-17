@@ -53,6 +53,8 @@ var goods := 0 ## Marchandises (caravanes, villageois) : valeur en écus
 var speed_bonus := 1.0 ## Multiplicateur de vitesse propre au groupe (chevaux, fatigue...)
 var hidden := false ## Groupe caché (forêt, embuscade) : invisible tant qu'il n'est pas repéré
 var busy_hours := 0.0 ## Heures pendant lesquelles le groupe reste sur place (repos, pillage, commerce)
+var base := Vector2(-1, -1) ## Point d'attache hors des lieux (repaire de bandits) ; (-1, -1) : aucun
+var age := 0.0 ## Heures depuis l'apparition du groupe (déserteurs qui tournent au brigandage...)
 
 
 ## Effectif total.
@@ -121,6 +123,7 @@ func to_dict() -> Dictionary:
 		"home": home, "goal": goal, "state": state,
 		"troops": troops.duplicate(true), "gold": gold, "goods": goods,
 		"speed_bonus": speed_bonus, "hidden": hidden, "busy_hours": busy_hours,
+		"base": [base.x, base.y], "age": age,
 	}
 
 
@@ -153,4 +156,8 @@ static func from_dict(d: Variant) -> Party:
 	p.speed_bonus = clampf(float(d.get("speed_bonus", 1.0)), 0.1, 3.0)
 	p.hidden = bool(d.get("hidden", false))
 	p.busy_hours = maxf(0.0, float(d.get("busy_hours", 0.0)))
+	var b: Variant = d.get("base", [-1, -1])
+	if b is Array and (b as Array).size() == 2:
+		p.base = Vector2(float(b[0]), float(b[1]))
+	p.age = maxf(0.0, float(d.get("age", 0.0)))
 	return p

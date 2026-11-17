@@ -70,6 +70,9 @@ var raining := false ## Météo du jour (elle s'impose à la bataille)
 var news: Array[String] = [] ## Nouvelles du monde, de la plus récente à la plus ancienne
 var encounter: Dictionary = {} ## Rencontre en attente : {"army": id, "town": destination de la marche}
 var captures := 0 ## Villes prises depuis le début de la campagne
+## Batailles du jour (non sauvegardé) : {"pos", "faction" (le vaincu), "men" (hommes perdus)}.
+## La carte en temps réel (Overworld.populate) y fait naître des déserteurs, puis la vide.
+var aftermath: Array[Dictionary] = []
 var rng := RandomNumberGenerator.new()
 ## Temps réel (overworld.gd) : les armées avancent à chaque instant (tick) et plus d'un bond par
 ## jour dans advance. Non sauvegardé : la carte en temps réel le remet en marche.
@@ -133,6 +136,7 @@ func calendar_text(day: int) -> String:
 # ---------------------------------------------------------------- Un jour passe
 
 func advance(c: CampaignState) -> void:
+	aftermath.clear()
 	if season_day(c.day) == 1:
 		post(c, season_intro(c.day), true)
 	roll_weather(c.day)
@@ -530,6 +534,7 @@ func siege_day(c: CampaignState, a: WorldArmy) -> void:
 		capture(c, a, t)
 	elif a.force < MIN_ARMY:
 		post(c, "le siège de %s est levé : %s se disperse." % [town_name(t), a.display_name()])
+		aftermath.append({"pos": a.pos, "faction": a.faction, "men": a.force})
 		a.force = 0
 
 
@@ -538,6 +543,7 @@ func capture(c: CampaignState, a: WorldArmy, t: int) -> void:
 	@warning_ignore("integer_division")
 	var men := maxi(40, a.force / 2)
 	a.force = 0
+	aftermath.append({"pos": town_pos(t), "faction": owner[t], "men": garrison_max(t)})
 	take_town(c, a.faction, t, men)
 
 
@@ -578,6 +584,7 @@ func clashes(c: CampaignState) -> void:
 			var lose := b if pa >= pb else a
 			var ratio := minf(minf(pa, pb) / maxf(pa, pb), 1.0)
 			win.force -= int(lose.force * 0.5 * ratio + win.force * 0.05)
+			aftermath.append({"pos": lose.pos, "faction": lose.faction, "men": lose.force - int(lose.force * 0.25)})
 			lose.force = int(lose.force * 0.25)
 			post(c, "bataille près de %s : %s met en déroute %s." % [town_name(nearest_town(win.pos)), win.display_name(), lose.display_name()])
 			send_home(lose)
