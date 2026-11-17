@@ -270,6 +270,7 @@ func to_dict() -> Dictionary:
 		"captain": captain.to_dict(),
 		"world": world.to_dict(),
 		"overworld": overworld.to_dict(),
+		"encounters": encounters_to_dict(), # Rencontres de la carte (bloc en fin de fichier)
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -316,6 +317,8 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		out["ambush"] = true
 	if k.has("world_army"): # Bataille contre une armée rencontrée (world_sim.gd)
 		out["world_army"] = int(k["world_army"])
+	if k.has("party_id"): # Bataille contre un groupe de la carte (party_contract)
+		out["party_id"] = int(k["party_id"])
 	if str(k.get("siege", "")) in SIEGE_KINDS:
 		out["siege"] = str(k["siege"])
 		var target := int(k.get("target", -1)) # Assaut d'une ville de la carte (make_siege)
@@ -402,6 +405,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.men_lost = maxi(0, int(d.get("men_lost", 0)))
 	c.enemies_killed = maxi(0, int(d.get("enemies_killed", 0)))
 	c.gold_earned = maxi(0, int(d.get("gold_earned", 0)))
+	c.encounters_from_dict(d.get("encounters", {})) # Rencontres de la carte (bloc en fin de fichier)
 	if c.ended == "":
 		c.keep_final_in_patron_town() # Sauvegarde d'avant le correctif : bataille décisive en ville ennemie
 	return c
@@ -912,7 +916,7 @@ func make_ambush(to: int) -> Dictionary:
 func pass_day() -> void:
 	day += 1
 	world.advance(self) # Saisons, météo, guerres et armées
-	var wage := daily_wage()
+	var wage := take_provisions(daily_wage()) # Vivres achetés en rencontre (bloc en fin de fichier)
 	if gold >= wage:
 		gold -= wage
 	else:
@@ -1640,3 +1644,213 @@ func finish_report(out: Dictionary, victory: bool, retreat: bool, lost: int, hea
 	out["healed"] = healed
 	out["killed"] = killed
 	out["text"] = text
+
+
+# ---------------------------------------------------------------- Rencontres de la carte en temps réel
+# Bloc des rencontres (encounter.gd) : bataille contre un groupe de la carte (Party), butin en
+# marchandises, vivres et escortes. Branché ailleurs par quatre lignes seulement : to_dict et
+# from_dict (« encounters »), pass_day (take_provisions) et contract_from_dict (« party_id »).
+
+const REP_VILLAGERS := -8 ## Attaquer des villageois d'une faction
+const REP_PLUNDER := -15 ## Piller une caravane d'une faction
+const REP_EXTORT := -6 ## Rançonner des villageois
+const REP_BANDITS := 4 ## Détruire (ou soumettre) des bandits : la faction locale apprécie
+const REP_TURN_IN := 3 ## Livrer des déserteurs à leur faction
+const REP_ESCORT := 3 ## Caravane escortée à bon port
+const ESCORT_DAYS := 6 ## Durée d'une escorte avant que le marché soit caduc
+const PARTY_REGIMENTS := 10 ## Régiments ennemis au plus dans une bataille contre un groupe
+## Nom de l'ennemi dans le compte rendu (« Victoire sur les %s »).
+const PARTY_FOES := {
+	"villagers": "villageois", "bandits": "bandits", "caravan": "gardes de la caravane",
+	"patrol": "sergents de {f}", "army": "troupes de {f}", "deserters": "déserteurs", "player": "ennemis",
+}
+
+var loot := 0 ## Butin en marchandises (valeur en écus), à revendre aux villageois et caravanes
+var provisions := 0.0 ## Vivres achetés : écus de solde couverts au prochain jour
+var escorts: Array[Dictionary] = [] ## Escortes en cours : {"party_id", "reward", "faction", "goal", "expires"}
+
+
+## Contrat de bataille contre un groupe de la carte (même forme que make_contract, lu par battle.gd
+## via pending) : ennemi tiré de other.troops (découpé en régiments complets), terrain imposé,
+## ni prime ni faction qui paie. « party_id » : le groupe, à retrouver après la bataille.
+func party_contract(other: Party, terrain: String) -> Dictionary:
+	var enemy: Array[Dictionary] = []
+	for r in other.troops:
+		var type := str(r["type"])
+		var men := int(r.get("men", 0))
+		if men <= 0 or not UnitTypes.STATS.has(type):
+			continue
+		var full := int(UnitTypes.STATS[type]["count"])
+		var parts := ceili(men / float(full))
+		for i in parts:
+			@warning_ignore("integer_division")
+			var n := men / parts + (1 if i < men % parts else 0)
+			enemy.append({"type": type, "men": n, "rank": rank_from_xp(float(r.get("xp", 0.0)))})
+	enemy.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["men"]) > int(b["men"]))
+	enemy.resize(mini(enemy.size(), PARTY_REGIMENTS))
+	var foe := str(PARTY_FOES.get(other.kind, "ennemis"))
+	if other.faction >= 0:
+		foe = foe.replace("{f}", str(FACTIONS[other.faction]["short"]))
+	if not terrain in Terrain.KINDS or terrain == "siege":
+		terrain = "plain"
+	return {
+		"town": clampi(location, 0, TOWNS.size() - 1), "faction": -1, "party_id": other.id, "terrain": terrain,
+		"title": "Rencontre : %s" % other.display_name(),
+		"text": "%s. Pas de prime : seulement le butin." % cap_first(other.display_name()),
+		"foe": foe, "difficulty": clampi(ceili(other.men() / 60.0), 1, MAX_LEVEL),
+		"enemy": enemy, "reward": 0, "expires": day,
+		"seed": absi(hash([other.id, day, "bataille"])) % (1 << 30) + 1,
+		"objective": {"kind": "destroy"},
+		"enemy_faction": other.faction if other.kind in ["patrol", "army"] else -1,
+	}
+
+
+## Après la bataille contre un groupe (à appeler après finish_battle, avec son bilan) : pertes
+## reportées sur other.troops, butin et réputation. result : « victory » et, pour l'effectif ennemi
+## restant, « enemy_survivors » (debout + fuyards revenus), ou « totals » du bilan de bataille
+## (enemy_standing + enemy_fled), sinon « killed » (tués par la compagnie). Renvoie la note.
+func apply_party_battle(other: Party, result: Dictionary) -> String:
+	var victory := bool(result.get("victory", false))
+	var before := other.men()
+	var engaged := 0 # Hommes réellement engagés (au plus PARTY_REGIMENTS régiments)
+	for e in party_contract(other, "plain")["enemy"]:
+		engaged += int(e["men"])
+	var survivors := engaged
+	if result.has("enemy_survivors"):
+		survivors = int(result["enemy_survivors"])
+	elif result.has("totals"):
+		var t: Dictionary = result["totals"]
+		survivors = int(t.get("enemy_standing", 0)) + int(t.get("enemy_fled", 0))
+	else:
+		survivors = engaged - int(result.get("killed", 0))
+	# Les hommes restés hors de la bataille survivent
+	survivors = clampi(survivors + before - engaged, 0, before)
+	scale_troops(other, survivors, before)
+	for r in other.troops:
+		r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (0.0 if victory else XP_VICTORY), XP_MAX)
+	var notes: Array[String] = []
+	if victory:
+		var g := other.gold
+		gold += g
+		gold_earned += g
+		loot += other.goods
+		if g + other.goods > 0:
+			notes.append("Butin pris à %s : %d écus et %d écus de marchandises." % [other.display_name(), g, other.goods])
+		other.gold = 0
+		other.goods = 0
+	else:
+		other.gold += int(result.get("pillage", 0)) # Les bagages pillés de la compagnie
+	var rep: Array[String] = []
+	var f := other.faction
+	match other.kind:
+		"villagers":
+			if f >= 0:
+				change_reputation(f, REP_VILLAGERS)
+				rep.append("%s %+d" % [FACTIONS[f]["short"], REP_VILLAGERS])
+		"caravan":
+			if f >= 0:
+				change_reputation(f, REP_PLUNDER)
+				rep.append("%s %+d" % [FACTIONS[f]["short"], REP_PLUNDER])
+		"bandits":
+			var local := town_owner(other.home if other.home >= 0 and other.home < TOWNS.size() else clampi(location, 0, TOWNS.size() - 1))
+			if victory and local >= 0:
+				change_reputation(local, REP_BANDITS)
+				rep.append("%s %+d" % [FACTIONS[local]["short"], REP_BANDITS])
+		"patrol", "army":
+			if victory and f >= 0:
+				change_reputation(f, -WorldSim.REP_ARMY)
+				rep.append("%s %+d" % [FACTIONS[f]["short"], -WorldSim.REP_ARMY])
+				for e in world.enemies_of(f):
+					change_reputation(e, WorldSim.REP_ARMY)
+					rep.append("%s %+d" % [FACTIONS[e]["short"], WorldSim.REP_ARMY])
+	if not rep.is_empty():
+		notes.append("Réputation : %s." % ", ".join(rep))
+	if other.is_dead():
+		notes.append("%s n'existe plus." % cap_first(other.display_name()))
+		finish_escort(other.id, false)
+	var note := " ".join(notes)
+	if note != "":
+		add_log("Jour %d : %s" % [day, note])
+	return note
+
+
+## Ramène l'effectif d'un groupe de before à survivors, régiment par régiment (proportionnellement).
+static func scale_troops(other: Party, survivors: int, before: int) -> void:
+	if before <= 0:
+		return
+	var k := survivors / float(before)
+	var left := survivors
+	for r in other.troops:
+		var n := mini(int(floor(int(r["men"]) * k)), left)
+		r["men"] = n
+		left -= n
+	var i := 0
+	while left > 0 and not other.troops.is_empty():
+		var r: Dictionary = other.troops[i % other.troops.size()]
+		r["men"] = int(r["men"]) + 1
+		left -= 1
+		i += 1
+	other.troops = other.troops.filter(func(r: Dictionary) -> bool: return int(r["men"]) > 0)
+
+
+## Vivres achetés : ils couvrent une partie de la solde (appelé par pass_day). Renvoie la solde due.
+func take_provisions(wage: float) -> float:
+	var used := minf(provisions, wage)
+	provisions = 0.0
+	return wage - used
+
+
+## Escorte d'une caravane jusqu'à son but (other.goal) : payée par finish_escort à l'arrivée.
+func start_escort(other: Party, reward: int) -> Dictionary:
+	var e := {"party_id": other.id, "reward": reward, "faction": other.faction, "goal": other.goal, "expires": day + ESCORT_DAYS}
+	escorts.append(e)
+	add_log("Jour %d : la compagnie escorte %s." % [day, other.display_name()])
+	return e
+
+
+func escort_for(party_id: int) -> Dictionary:
+	for e in escorts:
+		if int(e["party_id"]) == party_id:
+			return e
+	return {}
+
+
+## Fin d'une escorte : le moteur l'appelle quand la caravane arrive (arrived vrai) ou disparaît.
+## Renvoie le message ("" si aucune escorte).
+func finish_escort(party_id: int, arrived: bool) -> String:
+	var e := escort_for(party_id)
+	if e.is_empty():
+		return ""
+	escorts.erase(e)
+	var msg: String
+	if arrived and int(e["expires"]) >= day:
+		var pay := int(e["reward"])
+		gold += pay
+		gold_earned += pay
+		msg = "la caravane arrive à bon port : %d écus pour l'escorte." % pay
+		var f := int(e["faction"])
+		if f >= 0:
+			change_reputation(f, REP_ESCORT)
+			msg += " Réputation : %s %+d." % [FACTIONS[f]["short"], REP_ESCORT]
+	else:
+		msg = "l'escorte de la caravane a échoué."
+	add_log("Jour %d : %s" % [day, msg])
+	return cap_first(msg)
+
+
+func encounters_to_dict() -> Dictionary:
+	return {"loot": loot, "provisions": provisions, "escorts": escorts.duplicate(true)}
+
+
+## Relit les rencontres (sauvegarde sans rencontres : rien en cours).
+func encounters_from_dict(v: Variant) -> void:
+	if not v is Dictionary:
+		return
+	loot = maxi(0, int(v.get("loot", 0)))
+	provisions = maxf(0.0, float(v.get("provisions", 0.0)))
+	escorts.clear()
+	for e in v.get("escorts", []):
+		if e is Dictionary and e.has("party_id"):
+			escorts.append({"party_id": int(e["party_id"]), "reward": maxi(0, int(e.get("reward", 0))),
+				"faction": clampi(int(e.get("faction", -1)), -1, FACTIONS.size() - 1),
+				"goal": int(e.get("goal", -1)), "expires": int(e.get("expires", 0))})
