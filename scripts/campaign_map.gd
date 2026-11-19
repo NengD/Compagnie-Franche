@@ -40,7 +40,11 @@ var cam: Camera2D
 var land: Node2D ## Fond uni autour de la carte
 var terrain: Node2D ## Terrain peint par le shader (MapRender)
 var roads_layer: Node2D ## Routes, ponts et noms des forêts, chaînes, lacs et rivières
-var light: CanvasModulate
+var sky_layers: Array[Node2D] = [] ## Brouillard, nuit, lumières, pluie (MapSky), au-dessus des groupes
+var ground_mat: ShaderMaterial ## Matériau du terrain (saisons)
+var season := {} ## Mélange des saisons (MapSky.season), mis à jour avec l'heure
+var trails := {} ## Trace de marche de chaque groupe : id -> Array[Vector2] (non sauvegardé)
+var facing := {} ## Sens de chaque groupe : id -> -1 (vers l'ouest) ou 1
 var notice := "" ## Message d'information ou de refus (affiché en bas de l'écran, puis effacé)
 var box: VBoxContainer ## Contenu de la fenêtre ouverte
 var panel: PanelContainer ## Fenêtre au centre : cachée quand il n'y a rien à montrer
@@ -113,6 +117,7 @@ class RoadLayer extends Node2D:
 class MiniMap extends Control:
 	var map: Node2D
 	var overlay: Control
+	var ground: ShaderMaterial ## Matériau du fond (mêmes saisons que la carte)
 
 	func setup() -> void:
 		var tr := TextureRect.new()
@@ -120,7 +125,8 @@ class MiniMap extends Control:
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tr.stretch_mode = TextureRect.STRETCH_SCALE
 		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
-		tr.material = MapRender.material(0.0)
+		ground = MapRender.material(0.0)
+		tr.material = ground
 		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(tr)
 		overlay = MiniOverlay.new()
@@ -192,14 +198,21 @@ func _ready() -> void:
 	add_child(land)
 	terrain = TerrainLayer.new()
 	terrain.z_index = -3
-	terrain.material = MapRender.material(1.0)
+	ground_mat = MapRender.material(1.0)
+	terrain.material = ground_mat
 	add_child(terrain)
 	roads_layer = RoadLayer.new()
 	roads_layer.font = ThemeDB.fallback_font
 	roads_layer.z_index = -2
 	add_child(roads_layer)
-	light = CanvasModulate.new()
-	add_child(light)
+	# Brouillard, nuit (multiplication), lumières (addition), pluie : par-dessus les groupes
+	var z := 1
+	for layer: Node2D in [MapSky.FogLayer.new(), MapSky.DarkLayer.new(), MapSky.GlowLayer.new(), MapSky.RainLayer.new()]:
+		layer.set("map", self)
+		layer.z_index = z
+		z += 1
+		add_child(layer)
+		sky_layers.append(layer)
 	cam = Camera2D.new()
 	cam.limit_left = -200
 	cam.limit_top = -200
@@ -281,6 +294,9 @@ func _process(delta: float) -> void:
 		toast.modulate.a = clampf(toast_time, 0.0, 1.0)
 		toast.visible = toast_time > 0.0
 	queue_redraw()
+	update_trails()
+	for layer in sky_layers:
+		layer.queue_redraw()
 	if minimap != null:
 		(minimap as MiniMap).redraw()
 
@@ -323,27 +339,21 @@ func set_speed(i: int) -> void:
 	refresh_speed_buttons()
 
 
-## Éclairage léger du jour et de la nuit (CanvasModulate : la carte, pas le panneau).
+## Saison du terrain et de la mini-carte (la nuit, le brouillard et la pluie sont redessinés à
+## chaque image par les calques de MapSky).
 func update_light() -> void:
-	if light == null:
+	var s := MapSky.season(state.day, state.overworld.hour)
+	if s == season:
 		return
-	light.color = daylight(state.overworld.hour)
+	season = s
+	MapRender.set_season(ground_mat, s)
+	if minimap != null:
+		MapRender.set_season((minimap as MiniMap).ground, s)
 
 
+## Couleur de la lumière à cette heure (voir MapSky.daylight).
 static func daylight(hour: float) -> Color:
-	var night := Color(0.55, 0.6, 0.85)
-	var dusk := Color(1.0, 0.82, 0.7)
-	if hour < 5.0 or hour >= 21.0:
-		return night
-	if hour < 7.0:
-		return night.lerp(dusk, (hour - 5.0) / 2.0)
-	if hour < 8.5:
-		return dusk.lerp(Color.WHITE, (hour - 7.0) / 1.5)
-	if hour < 18.5:
-		return Color.WHITE
-	if hour < 20.0:
-		return Color.WHITE.lerp(dusk, (hour - 18.5) / 1.5)
-	return dusk.lerp(night, hour - 20.0)
+	return MapSky.daylight(hour)
 
 
 ## « Jour 12 · 14 h 30 ».
@@ -986,6 +996,7 @@ func refresh_ui() -> void:
 			add_label(where_text(), 12, DIM_COL)
 			build_company(-1, "")
 			CompanyPanel.build(self)
+			Heraldry.build_panel(self) # Armoiries de la bannière
 		"world":
 			window_title.text = "Le monde"
 			add_section("Objectif")
@@ -1246,6 +1257,7 @@ func _draw() -> void:
 	var view := view_rect().grow(80)
 	var z := cam.zoom.x if cam != null else 1.0
 	MapRender.draw_region_names(self, font, z, view)
+	draw_trails(view)
 	for i in MapData.place_count():
 		if view.has_point(MapData.place_pos(i)):
 			draw_place(i, z)
@@ -1267,8 +1279,8 @@ func _draw() -> void:
 		at = q
 	if not p.path.is_empty():
 		draw_arc(p.path[-1], 6.0, 0, TAU, 12, GOLD_COL, 2.0)
-	draw_company(p.pos + Vector2(-4, -18))
-	WorldView.draw_weather(self, view_rect()) # Voile de saison, pluie ou neige
+	draw_company(p.pos)
+	# Brouillard, nuit, lumières et pluie : calques de MapSky (sky_layers), au-dessus
 
 
 ## Un lieu : son icône selon sa sorte et son nom. En vue éloignée, seuls les noms des villes
@@ -1325,7 +1337,7 @@ func draw_town(i: int) -> void:
 	draw_set_transform(p, 0.0, Vector2(2, 2))
 	var stone := Color(0.7, 0.68, 0.62)
 	var dark := Color(0.3, 0.28, 0.26)
-	var roof := Color(0.66, 0.24, 0.16)
+	var roof := snowy(Color(0.66, 0.24, 0.16))
 	draw_rect(Rect2(-9, -2, 18, 7), dark)
 	draw_rect(Rect2(-8, -3, 16, 7), stone)
 	for k in 4:
@@ -1358,7 +1370,7 @@ func draw_town(i: int) -> void:
 
 func draw_village(p: Vector2) -> void:
 	var wall := Color(0.85, 0.78, 0.6)
-	var roof := Color(0.55, 0.35, 0.2)
+	var roof := snowy(Color(0.55, 0.35, 0.2))
 	for h in [Vector2(-10, 0), Vector2(4, -4), Vector2(-2, 6)]:
 		draw_rect(Rect2(p + h + Vector2(0, 1), Vector2(10, 7)), Color(0, 0, 0, 0.3))
 		draw_rect(Rect2(p + h, Vector2(9, 6)), wall)
@@ -1478,42 +1490,115 @@ func draw_lair(p: Vector2) -> void:
 	draw_line(p + Vector2(-14, -10), p + Vector2(-14, 2), WOOD, 1.5)
 	draw_rect(Rect2(p + Vector2(-13, -10), Vector2(7, 5)), Color(0.15, 0.12, 0.1))
 
-## Un groupe errant : quelques silhouettes de sa couleur, sa bannière, son effectif.
+## Toits enneigés en hiver (MapSky.season).
+func snowy(roof: Color) -> Color:
+	return roof.lerp(Color(0.93, 0.95, 0.99), float(season.get("snow", 0.0)) * 0.85)
+
+
+## Pas des figurines (0 ou 1) : les jambes alternent quand le groupe marche et que le temps passe.
+func step_of(q: Party) -> int:
+	if time_stopped() or not moving(q):
+		return 0
+	return (int(Time.get_ticks_msec() / 160.0) + q.id) % 2
+
+
+## Le groupe marche-t-il ? (sa trace avance)
+func moving(q: Party) -> bool:
+	var tr: Array = trails.get(q.id, [])
+	return not tr.is_empty() and (tr[-1] as Vector2).distance_to(q.pos) > 0.5 or not q.path.is_empty() and q.busy_hours <= 0.0
+
+
+## Trace de marche : un point tous les TRAIL_STEP px parcourus (TRAIL_POINTS au plus) ; le sens
+## du groupe suit sa marche (figurines tournées vers l'ouest ou l'est).
+const TRAIL_STEP := 9.0
+const TRAIL_POINTS := 9
+
+
+func update_trails() -> void:
+	var alive := {}
+	for q in state.overworld.all(state):
+		alive[q.id] = true
+		var tr: Array = trails.get(q.id, [])
+		if tr.is_empty() or (tr[-1] as Vector2).distance_to(q.pos) > 60.0: # Apparition ou saut
+			trails[q.id] = [q.pos]
+			continue
+		var last: Vector2 = tr[-1]
+		var d := q.pos - last
+		if d.length() >= TRAIL_STEP:
+			tr.append(q.pos)
+			if tr.size() > TRAIL_POINTS:
+				tr.pop_front()
+			if absf(d.x) > 2.0:
+				facing[q.id] = -1 if d.x < 0.0 else 1
+	if trails.size() > alive.size(): # Groupes disparus
+		for id in trails.keys():
+			if not alive.has(id):
+				trails.erase(id)
+				facing.erase(id)
+
+
+## Traces discrètes : petites empreintes qui s'effacent derrière les groupes en marche.
+func draw_trails(view: Rect2) -> void:
+	for id in trails:
+		var tr: Array = trails[id]
+		if tr.size() < 2 or not view.has_point(tr[-1]):
+			continue
+		var n := tr.size()
+		for k in n - 1:
+			var a: Vector2 = tr[k]
+			var b: Vector2 = tr[k + 1]
+			var side := (b - a).normalized().orthogonal() * 1.6
+			var alpha := 0.5 * float(k + 1) / n
+			var col := Color(0.22, 0.16, 0.1, alpha)
+			for f in 2: # Deux empreintes par pas, de part et d'autre
+				var p := a.lerp(b, 0.25 + f * 0.5) + (side if f == 0 else -side)
+				draw_rect(Rect2(p.round() - Vector2(1, 1), Vector2(2, 2)), col)
+
+
+## Sens d'un groupe (1 : vers l'est, -1 : vers l'ouest), d'après sa marche.
+func face_of(q: Party) -> float:
+	if not q.path.is_empty() and absf(q.path[0].x - q.pos.x) > 2.0:
+		return -1.0 if q.path[0].x < q.pos.x else 1.0
+	return float(facing.get(q.id, 1))
+
+
+## Un groupe errant : ses figurines selon sa sorte (MapIcons), sa bannière, son effectif.
 func draw_group(q: Party) -> void:
 	var p := q.pos.round()
-	var col: Color = KIND_COLORS.get(q.kind, Color(0.7, 0.7, 0.7))
 	var hostile := state.overworld.hostile(state, q)
-	draw_circle(p + Vector2(0, 5), 9.0, Color(0, 0, 0, 0.25))
 	if hostile:
-		draw_arc(p + Vector2(0, 1), 12.0, 0, TAU, 20, Color(0.9, 0.15, 0.1, 0.9), 1.5)
-	var n := clampi(ceili(q.men() / 12.0), 1, 4)
-	for k in n:
-		var s := p + Vector2(-5 + k * 4, 4 - (k % 2) * 2)
-		draw_rect(Rect2(s + Vector2(0, -4), Vector2(3, 5)), col)
-		draw_rect(Rect2(s + Vector2(0, -6), Vector2(3, 2)), Color(0.85, 0.75, 0.6))
-	if q.kind == "caravan":
-		draw_rect(Rect2(p + Vector2(4, -2), Vector2(10, 6)), Color(0.55, 0.4, 0.22))
-		draw_rect(Rect2(p + Vector2(4, -5), Vector2(10, 3)), Color(0.9, 0.88, 0.8))
-		draw_circle(p + Vector2(6, 5), 1.5, Color(0.2, 0.15, 0.1))
-		draw_circle(p + Vector2(12, 5), 1.5, Color(0.2, 0.15, 0.1))
-	elif q.kind == "bandits":
-		draw_line(p + Vector2(-8, -10), p + Vector2(-8, 3), WOOD, 1.5)
-		draw_rect(Rect2(p + Vector2(-7, -10), Vector2(7, 5)), Color(0.15, 0.12, 0.1))
-	var label := str(q.men())
-	draw_string(font, p + Vector2(-12, 18), label, HORIZONTAL_ALIGNMENT_CENTER, 24, 10, Color(0, 0, 0, 0.85))
-	draw_string(font, p + Vector2(-13, 17), label, HORIZONTAL_ALIGNMENT_CENTER, 24, 10, Color(1, 0.6, 0.5) if hostile else Color(1, 0.95, 0.85))
+		draw_arc(p + Vector2(0, -2), 14.0, 0, TAU, 24, Color(0.9, 0.15, 0.1, 0.9), 1.5)
+	var step := step_of(q)
+	var men := q.men()
+	draw_set_transform(p, 0.0, Vector2(face_of(q), 1.0))
+	match q.kind:
+		"caravan":
+			MapIcons.caravan(self, clampi(ceili(men / 15.0), 1, 2), step)
+		"villagers":
+			MapIcons.villagers(self, clampi(ceili(men / 10.0), 2, 4), step)
+		"patrol", "army":
+			MapIcons.patrol(self, clampi(ceili(men / 25.0), 1, 3), faction_color(q.faction), step)
+		"bandits":
+			MapIcons.bandits(self, clampi(ceili(men / 10.0), 2, 4), step)
+		"deserters":
+			MapIcons.deserters(self, clampi(ceili(men / 12.0), 2, 4), faction_color(q.faction), step)
+		_:
+			MapIcons.villagers(self, 2, step)
+	draw_set_transform(Vector2.ZERO)
+	var label := str(men)
+	draw_string(font, p + Vector2(-12, 14), label, HORIZONTAL_ALIGNMENT_CENTER, 24, 10, Color(0, 0, 0, 0.85))
+	draw_string(font, p + Vector2(-13, 13), label, HORIZONTAL_ALIGNMENT_CENTER, 24, 10, Color(1, 0.6, 0.5) if hostile else Color(1, 0.95, 0.85))
 
 
-## Bannière de la compagnie.
+## La compagnie : quelques soldats et la bannière à ses armoiries (CampaignState.arms).
 func draw_company(base: Vector2) -> void:
-	base = base.round()
-	draw_set_transform(base, 0.0, Vector2(2, 2))
-	draw_rect(Rect2(-3, 8, 8, 2), Color(0, 0, 0, 0.3))
-	draw_line(Vector2(0, -2), Vector2(0, 9), WOOD, 1.0)
-	draw_rect(Rect2(1, -2, 8, 6), BLUE)
-	draw_rect(Rect2(1, -2, 8, 6), Color(0, 0, 0, 0.6), false, 0.5)
-	draw_rect(Rect2(4, -1, 2, 4), Color(1, 0.95, 0.8))
-	draw_rect(Rect2(3, 0, 4, 1), Color(1, 0.95, 0.8))
+	var pl := state.overworld.player
+	var men := 0
+	for r in state.company:
+		men += int(r["men"])
+	var n := 0 if men == 0 else clampi(ceili(men / 60.0), 1, 3)
+	draw_set_transform(base.round()) # Jamais en miroir : les armoiries gardent leur sens
+	MapIcons.company(self, n, state.arms, step_of(pl))
 	draw_set_transform(Vector2.ZERO)
 
 

@@ -1,155 +1,259 @@
 class_name Heraldry
 extends RefCounted
-## Armoiries de la compagnie : un dictionnaire simple {"field", "charge", "colors"}, tiré au sort
-## au départ d'une campagne et sauvegardé (CampaignState.arms).
+## Armoiries simples de la compagnie (CampaignState.arms) : {"field", "charge", "colors"}.
 ## - field : partition de l'écu (FIELDS) ;
-## - charge : meuble posé dessus (CHARGES) ;
-## - colors : [émail du champ, émail de la partition, émail du meuble], noms de TINCTURES.
-## Règle des émaux : le meuble (métal) tranche toujours sur le champ (couleur), et inversement.
-##
-## draw() peint les armoiries dans un rectangle de « pixels » (bannières de bataille) : la carte
-## de campagne peut s'en servir telle quelle.
+## - charge : meuble posé au centre (CHARGES) ;
+## - colors : trois couleurs « #rrggbb » : le champ, la seconde couleur de la partition, le meuble.
+## Tirées au hasard au départ (generator propre : les tirages de la campagne ne changent pas),
+## sauvegardées et modifiables dans l'onglet Compagnie. draw() les peint dans un rectangle
+## (bannière de la carte, aperçu du panneau).
 
-const FIELDS := ["plain", "per_pale", "per_fess", "quarterly", "bend", "chevron"]
-const CHARGES := ["none", "cross", "saltire", "roundel", "star", "crescent", "tower"]
-const FIELD_NAMES := {"plain": "plein", "per_pale": "parti", "per_fess": "coupé", "quarterly": "écartelé", "bend": "à la bande", "chevron": "au chevron"}
-const CHARGE_NAMES := {"none": "", "cross": "une croix", "saltire": "un sautoir", "roundel": "un besant", "star": "une étoile", "crescent": "un croissant", "tower": "une tour"}
-
-const METALS := ["or", "argent"]
-const COLOURS := ["gueules", "azur", "sinople", "sable", "pourpre"]
-const TINCTURES := {
-	"or": Color(0.95, 0.78, 0.25),
-	"argent": Color(0.93, 0.93, 0.9),
-	"gueules": Color(0.75, 0.13, 0.12),
-	"azur": Color(0.16, 0.32, 0.78),
-	"sinople": Color(0.16, 0.5, 0.24),
-	"sable": Color(0.13, 0.12, 0.12),
-	"pourpre": Color(0.5, 0.2, 0.5),
-}
-## Armoiries par défaut (escarmouche, sans campagne) : de sable à la tour d'or.
-const DEFAULT := {"field": "plain", "charge": "tower", "colors": ["sable", "sable", "or"]}
+const FIELDS := ["plain", "per_pale", "per_fess", "per_bend", "quarterly", "chief", "chevron"]
+const FIELD_NAMES := {"plain": "plein", "per_pale": "parti", "per_fess": "coupé", "per_bend": "tranché",
+	"quarterly": "écartelé", "chief": "au chef", "chevron": "au chevron"}
+const CHARGES := ["none", "cross", "saltire", "star", "ring", "lozenge", "sword", "tower"]
+const CHARGE_NAMES := {"none": "sans meuble", "cross": "croix", "saltire": "sautoir", "star": "étoile",
+	"ring": "anneau", "lozenge": "losange", "sword": "épée", "tower": "tour"}
+## Émaux : couleurs (sombres) et métaux (clairs). Le meuble est toujours d'un métal sur un champ
+## de couleur, ou l'inverse, pour rester lisible (règle des émaux).
+const COLOURS := {"gueules": "#b3201b", "azur": "#2448a8", "sinople": "#2a7a32", "sable": "#1e1a18", "pourpre": "#6a2a78"}
+const METALS := {"or": "#e8c040", "argent": "#ecebe4"}
 
 
-## Armoiries tirées au sort (graine fixe = mêmes armoiries). Générateur à part : le hasard de la
-## campagne n'est pas tiré, les parties à graine fixe restent identiques.
+## Armoiries par défaut (bannières d'une escarmouche hors campagne) : de sable à la tour d'or.
+const DEFAULT := {"field": "plain", "charge": "tower", "colors": ["#1e1a18", "#1e1a18", "#e8c040"]}
+
+
+## Armoiries tirées au hasard d'après une graine.
 static func random(seed_value: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_value ^ 0x41524D53 # « ARMS »
+	rng.seed = hash(str(seed_value) + "armoiries")
+	var cols: Array = COLOURS.values()
+	var mets: Array = METALS.values()
+	var c1: String = cols[rng.randi() % cols.size()]
+	var m1: String = mets[rng.randi() % mets.size()]
+	var dark_field := rng.randf() < 0.65
 	var field: String = FIELDS[rng.randi() % FIELDS.size()]
 	var charge: String = CHARGES[1 + rng.randi() % (CHARGES.size() - 1)]
-	var metal: String = METALS[rng.randi() % METALS.size()]
-	var colour: String = COLOURS[rng.randi() % COLOURS.size()]
-	var colour2: String = COLOURS[rng.randi() % COLOURS.size()]
-	# Champ de couleur, partition de métal, meuble de métal sur la couleur (ou l'inverse une fois sur deux)
-	var colors := [colour, metal, metal] if rng.randf() < 0.5 else [metal, colour, colour]
-	if field == "plain":
-		colors[1] = colors[0]
-		if colors[0] in COLOURS:
-			colors[2] = METALS[rng.randi() % METALS.size()]
-		else:
-			colors[2] = colour2
-	return {"field": field, "charge": charge, "colors": colors}
+	if field in ["per_pale", "per_fess", "per_bend", "quarterly"]:
+		charge = "none" # Une partition se suffit (le meuble se perdrait sur la moitié de sa couleur)
+	var a := c1 if dark_field else m1
+	var b := m1 if dark_field else c1
+	# Seconde couleur de la partition et meuble : l'autre famille (contraste avec le champ)
+	return {"field": field, "charge": charge, "colors": [a, b, b]}
 
 
-## Relit des armoiries sauvegardées ; invalides ou absentes : celles tirées de la graine.
+## Armoiries valides (les champs inconnus sont remplacés) ; vide -> tirées d'après seed_value.
+static func sanitize(d: Variant, seed_value: int) -> Dictionary:
+	if not d is Dictionary or (d as Dictionary).is_empty():
+		return random(seed_value)
+	var src: Dictionary = d
+	var out := random(seed_value)
+	if str(src.get("field", "")) in FIELDS:
+		out["field"] = str(src["field"])
+	if str(src.get("charge", "")) in CHARGES:
+		out["charge"] = str(src["charge"])
+	var cols: Variant = src.get("colors", [])
+	if cols is Array and (cols as Array).size() == 3:
+		var ok: Array = []
+		for c in cols:
+			ok.append(str(c) if Color.html_is_valid(str(c)) else "")
+		if not "" in ok:
+			out["colors"] = ok
+	return out
+
+
+## Relit des armoiries sauvegardées (comme sanitize : nom gardé pour la bataille).
 static func read(saved: Variant, seed_value: int) -> Dictionary:
-	if not saved is Dictionary:
-		return random(seed_value)
-	var d: Dictionary = saved
-	var field := str(d.get("field", ""))
-	var charge := str(d.get("charge", ""))
-	var cols: Variant = d.get("colors", [])
-	if not field in FIELDS or not charge in CHARGES or not cols is Array or (cols as Array).size() != 3:
-		return random(seed_value)
-	var out: Array = []
-	for c in cols:
-		if not TINCTURES.has(str(c)):
-			return random(seed_value)
-		out.append(str(c))
-	return {"field": field, "charge": charge, "colors": out}
+	return sanitize(saved, seed_value)
 
 
 static func color(arms: Dictionary, i: int) -> Color:
-	var cols: Array = arms.get("colors", DEFAULT["colors"])
-	return TINCTURES.get(str(cols[clampi(i, 0, cols.size() - 1)]), Color.WHITE)
+	var cols: Array = arms.get("colors", ["#2448a8", "#ecebe4", "#ecebe4"])
+	return Color.html(str(cols[clampi(i, 0, cols.size() - 1)]))
 
 
-## Blasonnement court : « parti d'azur et d'or, à une étoile d'argent ».
-static func blazon(arms: Dictionary) -> String:
-	var cols: Array = arms.get("colors", DEFAULT["colors"])
-	var field := str(arms.get("field", "plain"))
-	var text: String
-	if field == "plain":
-		text = "de %s" % cols[0]
-	elif field in ["bend", "chevron"]:
-		text = "de %s %s de %s" % [cols[0], FIELD_NAMES[field], cols[1]]
-	else:
-		text = "%s de %s et de %s" % [FIELD_NAMES[field], cols[0], cols[1]]
-	var charge := str(arms.get("charge", "none"))
-	if charge != "none":
-		text += ", à %s de %s" % [CHARGE_NAMES[charge], cols[2]]
-	return text
+## Tous les émaux, dans l'ordre (couleurs puis métaux) : pour les boutons de l'onglet Compagnie.
+static func tinctures() -> Array[String]:
+	var out: Array[String] = []
+	for c in COLOURS.values():
+		out.append(str(c))
+	for c in METALS.values():
+		out.append(str(c))
+	return out
 
 
-## Peint les armoiries dans r (coordonnées du repère courant ; r de 7×5 au moins conseillé).
-## Les traits font une unité du repère (« pixel ») : à agrandir avec draw_set_transform.
-static func draw(c: CanvasItem, r: Rect2, arms: Dictionary, alpha := 1.0) -> void:
-	var a := Color(color(arms, 0), alpha)
-	var b := Color(color(arms, 1), alpha)
-	var m := Color(color(arms, 2), alpha)
-	var x := r.position.x
-	var y := r.position.y
-	var w := r.size.x
-	var h := r.size.y
-	c.draw_rect(r, a)
-	var hw := floorf(w * 0.5)
-	var hh := floorf(h * 0.5)
+## Valeur suivante d'une liste (boutons « changer » de l'onglet Compagnie).
+static func next_in(list: Array, v: Variant) -> Variant:
+	var i := list.find(v)
+	return list[(i + 1) % list.size()]
+
+
+## Peint les armoiries dans r (le bord n'est pas tracé : à l'appelant).
+static func draw(ci: CanvasItem, r: Rect2, arms: Dictionary) -> void:
+	var a := color(arms, 0)
+	var b := color(arms, 1)
+	var m := color(arms, 2)
+	var p := r.position
+	var s := r.size
+	ci.draw_rect(r, a)
 	match str(arms.get("field", "plain")):
 		"per_pale":
-			c.draw_rect(Rect2(x + hw, y, w - hw, h), b)
+			ci.draw_rect(Rect2(p + Vector2(s.x * 0.5, 0), Vector2(s.x * 0.5, s.y)), b)
 		"per_fess":
-			c.draw_rect(Rect2(x, y + hh, w, h - hh), b)
+			ci.draw_rect(Rect2(p + Vector2(0, s.y * 0.5), Vector2(s.x, s.y * 0.5)), b)
+		"per_bend":
+			ci.draw_colored_polygon(PackedVector2Array([p + Vector2(s.x, 0), p + s, p + Vector2(0, s.y)]), b)
 		"quarterly":
-			c.draw_rect(Rect2(x + hw, y, w - hw, hh), b)
-			c.draw_rect(Rect2(x, y + hh, hw, h - hh), b)
-		"bend":
-			for i in int(w):
-				var yy := floorf(i * h / w)
-				c.draw_rect(Rect2(x + i, y + yy, 1, 1), b)
-				if yy + 1 < h:
-					c.draw_rect(Rect2(x + i, y + yy + 1, 1, 1), b)
+			ci.draw_rect(Rect2(p + Vector2(s.x * 0.5, 0), s * 0.5), b)
+			ci.draw_rect(Rect2(p + Vector2(0, s.y * 0.5), s * 0.5), b)
+		"chief":
+			ci.draw_rect(Rect2(p, Vector2(s.x, s.y * 0.3)), b)
 		"chevron":
-			for i in int(w):
-				# Pointe en haut au centre, branches qui descendent vers les bords
-				var d := minf(i, w - 1 - i)
-				var yy := roundf((h - 2) - d * (h - 2) / maxf((w - 1) * 0.5, 1.0))
-				c.draw_rect(Rect2(x + i, y + clampf(yy, 0, h - 2), 1, 2), b)
-	# Meuble au centre (3×3)
-	var cx := x + floorf((w - 3) * 0.5)
-	var cy := y + floorf((h - 3) * 0.5)
+			var t := s.y * 0.18
+			ci.draw_colored_polygon(PackedVector2Array([p + Vector2(0, s.y * 0.85), p + Vector2(s.x * 0.5, s.y * 0.3),
+				p + Vector2(s.x, s.y * 0.85), p + Vector2(s.x, s.y * 0.85 + t), p + Vector2(s.x * 0.5, s.y * 0.3 + t),
+				p + Vector2(0, s.y * 0.85 + t)]), b)
+	var field := str(arms.get("field", "plain"))
+	var c := r.get_center()
+	var u := minf(s.x, s.y)
+	if field == "chief":
+		c.y += s.y * 0.15
+	elif field == "chevron": # Sous la pointe du chevron, en plus petit
+		c.y = p.y + s.y * 0.68
+		u *= 0.6
 	match str(arms.get("charge", "none")):
 		"cross":
-			c.draw_rect(Rect2(cx + 1, cy, 1, 3), m)
-			c.draw_rect(Rect2(cx, cy + 1, 3, 1), m)
+			ci.draw_rect(Rect2(c.x - u * 0.09, p.y + s.y * 0.12, u * 0.18, s.y * 0.76), m)
+			ci.draw_rect(Rect2(p.x + s.x * 0.12, c.y - u * 0.09, s.x * 0.76, u * 0.18), m)
 		"saltire":
-			for i in 3:
-				c.draw_rect(Rect2(cx + i, cy + i, 1, 1), m)
-				c.draw_rect(Rect2(cx + 2 - i, cy + i, 1, 1), m)
-		"roundel":
-			c.draw_rect(Rect2(cx + 0.5, cy, 2, 3), m)
-			c.draw_rect(Rect2(cx, cy + 0.5, 3, 2), m)
+			var w := maxf(1.0, u * 0.16)
+			ci.draw_line(p + s * 0.12, p + s * 0.88, m, w)
+			ci.draw_line(p + Vector2(s.x * 0.88, s.y * 0.12), p + Vector2(s.x * 0.12, s.y * 0.88), m, w)
 		"star":
-			c.draw_rect(Rect2(cx + 1, cy, 1, 3), m)
-			c.draw_rect(Rect2(cx, cy + 1, 3, 1), m)
-			c.draw_rect(Rect2(cx, cy, 0.6, 0.6), m)
-			c.draw_rect(Rect2(cx + 2.4, cy, 0.6, 0.6), m)
-			c.draw_rect(Rect2(cx, cy + 2.4, 0.6, 0.6), m)
-			c.draw_rect(Rect2(cx + 2.4, cy + 2.4, 0.6, 0.6), m)
-		"crescent":
-			c.draw_rect(Rect2(cx, cy, 1, 2), m)
-			c.draw_rect(Rect2(cx + 2, cy, 1, 2), m)
-			c.draw_rect(Rect2(cx, cy + 2, 3, 1), m)
+			var pts := PackedVector2Array()
+			for k in 10:
+				var rad := u * (0.36 if k % 2 == 0 else 0.15)
+				pts.append(c + Vector2.from_angle(-PI * 0.5 + k * PI / 5.0) * rad)
+			ci.draw_colored_polygon(pts, m)
+		"ring":
+			ci.draw_arc(c, u * 0.26, 0, TAU, 16, m, maxf(1.0, u * 0.11))
+		"lozenge":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -u * 0.38), c + Vector2(u * 0.26, 0), c + Vector2(0, u * 0.38), c + Vector2(-u * 0.26, 0)]), m)
+		"sword":
+			ci.draw_rect(Rect2(c.x - u * 0.05, c.y - u * 0.4, u * 0.1, u * 0.62), m)
+			ci.draw_rect(Rect2(c.x - u * 0.22, c.y + u * 0.14, u * 0.44, u * 0.09), m)
+			ci.draw_rect(Rect2(c.x - u * 0.05, c.y + u * 0.23, u * 0.1, u * 0.17), m)
 		"tower":
-			c.draw_rect(Rect2(cx, cy + 1, 3, 2), m)
-			c.draw_rect(Rect2(cx, cy, 1, 1), m)
-			c.draw_rect(Rect2(cx + 2, cy, 1, 1), m)
+			ci.draw_rect(Rect2(c.x - u * 0.2, c.y - u * 0.22, u * 0.4, u * 0.55), m)
+			for k in 3:
+				ci.draw_rect(Rect2(c.x - u * 0.2 + k * u * 0.15, c.y - u * 0.34, u * 0.1, u * 0.13), m)
+			ci.draw_rect(Rect2(c.x - u * 0.06, c.y + u * 0.12, u * 0.12, u * 0.21), a.lerp(Color.BLACK, 0.4))
+
+
+## Blason court pour le panneau : « De gueules au chevron d'argent, à la tour d'or ».
+const FIELD_BLAZON := {"plain": "De %s", "per_pale": "Parti %s et %s", "per_fess": "Coupé %s et %s",
+	"per_bend": "Tranché %s et %s", "quarterly": "Écartelé %s et %s", "chief": "%s au chef %s", "chevron": "%s au chevron %s"}
+const CHARGE_BLAZON := {"cross": "à la croix", "saltire": "au sautoir", "star": "à l'étoile", "ring": "à l'anneau",
+	"lozenge": "au losange", "sword": "à l'épée", "tower": "à la tour"}
+
+
+static func blazon(arms: Dictionary) -> String:
+	var field := str(arms.get("field", "plain"))
+	var charge := str(arms.get("charge", "none"))
+	var a := tincture_name(color(arms, 0))
+	var b := tincture_name(color(arms, 1))
+	var s: String
+	match field:
+		"plain":
+			s = "D" + of(a).substr(1)
+		"chief", "chevron":
+			s = CampaignState.cap_first(of(a)) + str(FIELD_BLAZON[field]).trim_prefix("%s") % of(b)
+		_:
+			s = str(FIELD_BLAZON.get(field, "%s %s")) % [of(a), of(b)]
+	if charge != "none":
+		s += ", %s %s" % [str(CHARGE_BLAZON.get(charge, charge)), of(tincture_name(color(arms, 2)))]
+	return s
+
+
+## « de gueules », « d'or », « d'argent », « d'azur ».
+static func of(t: String) -> String:
+	return ("d'" if t.substr(0, 1) in ["a", "e", "i", "o", "u", "#"] else "de ") + t
+
+
+static func tincture_name(c: Color) -> String:
+	var all := COLOURS.duplicate()
+	all.merge(METALS)
+	for k in all:
+		if Color.html(str(all[k])).is_equal_approx(c):
+			return str(k)
+	return "#" + c.to_html(false)
+
+
+# ---------------------------------------------------------------- Onglet Compagnie
+
+## Aperçu des armoiries (bannière) dans le panneau.
+class ArmsPreview extends Control:
+	var arms: Dictionary = {}
+
+	func _init() -> void:
+		custom_minimum_size = Vector2(48, 56)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var r := Rect2(Vector2(4, 4), Vector2(40, 34))
+		draw_rect(r.grow(2), Color(0.1, 0.07, 0.05))
+		Heraldry.draw(self, r, arms)
+		# Pointe de l'écu
+		draw_colored_polygon(PackedVector2Array([Vector2(2, 38), Vector2(46, 38), Vector2(24, 54)]), Color(0.1, 0.07, 0.05))
+		var lo := Rect2(Vector2(4, 38), Vector2(40, 0))
+		var pts := PackedVector2Array([lo.position, lo.position + Vector2(40, 0), Vector2(24, 51)])
+		var field := str(arms.get("field", "plain"))
+		var tip := Heraldry.color(arms, 1) if field in ["per_fess", "per_bend", "quarterly"] else Heraldry.color(arms, 0)
+		draw_colored_polygon(pts, tip)
+
+
+## Section « Armoiries » de l'onglet Compagnie : aperçu, blason, boutons pour changer chaque
+## partie. map : le nœud de la carte (state, box, add_section, add_label, add_button).
+static func build_panel(map: Node) -> void:
+	var state: CampaignState = map.state
+	map.add_section("Armoiries")
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	map.box.add_child(row)
+	var preview := ArmsPreview.new()
+	preview.arms = state.arms
+	row.add_child(preview)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(col)
+	var text := Label.new()
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_font_size_override("font_size", 12)
+	text.add_theme_color_override("font_color", Color(0.92, 0.88, 0.78))
+	col.add_child(text)
+	var buttons := HFlowContainer.new()
+	col.add_child(buttons)
+	var refresh := func() -> void:
+		text.text = blazon(state.arms) + ". La compagnie les porte sur sa bannière."
+		preview.queue_redraw()
+	refresh.call()
+	var change := func(key: String, i: int) -> void:
+		match key:
+			"field":
+				state.arms["field"] = next_in(FIELDS, str(state.arms["field"]))
+			"charge":
+				state.arms["charge"] = next_in(CHARGES, str(state.arms["charge"]))
+			"colors":
+				var cols: Array = state.arms["colors"]
+				cols[i] = next_in(tinctures(), str(cols[i]))
+			"random":
+				var fresh := random(randi())
+				for k in fresh:
+					state.arms[k] = fresh[k]
+		state.save()
+		GameAudio.ui("click")
+		refresh.call()
+	for spec in [["Partition", "field", 0], ["Meuble", "charge", 0], ["Champ", "colors", 0], ["Seconde couleur", "colors", 1], ["Couleur du meuble", "colors", 2], ["Au hasard", "random", 0]]:
+		map.add_button(str(spec[0]), change.bind(str(spec[1]), int(spec[2])), true, buttons)

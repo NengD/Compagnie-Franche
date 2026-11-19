@@ -6,7 +6,8 @@ extends RefCounted
 ## par case de la grille : eau, relief, forêt, montagne, marais, région, frontière) ; un shader les
 ## lit pour peindre la carte en pixels de PIX px : herbe, champs secs, ombrage du relief (lumière
 ## du nord-ouest), roche et neige des montagnes, arbres stylisés, marais, eau et rives, frontières
-## des régions. Les routes, les ponts et les noms sont des tracés vectoriels posés par-dessus,
+## des régions. Le shader suit aussi la saison (set_season, d'après MapSky.season) : neige au sol
+## et sur les arbres, feuillage roux, prés secs, fleurs, glace au bord de l'eau. Les routes, les ponts et les noms sont des tracés vectoriels posés par-dessus,
 ## enregistrés une seule fois (LandLayer ne se redessine pas) ; seuls les noms des régions, qui
 ## suivent le zoom, sont redessinés avec la couche vivante.
 
@@ -108,6 +109,14 @@ static func material(detail: float) -> ShaderMaterial:
 	m.set_shader_parameter("seeds", seeds)
 	m.set_shader_parameter("warp_range", WARP_RANGE)
 	return m
+
+
+## Saison du terrain (map : MapSky.season) : neige, automne, été, printemps (0 à 1).
+static func set_season(m: ShaderMaterial, season: Dictionary) -> void:
+	if m == null:
+		return
+	for k in ["snow", "autumn", "summer", "spring"]:
+		m.set_shader_parameter(k, float(season.get(k, 0.0)))
 
 
 ## Couleur d'une région : celle de sa faction (gris pour les terres sans seigneur).
@@ -297,6 +306,10 @@ uniform float detail = 1.0;
 uniform vec3 region_colors[16];
 uniform vec2 seeds[16];
 uniform float warp_range = 408.0;
+uniform float snow = 0.0; // Neige au sol et sur les arbres (hiver)
+uniform float autumn = 0.0; // Feuillage roux, herbe jaunie
+uniform float summer = 0.0; // Prés secs, blés mûrs
+uniform float spring = 0.0; // Herbe tendre et fleurs
 
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -346,6 +359,10 @@ void fragment() {
 	// Herbe, prés plus clairs, champs secs
 	vec3 col = mix(vec3(0.42, 0.56, 0.27), vec3(0.58, 0.66, 0.33), n1);
 	col = mix(col, vec3(0.72, 0.67, 0.41), smoothstep(0.58, 0.72, n1 * 0.6 + n2 * 0.4) * 0.55);
+	// Saisons : blés mûrs de l'été, herbe tendre du printemps, herbe jaunie de l'automne
+	col = mix(col, vec3(0.8, 0.7, 0.36), summer * smoothstep(0.5, 0.68, n1 * 0.6 + n2 * 0.4) * 0.6);
+	col = mix(col, col * vec3(0.95, 1.05, 0.9), spring);
+	col = mix(col, vec3(0.62, 0.56, 0.3) * (0.85 + 0.3 * n1), autumn * 0.5);
 	// Collines : teinte d'herbe rase
 	col = mix(col, vec3(0.6, 0.58, 0.38), smoothstep(0.42, 0.7, f.g) * 0.6);
 	// Montagne : roche, puis neige sur les crêtes
@@ -356,8 +373,12 @@ void fragment() {
 	float m = smoothstep(0.3, 0.6, marsh);
 	col = mix(col, vec3(0.38, 0.46, 0.33), m);
 	if (marsh > 0.45 && n2 > 0.6) {
-		col = mix(col, vec3(0.3, 0.45, 0.5), 0.8);
+		col = mix(col, snow > 0.3 ? vec3(0.78, 0.86, 0.92) : vec3(0.3, 0.45, 0.5), 0.8);
 	}
+	// Neige : d'abord en plaques (selon le bruit), puis partout ; les marais restent plus sombres
+	float cover = smoothstep(0.55, 0.75, n1 * 0.55 + n2 * 0.45 + snow * 0.75 - 0.2) * step(0.01, snow);
+	vec3 snow_col = mix(vec3(0.86, 0.89, 0.95), vec3(0.97, 0.98, 1.0), n2);
+	col = mix(col, snow_col, cover * (1.0 - 0.35 * m));
 	// Ombrage du relief (lumière du nord-ouest)
 	// (différences centrées sur une case de part et d'autre : pas de facettes de la grille)
 	float e = 16.0;
@@ -369,10 +390,13 @@ void fragment() {
 	// Sous-bois et arbres stylisés (une couronne par case de 11 px, ombre portée au sud-est)
 	forest += (n2 - 0.5) * 0.35 * detail;
 	float fz = smoothstep(0.38, 0.62, forest);
+	// Feuillage de saison : vert, roux en automne (sauf les sapins), poudré de neige en hiver
+	vec3 wood = mix(vec3(0.16, 0.33, 0.15), vec3(0.5, 0.3, 0.12), autumn * 0.8);
+	wood = mix(wood, vec3(0.62, 0.66, 0.68), snow * 0.55);
 	if (detail < 0.5) {
-		col = mix(col, vec3(0.16, 0.33, 0.15), fz);
+		col = mix(col, wood, fz);
 	} else if (forest > 0.2) {
-		col = mix(col, vec3(0.2, 0.33, 0.16), fz * 0.85);
+		col = mix(col, mix(vec3(0.2, 0.33, 0.16), wood, 0.5 + 0.5 * max(autumn, snow)), fz * 0.85);
 		float T = 11.0;
 		vec2 cell = floor(wp / T);
 		float best_y = -1e9;
@@ -395,8 +419,19 @@ void fragment() {
 				if (length(d) < r && ctr.y > best_y) {
 					best_y = ctr.y;
 					float lit = dot(d / r, vec2(-0.7, -0.7));
-					vec3 leaf = mix(vec3(0.17, 0.36, 0.15), vec3(0.27, 0.45, 0.17), hash(c + 5.5));
+					float hs = hash(c + 5.5);
+					vec3 leaf = mix(vec3(0.17, 0.36, 0.15), vec3(0.27, 0.45, 0.17), hs);
+					float conifer = step(0.72, hash(c + 9.1));
+					// Automne : orange, rouge, or ou brun selon l'arbre ; les sapins restent verts
+					vec3 fall = hs < 0.3 ? vec3(0.68, 0.37, 0.12) : (hs < 0.5 ? vec3(0.55, 0.2, 0.1) : (hs < 0.75 ? vec3(0.72, 0.56, 0.2) : vec3(0.46, 0.3, 0.16)));
+					leaf = mix(leaf, fall, autumn * 0.9 * (1.0 - conifer));
+					// Hiver : branches nues (gris brun) pour les feuillus, vert sombre pour les sapins
+					leaf = mix(leaf, mix(vec3(0.42, 0.36, 0.3), vec3(0.13, 0.27, 0.16), conifer), snow * 0.8);
 					leaf *= 0.82 + 0.38 * lit;
+					// Neige posée sur le haut de la couronne
+					if (snow > 0.05 && dot(d / r, vec2(-0.35, -0.94)) > 0.35 - 0.3 * snow) {
+						leaf = mix(leaf, vec3(0.93, 0.95, 0.99) * (0.9 + 0.12 * lit), 0.9 * min(snow * 1.5, 1.0));
+					}
 					if (length(d) > r - 1.6) {
 						leaf *= 0.7;
 					}
@@ -414,8 +449,10 @@ void fragment() {
 	// Grain : brins, fleurs, cailloux
 	if (detail > 0.5 && forest < 0.35 && mount < 0.3) {
 		float s = hash(floor(wp / pix) + 0.37);
-		if (s > 0.985) {
-			col = mix(col, vec3(0.9, 0.86, 0.6), 0.5);
+		if (s > 0.985 - spring * 0.006 && snow < 0.5) {
+			// Fleurs : blanches et jaunes, plus nombreuses (et colorées) au printemps
+			vec3 flower = mix(vec3(0.9, 0.86, 0.6), hash(floor(wp / pix) + 1.3) < 0.7 ? vec3(0.95, 0.88, 0.4) : vec3(0.82, 0.55, 0.72), spring);
+			col = mix(col, flower, 0.5 + 0.15 * spring);
 		} else if (s < 0.02) {
 			col *= 0.85;
 		}
@@ -455,6 +492,10 @@ void fragment() {
 			col = mix(vec3(0.36, 0.58, 0.72), vec3(0.15, 0.31, 0.52), depth);
 			if (sdf > -2.0) {
 				col = mix(col, vec3(0.9, 0.95, 1.0), 0.25);
+			}
+			// Hiver : glace au bord de l'eau (et sur les mares)
+			if (snow > 0.3 && sdf > -4.0 - 22.0 * snow * (0.6 + 0.4 * n2)) {
+				col = mix(col, vec3(0.78, 0.86, 0.92) * (0.92 + 0.12 * grain), 0.85);
 			}
 			float wave = vnoise(wp * vec2(0.06, 0.22));
 			if (detail > 0.5 && wave > 0.78 && hash(floor(wp / pix)) > 0.4) {
