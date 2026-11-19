@@ -8,6 +8,7 @@ extends SceneTree
 ##   --first=N        première graine (défaut 1)
 ##   --difficulty=D   easy, normal (défaut), hard, ou « all » (chacune tour à tour)
 ##   --days=N         limite de jours d'une campagne (défaut 240)
+##   --empty          départ du vrai jeu : aucun régiment, or pour recruter
 ##   --fast           batailles ordinaires résolues par un modèle (la bataille décisive reste jouée)
 ##   --objectives=destroy  n'accepte que les contrats « détruire l'ennemi » (défaut : tous les objectifs)
 ##   --trace          affiche chaque décision du joueur et chaque bataille
@@ -25,6 +26,7 @@ var first_seed := 1
 var difficulties: PackedStringArray = ["normal"]
 var max_days := 240
 var fast := false
+var empty_start := false
 var all_objectives := true
 var trace := false
 var out_path := ""
@@ -45,6 +47,8 @@ func _initialize() -> void:
 			max_days = int(a.trim_prefix("--days="))
 		elif a == "--trace":
 			trace = true
+		elif a == "--empty":
+			empty_start = true
 		elif a == "--fast":
 			fast = true
 		elif a == "--objectives=destroy":
@@ -70,6 +74,7 @@ func _process(_delta: float) -> bool:
 	var t0 := Time.get_ticks_msec()
 	var scene: PackedScene = load("res://scenes/main.tscn")
 	var player := CampaignPlayer.new(scene, root, fast)
+	player.empty_start = empty_start
 	player.all_objectives = all_objectives
 	player.trace = trace
 	for dk in difficulties:

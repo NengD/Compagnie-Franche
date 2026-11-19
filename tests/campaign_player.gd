@@ -40,6 +40,7 @@ var scene: PackedScene
 var root: Window
 var fast := false
 var trace := false ## Affiche chaque décision (diagnostic)
+var empty_start := false ## Vrai : départ du vrai jeu (aucun régiment, or pour recruter)
 var all_objectives := true ## Faux : seuls les contrats « détruire l'ennemi » (et les sièges)
 var rng := RandomNumberGenerator.new()
 var camp: CampaignState
@@ -59,7 +60,7 @@ func _init(scene_ref: PackedScene, root_ref: Window, fast_mode: bool) -> void:
 ## Joue une campagne jusqu'à la victoire, la ruine ou max_days. Renvoie le bilan.
 func run(seed_value: int, level: String, max_days: int) -> Dictionary:
 	rng.seed = hash([seed_value, "joueur"])
-	camp = CampaignState.new_game(seed_value, level)
+	camp = CampaignState.new_game(seed_value, level, false, empty_start)
 	CampaignState.current = camp
 	idle_days = 0
 	offer_day = 0
