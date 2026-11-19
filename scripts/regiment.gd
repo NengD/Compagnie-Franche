@@ -49,6 +49,7 @@ var rank := 0
 var kills := 0 ## Ennemis tués pendant la bataille (mêlée et flèches)
 var morale_mult := 1.0 ## Difficulté : multiplicateur du moral maximal (régiments ennemis)
 var damage_mult := 1.0 ## Difficulté : multiplicateur des dégâts (régiments ennemis)
+var gear: Array = [] ## Équipement porté (identifiants d'Equipment.ITEMS) : se voit sur les soldats (battle_renderer.gd)
 var speed_mult := 1.0 ## Objectif : multiplicateur de vitesse (bande chargée de butin, voir battle_objectives.gd)
 
 
@@ -62,6 +63,14 @@ func set_rank(k: int) -> void:
 ## Multiplicateur de dégâts dû à l'expérience (et à la difficulté).
 func rank_damage() -> float:
 	return (1.0 + RANK_DAMAGE * rank) * damage_mult
+
+
+## Qualité de la pièce slot (« helmet », « weapon », « armor ») portée par le régiment (0 : aucune).
+func gear_tier(slot: String) -> int:
+	for id in gear:
+		if Equipment.ITEMS.has(id) and Equipment.ITEMS[id]["slot"] == slot:
+			return int(Equipment.ITEMS[id]["tier"])
+	return 0
 
 
 func is_dead() -> bool:

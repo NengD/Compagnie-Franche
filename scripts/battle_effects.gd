@@ -2,8 +2,9 @@ class_name BattleEffects
 extends RefCounted
 ## Effets visuels de la bataille, purement décoratifs : sang et étincelles des coups, mottes de
 ## terre des flèches perdues, éclat des charges de cavalerie, traînées des flèches, fumée des
-## cheminées du village, éclaboussures dans l'eau, pluie au sol (impacts, flaques) et queues
-## d'étendards qui flottent au vent.
+## cheminées du village, éclaboussures dans l'eau, pluie au sol (impacts, flaques), nuages de
+## poussière des charges de cavalerie, sang qui sèche et reste au sol, et queues d'étendards qui
+## flottent au vent.
 ##
 ## - Temps réel : update() reçoit le delta de l'image (comme les repères d'ordres du rendu).
 ## - Hasard : un générateur à part (fx_rng). Le rng de la simulation n'est jamais tiré, donc les
@@ -19,8 +20,9 @@ extends RefCounted
 const PX := 2.0 ## Taille d'un « pixel » des dessins en code
 const MAX_PARTS := 500 ## Particules au maximum (niveau complet)
 const MAX_PARTS_REDUCED := 180 ## Particules au maximum (niveau réduit)
-const MAX_STAINS := 160 ## Taches de sang au sol au maximum
-const STAIN_LIFE := 12.0 ## Durée d'une tache de sang (secondes)
+const MAX_STAINS := 900 ## Taches de sang au sol au maximum (niveau complet) : elles restent toute la bataille
+const MAX_STAINS_REDUCED := 300 ## Taches de sang au maximum (niveau réduit)
+const STAIN_LIFE := 12.0 ## Temps (secondes) pour qu'une tache fraîche sèche (plus sombre, plus pâle)
 const GRAVITY := 260.0
 const WIND := Vector2(7.0, 0.0) ## Vent léger vers l'est : fumée, étendards
 const PUDDLES := 160 ## Flaques réparties sur le champ de bataille (pluie)
@@ -28,7 +30,7 @@ const WET_TIME := 15.0 ## Secondes de pluie pour que les flaques soient pleines
 const DRY_TIME := 40.0 ## Secondes de temps clair pour qu'elles disparaissent
 
 ## Sortes de particules
-enum { BLOOD, SPARK, DIRT, SMOKE, DROP, RING, FLASH }
+enum { BLOOD, SPARK, DIRT, SMOKE, DROP, RING, FLASH, CLOUD }
 
 const BLOOD_COLORS: Array[Color] = [Color(0.55, 0.06, 0.05), Color(0.42, 0.04, 0.04), Color(0.66, 0.1, 0.07)]
 const SPARK_COLOR := Color(1.0, 0.93, 0.6)
@@ -36,12 +38,16 @@ const DIRT_COLOR := Color(0.5, 0.4, 0.27)
 const SMOKE_COLOR := Color(0.6, 0.59, 0.57)
 const WATER_COLOR := Color(0.82, 0.9, 1.0)
 const PUDDLE_COLOR := Color(0.3, 0.38, 0.48)
+const CLOUD_COLOR := Color(0.74, 0.66, 0.5) ## Poussière soulevée par les sabots
+const STAIN_FRESH := Color(0.42, 0.04, 0.03)
+const STAIN_DRY := Color(0.27, 0.06, 0.04)
 
 var sim: BattleSim
 var fx_rng := RandomNumberGenerator.new() ## Hasard des effets, séparé de celui de la simulation
 ## Particules : [position, vitesse, vie restante, vie totale, taille, couleur, sorte, sol (y)]
 var parts: Array = []
-var stains: Array = [] ## Taches de sang : [position, vie restante, taille]
+var stains: Array = [] ## Taches de sang : [position, temps avant d'être sèche, taille]
+var dust_phase := 0 ## Moitié des cavaliers examinée à cette image (poussière des charges)
 var puddles: Array = [] ## Flaques : [centre, demi-largeur]
 var wet := 0.0 ## 0 = sol sec, 1 = flaques pleines
 var smoke_clock: Array[float] = [] ## Une horloge par maison
@@ -147,8 +153,8 @@ func on_impact(at: Vector2, amount: float) -> void:
 
 func add_stain(p: Vector2, size: float) -> void:
 	stains.append([p, STAIN_LIFE, size])
-	if stains.size() > MAX_STAINS:
-		stains.pop_front()
+	if stains.size() > (MAX_STAINS if level() == 2 else MAX_STAINS_REDUCED):
+		stains.pop_front() # Les plus anciennes s'effacent
 
 
 ## Gerbe d'eau et rond dans l'eau en p (force 1 = pas d'un fantassin).
@@ -172,11 +178,12 @@ func update(delta: float, canvas: CanvasItem) -> void:
 		stains.clear()
 		return
 	update_parts(delta)
-	for st in stains:
-		st[1] -= delta
-	if not stains.is_empty() and stains[0][1] <= 0.0:
-		stains = stains.filter(func(st): return st[1] > 0.0)
+	for i in range(stains.size() - 1, -1, -1): # Les plus récentes en dernier : on s'arrête aux sèches
+		if stains[i][1] <= 0.0:
+			break
+		stains[i][1] -= delta
 	emit_smoke(delta)
+	emit_charge_dust(delta)
 	emit_splashes(delta)
 	emit_rain(delta)
 
@@ -196,6 +203,8 @@ func update_parts(delta: float) -> void:
 				d[1] *= 1.0 - minf(delta * 2.0, 1.0)
 			SMOKE:
 				d[1] = d[1].lerp(WIND + Vector2(0, -12), minf(delta * 0.6, 1.0))
+			CLOUD:
+				d[1] = d[1].lerp(WIND * 0.5 + Vector2(0, -4), minf(delta * 1.5, 1.0))
 		d[0] += d[1] * delta
 		var floor_y: float = d[7]
 		if d[0].y >= floor_y and d[1].y > 0.0:
@@ -223,6 +232,29 @@ func emit_smoke(delta: float) -> void:
 		var top := Vector2(h.end.x - 11.0, h.position.y - 27.0) # Haut de la cheminée (voir draw_house)
 		var v := Vector2(fx_rng.randf_range(-3, 3), fx_rng.randf_range(-20, -14))
 		add(top + Vector2(fx_rng.randf_range(-1, 1), 0), v, fx_rng.randf_range(2.6, 3.6), PX * 1.5, SMOKE_COLOR, SMOKE)
+
+
+## Nuages de poussière derrière les cavaliers qui chargent ou galopent (hors forêt et hors eau),
+## plus gros et plus durables que la poussière des sabots de la simulation. La moitié des
+## cavaliers par image ; aucun nuage ne trahit un régiment ennemi caché.
+func emit_charge_dust(delta: float) -> void:
+	dust_phase = 1 - dust_phase
+	var chance := delta * 2.0 * 3.0 * rate() # 3 bouffées par seconde et par cavalier lancé
+	for r in sim.regiments:
+		if not r.stats["mounted"] or r.hidden:
+			continue
+		for i in range(dust_phase, r.soldiers.size(), 2):
+			var s: Soldier = r.soldiers[i]
+			if not s.alive or not s.moving or not (r.running or r.routing or s.momentum > 0.5):
+				continue
+			if not view.has_point(s.pos) or fx_rng.randf() >= chance:
+				continue
+			if sim.terrain.is_river(s.pos) or sim.is_in_forest(s.pos):
+				continue
+			var back := -s.move_dir
+			var p := s.pos + back * fx_rng.randf_range(6, 12) + Vector2(fx_rng.randf_range(-5, 5), fx_rng.randf_range(-2, 1))
+			var v := back * fx_rng.randf_range(8, 18) + Vector2(fx_rng.randf_range(-6, 6), -fx_rng.randf_range(4, 10))
+			add(p, v, fx_rng.randf_range(1.1, 1.8), PX * fx_rng.randf_range(1.5, 2.5), CLOUD_COLOR, CLOUD)
 
 
 ## Éclaboussures sous les pas dans l'eau (gués et rivière). La moitié des soldats par image.
@@ -312,12 +344,12 @@ func draw_ground(c: CanvasItem) -> void:
 		var p: Vector2 = st[0]
 		if not view.has_point(p):
 			continue
-		var a := clampf(st[1] / 3.0, 0.0, 1.0) * 0.7
+		var fresh := clampf(st[1] / STAIN_LIFE, 0.0, 1.0) # 1 = fraîche, 0 = sèche
 		var sz: float = st[2]
 		var q := (p / PX).round() * PX
-		c.draw_rect(Rect2(q - Vector2(sz * 0.5, sz * 0.25), Vector2(sz, maxf(sz * 0.5, 1.0))), Color(0.38, 0.04, 0.03, a))
+		c.draw_rect(Rect2(q - Vector2(sz * 0.5, sz * 0.25), Vector2(sz, maxf(sz * 0.5, 1.0))), Color(STAIN_DRY.lerp(STAIN_FRESH, fresh), 0.5 + 0.25 * fresh))
 	for d in parts:
-		if d[6] == RING:
+		if d[6] == RING or d[6] == CLOUD:
 			draw_part(c, d)
 
 
@@ -327,7 +359,7 @@ func draw_air(c: CanvasItem) -> void:
 		return
 	draw_arrow_trails(c)
 	for d in parts:
-		if d[6] != RING:
+		if d[6] != RING and d[6] != CLOUD:
 			draw_part(c, d)
 
 
@@ -344,6 +376,13 @@ func draw_part(c: CanvasItem, d: Array) -> void:
 			col.a = 0.55 * minf(k * 1.5, 1.0) * minf((1.0 - k) * 8.0 + 0.3, 1.0)
 		RING:
 			draw_ring(c, p, sz * (1.0 + (1.0 - k) * 1.5), Color(col, col.a * k))
+			return
+		CLOUD: # Nuage qui enfle et se dissipe : deux pavés croisés, calés sur la grille
+			var w := roundf(sz * (1.0 + (1.0 - k) * 1.8) / PX) * PX
+			var q := (p / PX).round() * PX
+			var cc := Color(col, 0.38 * minf(k * 1.6, 1.0) * minf((1.0 - k) * 6.0 + 0.4, 1.0))
+			c.draw_rect(Rect2(q.x - w * 0.5, q.y - w * 0.3, w, w * 0.6), cc)
+			c.draw_rect(Rect2(q.x - w * 0.3, q.y - w * 0.5, w * 0.6, w), cc)
 			return
 		FLASH:
 			var r := sz * k

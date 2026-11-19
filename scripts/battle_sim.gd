@@ -45,7 +45,7 @@ var difficulty := "normal" ## Difficulté (voir difficulty.gd), appliquée aux r
 var regiments: Array[Regiment] = []
 var soldiers: Array = [] ## Tous les soldats (les morts sont retirés chaque seconde)
 var arrows: Array = [] ## Flèches en vol : {"from", "to", "t", "dur", "dmg", "src", "h"}
-var corpses: Array = [] ## Corps au sol : [position, camp, type, côté]
+var corpses: Array = [] ## Corps au sol : [position, camp, type, côté, heure de la mort (battle_time), régiment, regard]
 var forests: Array = [] ## [centre, rayon]
 var trees: Array = [] ## Positions des arbres, triées par y
 var dust: Array = [] ## Poussière (purement visuelle) : [position, vitesse, vie restante, vie totale, taille]
@@ -856,7 +856,9 @@ func damage(s: Soldier, amount: float, source: Soldier) -> void:
 		var r := s.regiment
 		if source != null and source.regiment.team != r.team:
 			source.regiment.kills += 1
-		corpses.append([s.pos.round(), r.team, r.type, 1 if rng.randf() < 0.5 else -1])
+		# Regard au moment de la chute : vers le coup reçu (le rendu fait tomber le corps à la renverse)
+		var look := (source.pos - s.pos) if source != null and source.pos != s.pos else s.move_dir
+		corpses.append([s.pos.round(), r.team, r.type, 1 if rng.randf() < 0.5 else -1, battle_time, r, look])
 		if corpses.size() > 2000:
 			corpses.pop_front()
 		if not is_secret(r):

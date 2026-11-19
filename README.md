@@ -250,6 +250,14 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
 
   Les anciennes sauvegardes gardent leur équipement : « armure » devient des brigandines, « meilleures
   armes » des armes de maître.
+
+  L'équipement **se voit en bataille** : chapel de fer sombre à large bord, bassinet d'acier à pointe,
+  grand bassinet poli cerclé d'or ; gambison de toile claire, brigandine de cuir rouge cloutée, harnois
+  d'acier clair ; les armes de maître lancent un reflet de temps en temps, celles de Milan un halo doré.
+- **Armoiries** : la compagnie reçoit au départ des armoiries tirées au sort (partition, meuble et émaux,
+  `CampaignState.arms`, voir `scripts/heraldry.gd`), sauvegardées avec la campagne. Elles flottent sur les
+  drapeaux de vos régiments ; ceux de l'ennemi portent la couleur de sa faction (contrat contre le Comté,
+  la Baronnie ou la Ligue), ou le rouge des bandes sans seigneur.
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
   tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
 - **Bilan de fin de bataille** : après quelques secondes de ralenti, un panneau résume la bataille par-dessus
@@ -265,11 +273,12 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
-  8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
-  cours) ; les versions 1 à 8 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
-  cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
-  armées sont replacées sur la grande carte).
+  Format versionné (version 10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et
+  chemin de la compagnie, groupes ; 8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ;
+  5 : emplacements, mode indulgent, bataille en cours) ; les versions 1 à 9 se relisent (difficulté normale,
+  mode indulgent désactivé, aucune bataille en cours, monde neuf et en paix ; avant la version 9, la
+  compagnie se retrouve au matin dans sa ville et les armées sont replacées sur la grande carte ; avant la
+  version 10, les armoiries sont tirées de la graine de la campagne).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
@@ -389,7 +398,9 @@ Les touches marquées * se changent dans **Options**.
 - **Course et endurance** : le double clic droit fait courir le régiment (x1,6), mais la course vide l'endurance en une douzaine de secondes ; la mêlée fatigue aussi, lentement. Sous 60 % d'endurance, la vitesse et les dégâts baissent (jusqu'à x0,6 pour un régiment épuisé). La marche et surtout le repos font récupérer. La barre jaune de la carte du régiment montre l'endurance.
 - **Formations** (touche F) : la **ligne** (par défaut) ; la **colonne** (3 de front) avance 15 % plus vite ; le **carré** creux est lent (x0,55) mais n'a ni flanc ni dos : il annule les bonus de flanc et de dos.
 - **Ressenti** : une charge de cavalerie qui percute fait trembler la caméra (moins si elle est loin), les chevaux au galop soulèvent de la poussière, un régiment qui fuit pousse des cris, et la fin de la bataille passe quelques secondes au ralenti.
-- **Effets visuels** (option complets / réduits / aucun) : gouttes et taches de sang aux coups portés, étincelles sur les armures, mottes de terre des flèches perdues, éclat blanc d'une charge de cavalerie qui percute, traînées des flèches, fumée des cheminées du village, gerbes d'eau dans les gués et la rivière, pluie au sol (impacts, flaques qui se remplissent puis sèchent) et étendards qui flottent au vent. Aucun effet ne trahit un ennemi en embuscade.
+- **Effets visuels** (option complets / réduits / aucun) : gouttes et taches de sang aux coups portés, étincelles sur les armures, mottes de terre des flèches perdues, éclat blanc d'une charge de cavalerie qui percute, traînées des flèches, fumée des cheminées du village, gerbes d'eau dans les gués et la rivière, pluie au sol (impacts, flaques qui se remplissent puis sèchent) et étendards qui flottent au vent ; nuages de poussière derrière les cavaliers lancés, sang qui sèche et reste au sol toute la bataille (900 taches au plus, 300 en effets réduits). Aucun effet ne trahit un ennemi en embuscade.
+- **Soldats animés** : marche (cycle des planches), fente vers l'adversaire à chaque coup (plus longue pour les piques et les cavaliers), recul de l'arc au tir, galop des cavaliers lancés, et chute à la renverse des tués, dont le corps reste au sol avec son équipement. Flèches et carreaux en vol ont une hampe épaisse, un empennage clair et une ombre au sol qui montre leur trajectoire.
+- **Étendards** : à gauche de la hampe, une plaque à la couleur du camp (bleu, rouge) avec le pictogramme du type ; à droite, le drapeau aux armoiries de la compagnie ou aux couleurs de la faction ennemie ; dessous, la barre de moral.
 - **Tir ami** : les flèches touchent ce qu'elles trouvent… évitez de tirer dans une mêlée.
 
 ## Terrains
@@ -532,7 +543,9 @@ scripts/enemy_ai.gd     IA ennemie
 scripts/hud.gd          Interface
 scripts/pause_menu.gd   Menu pause de la bataille (Échap)
 scripts/battle_report.gd  Panneau du bilan de fin de bataille (données : battle.build_end_report)
-scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si absents)
+scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si absents), planches repeintes
+                        selon l'équipement (casque, armure) et pointe des lames (éclat des armes)
+scripts/heraldry.gd     Armoiries (Heraldry) : tirage, relecture, blasonnement, dessin sur les drapeaux
 scripts/battle_audio.gd Sons de bataille : banques, cors de charge et de retraite, fanfare, vent, oiseaux, pluie
 scripts/game_audio.gd   Audio persistant (GameAudio) : musiques menu / carte / bataille / victoire / défaite
                         avec fondu enchaîné, sons d'interface branchés sur tous les boutons
@@ -557,7 +570,9 @@ tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et d
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
 tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le niveau, plafond, option)
-tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge) (avec fenêtre ; option --out)
+tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge, équipement) (avec fenêtre ; option --out)
+tests/visuals_test.gd   Test du rendu : équipement porté en bataille, planches repeintes, armoiries (sauvegarde),
+                        bannières des factions, corps qui gardent leur régiment
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
@@ -645,7 +660,8 @@ godot --headless --path . -s tests/campaign_bench_test.gd  # mini-cas du banc de
 godot --headless --path . -s tests/campaign_balance.gd -- --seeds=8 --difficulty=all   # campagnes entières (long)
 godot --path . -s tests/terrain_shots.gd              # terrain_*.png
 godot --headless --path . -s tests/effects_test.gd    # effets visuels : déterminisme, plafond, option
-godot --path . -s tests/effects_capture.gd            # effets_village.png, effets_gue.png, effets_melee.png, effets_charge.png
+godot --headless --path . -s tests/visuals_test.gd    # équipement visible, armoiries, bannières, corps
+godot --path . -s tests/effects_capture.gd            # effets_village.png, effets_gue.png, effets_melee.png, effets_charge.png, effets_equipement.png
 godot --path . -s tests/menu_capture.gd -- --out=captures   # met à jour les captures versionnées du dépôt
 ```
 Les scripts de capture (`menu_capture`, `report_capture`, `terrain_shots`, `effects_capture`) écrivent par défaut dans
