@@ -33,8 +33,8 @@ const EXTORT_RATIO := 1.5 ## Rançonner : la compagnie est au moins 1,5 fois plu
 const TURN_IN_RATIO := 0.7 ## Livrer des déserteurs sans combat : ils sont nettement plus faibles
 const PLUNDER_RATIO := 0.25 ## Piller une caravane presque sans gardes : elle se rend sans combat
 const SURRENDER_GOLD := 0.25 ## Se rendre à une armée : part de l'or confisquée
-const FOOD_PRICE := 0.15 ## Vivres : prix (part de la solde du jour)...
-const FOOD_COVER := 0.3 ## ... et part de la solde du lendemain qu'ils couvrent
+const FOOD_PRICE := 0.9 ## Vivres : prix par rapport à la ville...
+const FOOD_DAYS := 3 ## ... et jours de vivres vendus
 const SELL_RATE := {"villagers": 0.6, "caravan": 0.9} ## Prix du butin revendu
 const VOLUNTEER_PRICE := 0.8 ## Volontaires : prix d'un homme (x RECRUIT_COST)
 const DESERTER_PRICE := 0.4 ## Déserteurs : à bas prix...
@@ -237,13 +237,14 @@ static func toll(other: Party) -> int:
 	return clampi(int(round(other.men() * 3.0 / 10.0)) * 10, 20, 500)
 
 
-## Prix et effet des vivres (d'après la solde du jour).
+## Prix et rations des vivres vendus en chemin : FOOD_DAYS jours pour l'effectif (supplies.gd),
+## un peu moins cher qu'en ville.
 static func food_price(state: CampaignState) -> int:
-	return maxi(1, int(ceil(state.daily_wage() * FOOD_PRICE)))
+	return maxi(1, ceili(food_cover(state) * Supplies.RATION_PRICE * FOOD_PRICE * Companions.food_factor(state)))
 
 
 static func food_cover(state: CampaignState) -> float:
-	return state.daily_wage() * FOOD_COVER
+	return maxf(Supplies.consumption(state), 1.0) * FOOD_DAYS
 
 
 ## Butin revendu : ce que le groupe peut payer.
@@ -419,11 +420,11 @@ static func add_trade(state: CampaignState, other: Party, out: Array[Dictionary]
 		why = "Ils refusent de commercer avec vous."
 	elif other.goods <= 0:
 		why = "Ils n'ont rien à vendre."
-	elif state.provisions >= food_cover(state) * 0.99:
+	elif Supplies.is_full(state):
 		why = "Vos chariots sont déjà pleins."
 	elif state.gold < price:
 		why = "Il vous faut %d écus." % price
-	out.append(opt("buy_food", "Acheter des vivres", "%d écus : la solde de demain baisse de %d écus." % [price, int(round(food_cover(state)))], why == "", why))
+	out.append(opt("buy_food", "Acheter des vivres", "%d écus : %s de vivres." % [price, CampaignState.plural(FOOD_DAYS, "jour", "jours")], why == "", why))
 	var value := sale_value(state, other)
 	why = ""
 	if closed:
@@ -549,9 +550,9 @@ static func resolve(state: CampaignState, player: Party, other: Party, option_id
 			state.gold -= price
 			other.gold += price
 			other.goods = maxi(0, other.goods - price)
-			state.provisions = food_cover(state)
+			Supplies.add(state, food_cover(state))
 			out["close"] = false
-			out["text"] = "Vous achetez des vivres pour %d écus : la solde de demain sera allégée de %d écus." % [price, int(round(state.provisions))]
+			out["text"] = "Vous achetez des vivres pour %d écus : %s de plus dans les chariots." % [price, CampaignState.plural(FOOD_DAYS, "jour", "jours")]
 		"sell_loot":
 			var value := sale_value(state, other)
 			var rate := float(SELL_RATE.get(other.kind, 0.5))

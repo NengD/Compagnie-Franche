@@ -140,6 +140,9 @@ var captain := Captain.new() ## Capitaine de la compagnie (voir captain.gd)
 var arms: Dictionary = Heraldry.DEFAULT.duplicate(true) ## Armoiries de la compagnie {field, charge, colors} (voir heraldry.gd)
 var world := WorldSim.new() ## Monde vivant : saisons, météo, guerres et armées (voir world_sim.gd)
 var overworld := Overworld.new() ## Carte en temps réel : heure, compagnie et groupes (voir overworld.gd)
+var supplies := Supplies.new() ## Vivres, fatigue, repos et blessés (voir supplies.gd)
+var prisoners := Prisoners.new() ## Prisonniers (voir prisoners.gd)
+var companions := Companions.new() ## Compagnons : sergent, chirurgien, éclaireur, quartier-maître (voir companions.gd)
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
@@ -157,6 +160,7 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 	c.captain = Captain.recruit(c.rng.seed)
 	c.arms = Heraldry.random(c.rng.seed) # Générateur à part : le hasard de la campagne est intact
 	c.world = WorldSim.create(c.rng.seed)
+	Supplies.start(c) # Vivres de départ
 	if empty:
 		c.gold = float(START_GOLD + c.start_company_value())
 	else:
@@ -219,6 +223,7 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 12 : vivres, fatigue, blessés, prisonniers et compagnons (dix jours de vivres si absents).
 ## Version 11 : champ de bataille tiré de la carte (« site » du contrat en cours, voir battle_site.gd)
 ## et groupes alliés qui combattent aux côtés de la compagnie (« allies »).
 ## Version 10 : armoiries de la compagnie (« arms », voir heraldry.gd ; tirées de la graine si absentes).
@@ -229,10 +234,10 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée) à 10 restent lisibles
+## Les versions 1 (sans expérience, réputation ni renommée) à 11 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 11
+const SAVE_VERSION := 12
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -297,6 +302,7 @@ func to_dict() -> Dictionary:
 		"world": world.to_dict(),
 		"overworld": overworld.to_dict(),
 		"encounters": encounters_to_dict(), # Rencontres de la carte (bloc en fin de fichier)
+		"supplies": supplies.to_dict(), "prisoners": prisoners.to_dict(), "companions": companions.to_dict(),
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -415,6 +421,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		if men > 0:
 			var entry := {"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)}
 			Traits.read_entry(entry, r) # Version 6 : traits et équipement
+			Prisoners.read_entry(entry, r) # Version 10 : rancœur des prisonniers enrôlés
 			for key in ["battles", "kills"]: # Statistiques du régiment (absentes avant sa première bataille)
 				if r.has(key):
 					entry[key] = maxi(0, int(r[key]))
@@ -458,6 +465,10 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.enemies_killed = maxi(0, int(d.get("enemies_killed", 0)))
 	c.gold_earned = maxi(0, int(d.get("gold_earned", 0)))
 	c.encounters_from_dict(d.get("encounters", {})) # Rencontres de la carte (bloc en fin de fichier)
+	# Version 9 et avant : dix jours de vivres, ni prisonniers ni compagnons
+	c.prisoners = Prisoners.from_dict(d.get("prisoners", []))
+	c.companions = Companions.from_dict(d.get("companions", []))
+	c.supplies = Supplies.from_dict(d.get("supplies", {}), c)
 	if c.ended == "":
 		c.keep_final_in_patron_town() # Sauvegarde d'avant le correctif : bataille décisive en ville ennemie
 	return c
@@ -675,7 +686,7 @@ func daily_wage() -> float:
 	var w := 0.0
 	for r in company:
 		w += float(WAGE[r["type"]]) * int(r["men"]) * Traits.wage_factor(r)
-	return w * Difficulty.value(difficulty, "wage") * captain.wage_factor()
+	return w * Difficulty.value(difficulty, "wage") * captain.wage_factor() * Companions.wage_factor(self) + Companions.daily_wage(self)
 
 
 func is_destroyed() -> bool:
@@ -979,7 +990,7 @@ func pass_day() -> void:
 		gold = 0.0
 		var lost := 0
 		for r in company:
-			var n := int(round(int(r["men"]) * DESERT_RATE * (1.0 - paid)))
+			var n := int(round(int(r["men"]) * DESERT_RATE * Companions.desert_factor(self) * (1.0 - paid)))
 			if n == 0 and int(r["men"]) > 0:
 				n = 1
 			r["men"] = int(r["men"]) - n
@@ -987,6 +998,7 @@ func pass_day() -> void:
 		company = company.filter(func(r): return int(r["men"]) > 0)
 		men_lost += lost
 		add_log("Jour %d : solde impayée, %s !" % [day, plural(lost, "homme déserte", "hommes désertent")])
+	Supplies.pass_day(self) # Vivres, faim, blessés, prisonniers (supplies.gd)
 	contracts = contracts.filter(func(c): return int(c["expires"]) >= day)
 	# Les rancunes s'apaisent lentement
 	if day % 2 == 0:
@@ -1573,6 +1585,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	var healed := 0
 	var promoted: Array[String] = []
 	var killed := 0
+	var recover := Companions.recover_rate(self, victory) # WOUNDED_RECOVER après une victoire, plus avec un chirurgien
 	var out := {"gold_before": gold, "fame_before": fame, "reputation_before": reputation.duplicate(),
 		"regiments": [], "reward": 0, "loot": 0, "pillage": 0, "bonus": 0, "bonus_label": "", "objective": objective.duplicate(true)}
 	for i in army.size():
@@ -1580,8 +1593,8 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 		var before: int = r["men"]
 		var after: int = clampi(int(survivors[i]) if i < survivors.size() else before, 0, before)
 		var stood := after
-		if victory:
-			var h := int(floor((before - after) * WOUNDED_RECOVER))
+		if recover > 0.0:
+			var h := int(floor((before - after) * recover))
 			after += h
 			healed += h
 		lost += before - after
@@ -1666,6 +1679,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
 	report += captain.after_battle(self, victory)
+	report += Supplies.after_battle(self, victory, out) + Prisoners.after_battle(self, victory, out) + companions.after_battle(self, victory)
 	out["gold_battle"] = gold # Or juste après la bataille, avant la solde du jour
 	out["men_battle"] = total_men()
 	finish_report(out, victory, retreat, lost, healed, killed, report)
