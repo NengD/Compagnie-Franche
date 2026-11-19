@@ -3,7 +3,9 @@ extends SceneTree
 ##   godot --path . -s tests/effects_capture.gd [-- --out=<dossier>] [-- --effects=reduced]
 ## Enregistre dans user://captures (défaut) : effets_village.png (fumée des cheminées, flaques et
 ## pluie au sol), effets_gue.png (éclaboussures dans un gué), effets_melee.png (sang, étincelles,
-## traînées des flèches, étendards) et effets_charge.png (éclat d'une charge de cavalerie).
+## traînées des flèches, étendards), effets_charge.png (éclat d'une charge de cavalerie, nuage de
+## poussière) et effets_equipement.png (régiments du joueur équipés en qualités 1, 2 et 3,
+## armoiries sur les bannières, corps qui tombent et restent au sol).
 
 const CaptureDir := preload("res://tests/capture_dir.gd")
 const TestPlayer := preload("res://tests/test_player.gd")
@@ -13,8 +15,9 @@ const SEED := 12345
 const SHOTS: Array[Dictionary] = [
 	{"terrain": "village", "rain": true, "time": 20.0, "aim": "houses", "file": "effets_village.png"},
 	{"terrain": "river", "rain": false, "time": 0.0, "aim": "ford", "file": "effets_gue.png"},
-	{"terrain": "plain", "rain": false, "time": 40.0, "aim": "melee", "file": "effets_melee.png"},
+	{"terrain": "plain", "rain": false, "time": 65.0, "aim": "melee", "file": "effets_melee.png"},
 	{"terrain": "plain", "rain": false, "time": 0.0, "aim": "charge", "file": "effets_charge.png"},
+	{"terrain": "plain", "rain": false, "time": 0.0, "aim": "gear", "file": "effets_equipement.png"},
 ]
 
 var scene: PackedScene
@@ -57,6 +60,8 @@ func _process(_delta: float) -> bool:
 				_stage_charge()
 			"ford":
 				_stage_ford()
+			"gear":
+				_stage_gear()
 		while battle.battle_time < shot["time"]:
 			if aim == "houses" or aim == "melee":
 				player.update(battle)
@@ -65,7 +70,7 @@ func _process(_delta: float) -> bool:
 	if frame >= 3:
 		if aim == "houses" or aim == "melee":
 			player.update(battle)
-		battle.camera.zoom = Vector2(2.5, 2.5)
+		battle.camera.zoom = Vector2(4.0, 4.0) if aim == "gear" else Vector2(2.5, 2.5)
 		battle.camera.position = _aim(aim)
 	var done := frame == 60
 	if aim == "charge":
@@ -94,6 +99,43 @@ func _stage_charge() -> void:
 			r.running = true
 			charge_reg = r
 			return
+
+
+## Équipe les régiments du joueur (qualités 1, 2, 3 tour à tour), les fait marcher, et fait
+## tomber quelques soldats (corps en train de tomber et couchés).
+func _stage_gear() -> void:
+	var tier := 0
+	var mid: Vector2 = battle.WORLD_SIZE * 0.5 + Vector2(0, 400)
+	for r in battle.regiments:
+		if r.team != battle.PLAYER:
+			continue
+		var at: Vector2 = mid + Vector2(-2000, 0) # Hors du cadre
+		if not r.stats["mounted"] and not r.stats["ranged"] and tier < 3:
+			at = mid + Vector2((tier - 1) * 120.0, 0) # Trois fantassins côte à côte : qualités 1, 2, 3
+			tier += 1
+			r.cols_override = 4
+		r.gear = [Equipment.item_id("helmet", maxi(tier, 1)), Equipment.item_id("weapon", maxi(tier, 1)), Equipment.item_id("armor", maxi(tier, 1))]
+		r.facing = Vector2.DOWN # Face à la caméra
+		r.dest = at
+		var alive: Array = r.alive_soldiers()
+		for i in alive.size():
+			alive[i].pos = r.slot_position(i, alive.size())
+		r.update_center()
+		r.dest = at + Vector2(0, 40) # Ils marchent vers la caméra
+	battle.renderer.looks.clear()
+	gear_aim = mid + Vector2(0, 40)
+	for i in 12:
+		battle.simulate(0.05)
+	var k := 0
+	for r in battle.regiments:
+		if r.team == battle.PLAYER and r.center.distance_to(mid) < 300.0:
+			for s in r.alive_soldiers().slice(0, 2):
+				battle.sim.damage(s, 99999.0, null)
+				k += 1
+	battle.simulate(0.15)
+
+
+var gear_aim := Vector2.ZERO
 
 
 ## Les piquiers du joueur marchent vers le premier gué.
@@ -156,10 +198,19 @@ func _aim(what: String) -> Vector2:
 		"charge":
 			if charge_reg != null:
 				return charge_reg.center + Vector2(0, -40)
+		"gear":
+			return gear_aim
+		"melee":
+			if not battle.corpses.is_empty():
+				return battle.corpses.back()[0] # Là où l'on se bat : sang et corps au sol
 	var c := Vector2.ZERO
 	var n := 0
 	for r in battle.regiments:
 		if r.engaged and not r.is_dead():
 			c += r.center
 			n += 1
-	return c / n if n > 0 else battle.WORLD_SIZE * 0.5
+	if n > 0:
+		return c / n
+	if not battle.corpses.is_empty():
+		return battle.corpses.back()[0] # Plus de contact : là où le dernier soldat est tombé
+	return battle.WORLD_SIZE * 0.5

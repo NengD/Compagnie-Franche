@@ -93,6 +93,7 @@ static func read_entry(out: Dictionary, saved: Dictionary) -> void:
 ## Applique traits et équipement d'une entrée de compagnie au régiment de bataille,
 ## avant set_rank (qui relit stats["morale"]). Les stats sont copiées : UnitTypes.STATS reste intact.
 static func apply_to(r: Regiment, entry: Dictionary) -> void:
+	r.gear = Equipment.of(entry).duplicate() # Visible sur les soldats (battle_renderer.gd)
 	var mults: Array[Dictionary] = []
 	for id in of(entry):
 		mults.append(TRAITS[id].get("stats", {}))

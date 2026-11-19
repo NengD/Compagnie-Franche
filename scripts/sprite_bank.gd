@@ -59,7 +59,20 @@ const UNITS := {
 	},
 }
 
+## Équipement visible (pièces d'Equipment, qualités 1 à 3) : les planches sont repeintes une fois
+## par combinaison casque/armure utilisée (dressed_tex) ; l'éclat des armes est dessiné par le rendu
+## au bout de la lame (blade_tip). Couleurs de base, nuancées par la luminosité d'origine.
+const HELMET_COLORS: Array[Color] = [Color.WHITE, Color(0.46, 0.43, 0.4), Color(0.8, 0.83, 0.88), Color(0.92, 0.95, 1.0)]
+const ARMOR_COLORS: Array[Color] = [Color.WHITE, Color(0.88, 0.82, 0.66), Color(0.52, 0.24, 0.18), Color(0.86, 0.9, 1.0)]
+const GOLD := Color(0.95, 0.78, 0.3)
+const RIVET := Color(0.86, 0.72, 0.38)
+## Bas de la bande de la tête (rangées de la case au-dessus : casque ; en dessous : corps).
+const HEAD_BAND := {16: 9, 32: 12}
+const BODY_BAND := {16: 15, 32: 19}
+
 var unit_tex := {} ## "type/équipe" -> Texture2D
+var dressed := {} ## "type/équipe/casque/armure" -> Texture2D (planche repeinte)
+var tips := {} ## "type" -> {Vector2i(colonne, rangée) -> pointe de la lame dans la case}
 var trees: Array[Dictionary] = [] ## {"tex", "src"} pour chaque variante d'arbre
 var grass_tiles: Array[Texture2D] = []
 var ok := false ## Vrai si toutes les unités sont disponibles
@@ -94,6 +107,144 @@ func _load(path: String) -> Texture2D:
 		push_warning("Sprite manquant, dessin en code utilisé : " + path)
 		return null
 	return load(path) as Texture2D
+
+
+## Planche repeinte avec l'équipement (casque et armure de qualité 0 à 3). Sans accès aux pixels
+## (mode sans affichage), la planche d'origine.
+func dressed_tex(type: String, team: int, helmet: int, armor: int) -> Texture2D:
+	var base: Texture2D = unit_tex["%s/%d" % [type, team]]
+	if helmet <= 0 and armor <= 0:
+		return base
+	var key := "%s/%d/%d/%d" % [type, team, helmet, armor]
+	if dressed.has(key):
+		return dressed[key]
+	var img := pixels(base)
+	var tex := base
+	if img != null:
+		dress_image(img, int(UNITS[type]["cell"]), helmet, armor)
+		tex = ImageTexture.create_from_image(img)
+	dressed[key] = tex
+	return tex
+
+
+## Copie RGBA8 des pixels d'une texture (null si inaccessibles).
+static func pixels(tex: Texture2D) -> Image:
+	var img := tex.get_image()
+	if img == null or img.is_empty():
+		return null
+	img = img.duplicate()
+	if img.is_compressed():
+		img.decompress()
+	img.convert(Image.FORMAT_RGBA8)
+	return img
+
+
+## Pixel « métal » (gris peu saturé, ni contour ni reflet blanc) d'une pièce d'armure ou d'un casque.
+static func is_metal(c: Color) -> bool:
+	return c.a > 0.5 and c.s < 0.2 and c.v > 0.3 and c.v < 0.86
+
+
+## Vrai si (x, y) appartient à une hampe ou une lame d'un pixel de large (à ne pas repeindre).
+static func is_shaft(img: Image, x: int, y: int, x0: int, cell: int) -> bool:
+	var l := img.get_pixel(x - 1, y) if x > x0 else Color(0, 0, 0, 0)
+	var r := img.get_pixel(x + 1, y) if x < x0 + cell - 1 else Color(0, 0, 0, 0)
+	return (l.a < 0.5 or l.v < 0.25) and (r.a < 0.5 or r.v < 0.25)
+
+
+## Repeint chaque case d'une planche : casque (haut de la case) et armure (corps), en gardant les
+## ombres d'origine. Formes : bord du chapel de fer (1), pointe du bassinet (2), pointe et cercle
+## doré du grand bassinet (3) ; rivets de la brigandine, reflets du harnois.
+static func dress_image(img: Image, cell: int, helmet: int, armor: int) -> void:
+	@warning_ignore("integer_division")
+	var head_end: int = HEAD_BAND.get(cell, cell / 2)
+	var body_end: int = BODY_BAND.get(cell, cell)
+	var outline := Color(0.08, 0.07, 0.07)
+	@warning_ignore("integer_division")
+	for cy in img.get_height() / cell:
+		@warning_ignore("integer_division")
+		for cx in img.get_width() / cell:
+			var x0 := cx * cell
+			var y0 := cy * cell
+			# Pixels de métal de la case (hors hampes), relevés avant de rien repeindre
+			var metal: Array[Vector2i] = []
+			var top := cell
+			for y in body_end:
+				for x in cell:
+					if is_metal(img.get_pixel(x0 + x, y0 + y)) and not is_shaft(img, x0 + x, y0 + y, x0, cell):
+						metal.append(Vector2i(x, y))
+						if y < head_end:
+							top = mini(top, y)
+			# Largeur du casque trois rangées sous son sommet (le front)
+			var fy := mini(top + 3, head_end - 1)
+			var left := cell
+			var right := -1
+			for m in metal:
+				if m.y == fy:
+					left = mini(left, m.x)
+					right = maxi(right, m.x)
+			for m in metal:
+				var c := img.get_pixel(x0 + m.x, y0 + m.y)
+				var k := 0.55 + c.v * 0.6
+				if m.y < head_end:
+					if helmet > 0:
+						var hc := HELMET_COLORS[helmet] * k
+						img.set_pixel(x0 + m.x, y0 + m.y, Color(hc, 1.0))
+				elif armor > 0:
+					var ac := ARMOR_COLORS[armor] * (k if armor != 3 else 0.4 + c.v * 0.9)
+					if armor == 2 and (m.x + m.y) % 3 == 0:
+						ac = RIVET
+					img.set_pixel(x0 + m.x, y0 + m.y, Color(ac, 1.0))
+			if helmet <= 0 or top >= head_end or right <= left:
+				continue
+			match helmet:
+				1: # Chapel de fer : un large bord qui dépasse de chaque côté
+					for x in [left - 3, left - 2, left - 1, right + 1, right + 2, right + 3]:
+						if x >= 0 and x < cell:
+							img.set_pixel(x0 + x, y0 + fy, outline if x in [left - 3, right + 3] else HELMET_COLORS[1])
+				2, 3: # Bassinet : une pointe au sommet
+					@warning_ignore("integer_division")
+					var mid := (left + right) / 2
+					if top >= 2:
+						img.set_pixel(x0 + mid, y0 + top - 1, HELMET_COLORS[helmet])
+						img.set_pixel(x0 + mid, y0 + top - 2, outline)
+					if helmet == 3: # Cercle doré du grand bassinet
+						for m in metal:
+							if m.y == fy:
+								img.set_pixel(x0 + m.x, y0 + m.y, GOLD)
+
+
+## Pointe de la lame (ou de l'arme) dans la case src d'une planche, pour l'éclat des bonnes armes :
+## le plus haut pixel blanc d'une hampe. Vector2(-1, -1) si inconnue (pas d'accès aux pixels).
+func blade_tip(type: String, src: Rect2) -> Vector2:
+	if not tips.has(type):
+		tips[type] = find_tips(unit_tex.get("%s/0" % type), int(UNITS[type]["cell"]))
+	return tips[type].get(Vector2i(int(src.position.x), int(src.position.y)), Vector2(-1, -1))
+
+
+static func find_tips(tex: Texture2D, cell: int) -> Dictionary:
+	var out := {}
+	if tex == null:
+		return out
+	var img := pixels(tex)
+	if img == null:
+		return out
+	@warning_ignore("integer_division")
+	for cy in img.get_height() / cell:
+		@warning_ignore("integer_division")
+		for cx in img.get_width() / cell:
+			var x0 := cx * cell
+			var y0 := cy * cell
+			var found := false
+			for y in cell:
+				for x in cell:
+					var c := img.get_pixel(x0 + x, y0 + y)
+					if c.a > 0.5 and c.v > 0.86 and c.s < 0.2:
+						out[Vector2i(x0, y0)] = Vector2(x, y)
+						found = true
+						break
+				if found:
+					break
+	return out
 
 
 func has_unit(type: String, team: int) -> bool:

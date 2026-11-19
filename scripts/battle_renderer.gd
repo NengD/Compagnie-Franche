@@ -24,6 +24,10 @@ const HORSE := Color(0.42, 0.27, 0.15)
 const HORSE_DARK := Color(0.28, 0.17, 0.09)
 const PX := 2.0 ## Taille d'un « pixel » des dessins en code (repli quand un sprite manque)
 const MARKER_LIFE := 0.6 ## Durée d'un repère d'ordre (secondes)
+const FALL_TIME := 0.45 ## Durée de la chute d'un soldat tué (secondes de bataille)
+const CORPSE_TINT := Color(0.55, 0.45, 0.42, 0.85) ## Teinte d'un corps au sol
+const ARROW_SHAFT := Color(0.32, 0.22, 0.12)
+const ARROW_FLETCH := Color(0.96, 0.95, 0.9)
 
 var battle: Battle
 var sim: BattleSim
@@ -33,6 +37,9 @@ var ground_scale := 1.0 ## Taille d'un pixel de ground_tex dans le monde
 var terrain_tex: ImageTexture = null ## Couche du relief et de l'eau posée sur le sol
 var markers: Array = [] ## Repères d'ordres : [position, couleur, vie restante]
 var effects: BattleEffects ## Sang, fumée, éclaboussures, pluie au sol… (battle_effects.gd)
+var arms: Dictionary = Heraldry.DEFAULT ## Armoiries de la compagnie (bannières du joueur)
+var enemy_faction := -1 ## Faction ennemie du contrat (couleurs de ses bannières), -1 : aucune
+var looks := {} ## Regiment -> {"tex" : planche repeinte, "helmet", "armor", "weapon"} (équipement visible)
 
 
 func _init(b: Battle) -> void:
@@ -40,6 +47,10 @@ func _init(b: Battle) -> void:
 	sim = b.sim
 	name = "Renderer"
 	effects = BattleEffects.new(sim)
+	if b.campaign != null:
+		arms = b.campaign.arms
+		if not b.campaign.pending.is_empty():
+			enemy_faction = int(b.campaign.pending.get("enemy_faction", -1))
 
 
 ## Repère d'ordre (cercle qui s'élargit et s'efface) en p.
@@ -159,8 +170,11 @@ func _draw() -> void:
 		draw_rect(Rect2(0, top, WORLD_SIZE.x, WORLD_SIZE.y - top), Color(0.3, 0.5, 1.0, 0.08))
 		draw_line(Vector2(0, top), Vector2(WORLD_SIZE.x, top), Color(0.6, 0.75, 1.0, 0.4), 2.0)
 
+	var view := effects.view
+	var cull := view.has_area()
 	for c in sim.corpses:
-		draw_corpse(c)
+		if not cull or view.has_point(c[0]):
+			draw_corpse(c)
 
 	draw_dust()
 	effects.draw_ground(self)
@@ -321,8 +335,7 @@ func draw_soldier(s: Soldier) -> void:
 		var p := s.pos.round()
 		if sim.siege != null:
 			p.y -= roundf(sim.siege.lift(s.pos)) # Sur le chemin de ronde ou à l'échelle
-		if s.attack_anim > 0.0 and r.type == "spear":
-			p += look.normalized().round() * 3.0 # Coup de pique : petite fente vers l'avant
+		p += anim_offset(s, look, anim, t)
 		var src: Rect2 = f["src"]
 		var foot: Vector2 = f["foot"]
 		draw_rect(Rect2(p.x - 5, p.y - 1, 10, 3), Color(0, 0, 0, 0.22))
@@ -330,10 +343,58 @@ func draw_soldier(s: Soldier) -> void:
 		var mod := Color(tint.r, tint.g, tint.b, hidden_alpha)
 		if s.flash > 0.0:
 			mod = Color(2.5, 2.5, 2.5, hidden_alpha) # Éclair blanc quand il est touché
-		draw_texture_rect_region(f["tex"], Rect2(p - foot, src.size), src, mod)
+		var lk := look_of(r)
+		draw_texture_rect_region(lk["tex"], Rect2(p - foot, src.size), src, mod)
+		if int(lk["weapon"]) >= 2:
+			draw_weapon_gleam(s, p - foot, r.type, src, int(lk["weapon"]), anim == "attack", hidden_alpha)
 		draw_unit_extras(s, p, hidden_alpha)
 		return
 	draw_soldier_code(s)
+
+
+## Équipement visible d'un régiment (mis en cache) : planche repeinte et qualités des pièces.
+func look_of(r: Regiment) -> Dictionary:
+	var lk: Variant = looks.get(r)
+	if lk == null:
+		var h := r.gear_tier("helmet")
+		var a := r.gear_tier("armor")
+		lk = {"helmet": h, "armor": a, "weapon": r.gear_tier("weapon"),
+			"tex": sprites.dressed_tex(r.type, r.team, h, a) if sprites.has_unit(r.type, r.team) else null}
+		looks[r] = lk
+	return lk
+
+
+## Décalage d'animation : léger galop des montés, fente vers l'adversaire pendant un coup de
+## mêlée (plus longue pour les montés et les piques), recul de l'épaule au tir.
+func anim_offset(s: Soldier, look: Vector2, anim: String, t: float) -> Vector2:
+	var r := s.regiment
+	if anim == "attack":
+		var f := look.normalized()
+		var k := sin(clampf(t, 0.0, 1.0) * PI)
+		if r.stats["ranged"] and s.foe == null:
+			return (-f * k * 1.5).round() # Recul de l'arc ou de l'arbalète
+		var reach := 4.0 if (r.stats["mounted"] or r.type == "spear") else 2.5
+		return (f * k * reach).round()
+	if anim == "walk" and r.stats["mounted"] and (r.running or s.momentum > 0.5):
+		return Vector2(0, -roundf(absf(sin(s.anim * 1.6)) * 2.0)) # Galop : le cheval se soulève
+	return Vector2.ZERO
+
+
+## Éclat des meilleures armes au bout de la lame : un reflet de temps en temps (armes de maître),
+## un halo doré qui palpite et un reflet fréquent (armes de Milan) ; vif pendant le coup.
+func draw_weapon_gleam(s: Soldier, origin: Vector2, type: String, src: Rect2, tier: int, striking: bool, alpha: float) -> void:
+	var tip := sprites.blade_tip(type, src)
+	var q := (origin + tip) if tip.x >= 0.0 else origin + Vector2(src.size.x * 0.75, src.size.y * 0.3)
+	var phase := float(s.get_instance_id() % 113) * 0.71
+	var clock := effects.clock
+	if tier >= 3:
+		var a := (0.25 + 0.15 * sin(clock * 4.0 + phase)) * alpha
+		draw_rect(Rect2(q - Vector2(1, 1), Vector2(3, 3)), Color(1.0, 0.85, 0.4, a))
+	var shine := sin(clock * (2.2 if tier >= 3 else 1.3) + phase)
+	if striking or shine > (0.8 if tier >= 3 else 0.94):
+		var c := Color(1, 1, 0.9, alpha) if tier >= 3 else Color(1, 1, 1, 0.85 * alpha)
+		draw_rect(Rect2(q.x - 1, q.y, 3, 1), c)
+		draw_rect(Rect2(q.x, q.y - 1, 1, 3), c)
 
 
 ## Détails ajoutés aux planches empruntées : pavois des arbalétriers qui tiennent, plumet des
@@ -351,25 +412,40 @@ func draw_unit_extras(s: Soldier, p: Vector2, alpha: float) -> void:
 		draw_arc(p + Vector2(6, -16), 4.0, -PI * 0.5, PI * 0.5, 6, wood, 1.0)
 
 
-## Corps au sol : le sprite couché et assombri, ou un petit dessin en code.
+## Corps au sol : le sprite qui bascule sur le côté (chute, FALL_TIME) puis reste couché et
+## assombri, avec son équipement ; ou un petit dessin en code.
+## c : [position, camp, type, côté, heure de la mort, régiment, regard] (les 4 premiers suffisent).
 func draw_corpse(c: Array) -> void:
 	var p: Vector2 = c[0]
 	var team: int = c[1]
 	var type: String = c[2]
 	var side: int = c[3]
+	var k := 1.0 # Avancement de la chute (1 = couché)
+	if c.size() > 4 and sim.state == BattleSim.State.BATTLE:
+		k = clampf((sim.battle_time - float(c[4])) / FALL_TIME, 0.0, 1.0)
 	if sprites.has_unit(type, team):
-		var f := sprites.frame(type, team, SpriteBank.DOWN, "idle", 0.0)
+		var dir := SpriteBank.DOWN
+		if c.size() > 6:
+			dir = SpriteBank.dir_of(c[6])
+		var f := sprites.frame(type, team, dir, "idle", 0.0)
 		var src: Rect2 = f["src"]
 		var foot: Vector2 = f["foot"]
-		draw_set_transform(p, side * PI * 0.5)
-		draw_texture_rect_region(f["tex"], Rect2(Vector2(-src.size.x * 0.5, -foot.y * 0.5), src.size), src, Color(0.55, 0.45, 0.42, 0.85))
+		var tex: Texture2D = f["tex"]
+		if c.size() > 5 and c[5] is Regiment and (c[5] as Regiment).team == team:
+			var lk := look_of(c[5])
+			if lk["tex"] != null:
+				tex = lk["tex"]
+		var tint: Color = f["tint"]
+		# Chute : bascule autour des pieds, de plus en plus vite ; le corps s'assombrit au sol
+		draw_set_transform(p + Vector2(0, -2.0 * k), side * PI * 0.5 * k * k)
+		draw_texture_rect_region(tex, Rect2(Vector2(-src.size.x * 0.5, -foot.y), src.size), src, Color(tint, 1.0).lerp(CORPSE_TINT, k))
 		draw_set_transform(Vector2.ZERO)
 		return
-	draw_set_transform(p, 0.0, Vector2(PX, PX))
+	draw_set_transform(p, side * PI * 0.5 * (1.0 - k), Vector2(PX, PX))
 	if UnitTypes.STATS[type]["mounted"]:
 		draw_rect(Rect2(-3, -2, 7, 2), HORSE_DARK)
 	draw_rect(Rect2(-2, -1, 4, 1), TEAM_DARK[team])
-	draw_rect(Rect2(-1, 0, 2, 1), Color(0.45, 0.07, 0.05, 0.8))
+	draw_rect(Rect2(-1, 0, 2, 1), Color(0.45, 0.07, 0.05, 0.8 * k))
 	draw_set_transform(Vector2.ZERO)
 
 
@@ -394,6 +470,8 @@ func draw_soldier_code(s: Soldier) -> void:
 	if alpha < 1.0:
 		col.a = alpha
 		dark.a = alpha
+	var lk := look_of(r)
+	var steel := STEEL if int(lk["helmet"]) == 0 else SpriteBank.HELMET_COLORS[int(lk["helmet"])]
 
 	draw_rect(Rect2(p.x - 2, p.y - 0.5, 5, 1.5), Color(0, 0, 0, 0.28))
 
@@ -410,7 +488,7 @@ func draw_soldier_code(s: Soldier) -> void:
 		px(p, fx, 0, -2, 1, 2 - step, HORSE_DARK)
 		px(p, fx, -1, -6, 1, 2, dark)
 		px(p, fx, -1, -9, 3, 3, col)
-		px(p, fx, -1, -11, 2, 2, STEEL)
+		px(p, fx, -1, -11, 2, 2, steel)
 		if r.stats["skirmish"]:
 			px(p, fx, 2, -11, 1, 5, WOOD) # Arc
 		elif s.momentum > 0.5:
@@ -424,15 +502,17 @@ func draw_soldier_code(s: Soldier) -> void:
 	px(p, fx, -1, -2, 1, 2 - step, dark)
 	px(p, fx, 1, -2, 1, 1 + step, dark)
 	px(p, fx, -1, -5, 3, 3, col)
+	if int(lk["armor"]) > 0: # Armure : épaule et flanc
+		px(p, fx, -1, -5, 1, 2, SpriteBank.ARMOR_COLORS[int(lk["armor"])])
 	match r.type:
 		"men_at_arms":
-			px(p, fx, -1, -7, 3, 2, STEEL)
+			px(p, fx, -1, -7, 3, 2, steel)
 			px(p, fx, 1, -7, 1, 1, SKIN)
 			px(p, fx, 2, -5, 2, 3, dark.lightened(0.2))
 			px(p, fx, 2, -4, 1, 1, Color(0.9, 0.8, 0.3))
 		"spear":
 			px(p, fx, -1, -7, 3, 2, SKIN)
-			px(p, fx, -1, -7, 3, 1, STEEL)
+			px(p, fx, -1, -7, 3, 1, steel)
 			if s.foe != null:
 				px(p, fx, 1, -5, 7, 1, WOOD)
 				px(p, fx, 8, -5, 1, 1, STEEL)
@@ -446,12 +526,12 @@ func draw_soldier_code(s: Soldier) -> void:
 			if s.attack_anim > 0.0:
 				px(p, fx, 1, -5, 1, 1, Color(0.9, 0.9, 0.8))
 		"foot_knight":
-			px(p, fx, -1, -7, 3, 2, STEEL)
+			px(p, fx, -1, -7, 3, 2, steel)
 			px(p, fx, -1, -5, 3, 1, STEEL)
 			px(p, fx, 0, -8, 1, 1, Color(0.96, 0.92, 0.78))
 			px(p, fx, 2, -7, 1, 5, STEEL.lightened(0.2))
 		"crossbow":
-			px(p, fx, -1, -7, 3, 2, STEEL)
+			px(p, fx, -1, -7, 3, 2, steel)
 			px(p, fx, 1, -6, 1, 1, SKIN)
 			px(p, fx, 1, -5, 4, 1, WOOD)
 			px(p, fx, 4, -6, 1, 3, WOOD)
@@ -478,7 +558,14 @@ func draw_tree(t: Vector2) -> void:
 
 ## Poussière : petits carrés de « pixels » couleur terre qui grossissent un peu et s'estompent.
 func draw_dust() -> void:
+	var lvl := effects.level()
+	if lvl == 0:
+		return
+	var i := 0
 	for d in sim.dust:
+		i += 1
+		if lvl == 1 and i % 2 == 0:
+			continue # Effets réduits : un grain sur deux
 		var k: float = d[2] / d[3] # 1 = vient d'apparaître
 		var sz: float = d[4] * PX * (1.0 if k > 0.5 else 1.5)
 		var p := ((d[0] as Vector2) / PX).round() * PX # Calé sur la grille des pixels
@@ -486,7 +573,11 @@ func draw_dust() -> void:
 		draw_rect(Rect2(p - Vector2(sz, sz) * 0.5, Vector2(sz, sz)), col)
 
 
+## Flèches et carreaux en vol : ombre au sol (qui montre la trajectoire), hampe épaisse, pointe
+## d'acier et empennage clair ; les carreaux d'arbalète sont plus courts et plus trapus.
 func draw_arrows() -> void:
+	var view := effects.view
+	var cull := view.has_area()
 	for a in sim.arrows:
 		var k: float = a["t"] / a["dur"]
 		var k2 := minf(k + 0.05, 1.0)
@@ -494,10 +585,17 @@ func draw_arrows() -> void:
 		var to: Vector2 = a["to"]
 		var h: float = a["h"]
 		var p1 := from.lerp(to, k) - Vector2(0, h * 4.0 * k * (1.0 - k))
+		if cull and not view.has_point(p1):
+			continue
 		var p2 := from.lerp(to, k2) - Vector2(0, h * 4.0 * k2 * (1.0 - k2))
-		var dir := (p2 - p1).normalized() * 5.0
-		draw_line(p1 - dir, p1 + dir, Color(0.35, 0.25, 0.15), 1.0)
-		draw_line(p1 + dir * 0.6, p1 + dir, Color(0.85, 0.87, 0.9), 1.0)
+		var bolt := float(a.get("pierce", 0.0)) > 0.0
+		var dir := (p2 - p1).normalized() * (4.0 if bolt else 6.0)
+		# Ombre au sol, sous la flèche (le départ est tiré à hauteur d'épaule)
+		var g := (from + Vector2(0, 8)).lerp(to, k)
+		draw_line(g - dir * 0.8, g + dir * 0.8, Color(0, 0, 0, 0.22), 2.0)
+		draw_line(p1 - dir, p1 + dir, ARROW_SHAFT, 2.0 if bolt else 1.5)
+		draw_line(p1 + dir * 0.55, p1 + dir * 1.15, STEEL.lightened(0.2), 2.0)
+		draw_line(p1 - dir, p1 - dir * (0.6 if bolt else 0.45), ARROW_FLETCH if not bolt else Color(0.6, 0.5, 0.35), 2.5)
 
 
 ## Étendard au-dessus du régiment (dessiné en code, agrandi PX fois).
@@ -507,10 +605,27 @@ func draw_banner(r: Regiment) -> void:
 	var at := (r.center + Vector2(0, -lift)).round()
 	draw_set_transform(at, 0.0, Vector2(PX, PX))
 	draw_banner_shape(r, Vector2.ZERO)
-	effects.draw_banner_tail(self, r, (TEAM_COLORS[r.team] as Color).darkened(0.5 if r.routing else 0.0))
+	effects.draw_banner_tail(self, r, flag_tail_color(r).darkened(0.5 if r.routing else 0.0))
 	draw_set_transform(Vector2.ZERO)
 	if GameOptions.team_shapes:
-		Hud.draw_team_shape(self, r.team, at + Vector2(-9, -15), 4.5)
+		Hud.draw_team_shape(self, r.team, at + Vector2(-23, -15), 4.5)
+
+
+## Couleur principale du drapeau : armoiries de la compagnie, couleur de la faction ennemie du
+## contrat, sinon le rouge des ennemis sans seigneur (bandits, pillards).
+func flag_color(r: Regiment) -> Color:
+	if r.team == PLAYER:
+		return Heraldry.color(arms, 0)
+	if enemy_faction >= 0 and enemy_faction < CampaignState.FACTIONS.size():
+		return CampaignState.FACTIONS[enemy_faction]["color"]
+	return TEAM_COLORS[ENEMY]
+
+
+## Couleur du bord flottant du drapeau (celle de son côté droit).
+func flag_tail_color(r: Regiment) -> Color:
+	if r.team == PLAYER and str(arms.get("field", "")) in ["per_pale", "quarterly"]:
+		return Heraldry.color(arms, 1)
+	return flag_color(r)
 
 
 ## Option « formes des camps » : petite marque sous chaque soldat visible, anneau clair pour le
@@ -530,14 +645,29 @@ func draw_team_marks() -> void:
 			draw_line(p + Vector2(2.5, -2.5), p + Vector2(-2.5, 2.5), Color(1, 0.85, 0.6, 0.9), 1.0)
 
 
+## Étendard (repère agrandi PX fois) : à droite de la hampe, le drapeau aux armoiries de la
+## compagnie ou aux couleurs de la faction ennemie ; à gauche, une plaque à la couleur du camp
+## (bleu ou rouge) avec le pictogramme du type de régiment ; dessous, la barre de moral.
 func draw_banner_shape(r: Regiment, base: Vector2) -> void:
+	draw_line(base, base + Vector2(0, -10), WOOD, 1.0)
+	var flag := Rect2(base.x, base.y - 10, 7, 5)
+	if r.team == PLAYER:
+		Heraldry.draw(self, flag, arms)
+	else:
+		var fc := flag_color(r)
+		draw_rect(flag, fc)
+		if enemy_faction >= 0:
+			draw_rect(Rect2(base.x, base.y - 8, 7, 1), fc.darkened(0.45)) # Fasce sombre de la faction
+	if r.routing:
+		draw_rect(flag, Color(0, 0, 0, 0.5))
+	draw_rect(flag, Color(0, 0, 0, 0.6), false, 0.5)
+	# Plaque du camp, pictogramme du type
 	var col: Color = TEAM_COLORS[r.team]
 	if r.routing:
 		col = col.darkened(0.5)
-	draw_line(base, base + Vector2(0, -10), WOOD, 1.0)
-	draw_rect(Rect2(base.x, base.y - 10, 7, 5), col)
-	draw_rect(Rect2(base.x, base.y - 10, 7, 5), Color(0, 0, 0, 0.6), false, 0.5)
-	# Pictogramme du type
+	draw_rect(Rect2(base.x - 8, base.y - 10, 7, 5), col)
+	draw_rect(Rect2(base.x - 8, base.y - 10, 7, 5), Color(0, 0, 0, 0.6), false, 0.5)
+	base.x -= 8.0 # Le pictogramme est dessiné dans la plaque
 	var ic := Color(1, 1, 0.85)
 	match r.type:
 		"men_at_arms":
@@ -558,12 +688,13 @@ func draw_banner_shape(r: Regiment, base: Vector2) -> void:
 		"horse_archer":
 			draw_rect(Rect2(base.x + 1, base.y - 7, 3, 1), ic)
 			draw_arc(base + Vector2(4.5, -7.5), 1.6, -PI / 2, PI / 2, 6, ic, 1.0)
+	base.x += 8.0
 	# Barre de moral
 	var k := clampf(r.morale / r.max_morale, 0.0, 1.0)
-	draw_rect(Rect2(base.x - 4, base.y + 1, 14, 2), Color(0, 0, 0, 0.6))
-	draw_rect(Rect2(base.x - 4, base.y + 1, 14 * k, 2), Color(1, 0.2, 0.15).lerp(Color(0.3, 1, 0.3), k))
+	draw_rect(Rect2(base.x - 7, base.y + 1, 14, 2), Color(0, 0, 0, 0.6))
+	draw_rect(Rect2(base.x - 7, base.y + 1, 14 * k, 2), Color(1, 0.2, 0.15).lerp(Color(0.3, 1, 0.3), k))
 	if r.selected:
-		draw_rect(Rect2(base.x - 1, base.y - 11, 9, 7), Color(1, 0.95, 0.4), false, 0.7)
+		draw_rect(Rect2(base.x - 9, base.y - 11, 17, 7), Color(1, 0.95, 0.4), false, 0.7)
 	if r.team == PLAYER and r.hidden:
 		draw_rect(Rect2(base.x + 8, base.y - 9, 2, 2), Color(0.3, 1, 0.4))
 

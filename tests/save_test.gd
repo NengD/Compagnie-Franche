@@ -241,15 +241,15 @@ func _test_lenient() -> void:
 func _test_versions() -> void:
 	var c := CampaignState.new_game(61)
 	var d := c.to_dict()
-	check(int(d["version"]) == 9 and CampaignState.SAVE_VERSION == 9, "version de sauvegarde 9")
-	for v in [1, 2, 3, 4, 5, 6, 7, 8]:
+	check(int(d["version"]) == CampaignState.SAVE_VERSION and CampaignState.SAVE_VERSION >= 10, "version de sauvegarde 10 au moins")
+	for v in range(1, CampaignState.SAVE_VERSION):
 		var old := d.duplicate(true)
 		old["version"] = v
 		old.erase("lenient")
 		old.erase("world") # Monde vivant : version 7
 		var l := CampaignState.from_dict(JSON.parse_string(JSON.stringify(old)))
 		check(l != null and not l.lenient and not l.in_battle() and l.world.wars.is_empty(), "version %d illisible" % v)
-	d["version"] = 10
+	d["version"] = CampaignState.SAVE_VERSION + 1
 	check(CampaignState.from_dict(d) == null, "version future acceptée")
 
 	print("Versions : OK")
