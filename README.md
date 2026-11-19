@@ -84,9 +84,9 @@ Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1
 | Dégâts ennemis | x0,9 | x1 | x1,1 |
 | IA : réflexion / marche / cavalerie | 1,6 s / 25 s / 40 s | 0,8 s / 12 s / 20 s | 0,5 s / 8 s / 15 s |
 | IA : carré des piquiers contre les charges | non | oui | oui |
-| Recrues / solde (campagne) | x0,8 | x1 | x1,2 |
-| Primes des contrats | x1,25 | x1 | x0,85 |
-| Vétérans des armées de contrat (les autres sont aguerris) | x0,4 | x0,7 | x1 |
+| Recrues / solde (campagne) | x0,8 | x1 | x1,1 |
+| Primes des contrats | x1,25 | x1 | x0,95 |
+| Vétérans des armées de contrat (les autres sont aguerris) | x0,4 | x0,7 | x0,85 |
 
 L'escarmouche prend la difficulté des Options ; la campagne garde celle choisie à sa création
 (enregistrée dans la sauvegarde, version 4 ; les sauvegardes plus anciennes sont relues en « normal »).
@@ -235,7 +235,7 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   Accepter lance la bataille ; la victoire paie la prime **et le butin** (2 écus par ennemi tué).
   Les contrats deviennent plus durs avec votre **renommée** (gagnée par les victoires : 5 + 5 x niveau,
   perdue par les défaites) : un niveau de plus tous les 25 points, le niveau 5 à 100. Chaque ville propose le
-  niveau le plus haut ou celui d'en dessous. Plus le niveau est haut, plus l'ennemi est nombreux et aguerri
+  un contrat du niveau le plus haut aux deux d'en dessous. Plus le niveau est haut, plus l'ennemi est nombreux et aguerri
   (niveau 3 : un sur deux aguerri ; niveau 5 : 70 % d'aguerris ou de vétérans ; la part de vétérans dépend de la
   difficulté) et plus la prime est forte
   (de 260 à 1350 écus, +0,2 % par point de renommée, même au-delà du niveau 5). Ils expirent après 14 jours.

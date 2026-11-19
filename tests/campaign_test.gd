@@ -248,7 +248,7 @@ func _test_reputation() -> void:
 	var hard := 0
 	for i in 20:
 		check(int(c.make_contract(1)["difficulty"]) == 1, "renommée nulle : contrat difficile")
-	c.fame = CampaignState.FAME_STEP * 2
+	c.fame = CampaignState.FAME_STEP * 3 # Niveau 4 au plus : contrats de niveau 2 à 4
 	for i in 20:
 		var d := int(c.make_contract(1)["difficulty"])
 		check(d >= 2, "renommée haute : contrat facile")
@@ -772,7 +772,7 @@ func _test_progression() -> void:
 		for i in 40:
 			var k := c.make_contract(3)
 			var d := int(k["difficulty"])
-			check(d == level or d == level - 1, "progression : niveau %d tiré à la renommée %d" % [d, c.fame])
+			check(d <= level and d >= level - 2, "progression : niveau %d tiré à la renommée %d" % [d, c.fame])
 			check(k["enemy"].size() <= 11, "progression : armée démesurée (%d régiments)" % k["enemy"].size())
 			check(not "{" in str(k["title"]) + str(k["text"]) + str(k["foe"]), "progression : texte de contrat mal rempli : %s" % k["title"])
 			if d != level:

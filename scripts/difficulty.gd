@@ -48,14 +48,14 @@ const LEVELS := {
 		"enemy_men": 1.0,
 		"enemy_morale": 1.15,
 		"enemy_damage": 1.1,
-		"enemy_veterans": 1.0,
+		"enemy_veterans": 0.85,
 		"ai_think": 0.5,
 		"ai_advance": 8.0,
 		"ai_cavalry_wait": 15.0,
 		"ai_square": true,
-		"recruit": 1.2,
-		"wage": 1.2,
-		"reward": 0.85,
+		"recruit": 1.1,
+		"wage": 1.1,
+		"reward": 0.95,
 	},
 }
 

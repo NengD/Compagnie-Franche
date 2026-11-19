@@ -25,6 +25,8 @@ const ACCEPT_RATIO := 1.15 ## Force minimale (nous / eux) pour accepter un contr
 const ACCEPT_MIN := 0.75 ## ... qui baisse chaque jour sans contrat, jusqu'à ce plancher
 const ACCEPT_DECAY := 0.02
 const RESERVE_DAYS := 8.0 ## Jours de solde gardés en caisse avant de recruter
+const GEAR_POWER := 0.06 ## Force par qualité d'équipement portée (trois pièces de qualité 3 : +72 %)
+const GEAR_RESERVE := 25.0 ## Jours de solde gardés en caisse avant d'équiper
 const FOOD_DAYS := 12.0 ## Jours de vivres achetés à chaque passage en ville
 const FINAL_PATIENCE := 45 ## Jours d'attente au plus avant de tenter la bataille décisive...
 const FINAL_MIN := 0.6 ## ... si le rapport de force n'est pas pire que celui-ci
@@ -192,6 +194,9 @@ func manage_company(reserve: float) -> void:
 			camp.refill(i)
 	while camp.company.size() < CampaignState.MAX_REGIMENTS:
 		var t := pick_type(recruits)
+		var opening := camp.company.size() < CampaignState.START_COMPANY.size()
+		if opening and str(CampaignState.START_COMPANY[camp.company.size()]) in recruits:
+			t = str(CampaignState.START_COMPANY[camp.company.size()]) # Départ vide : la compagnie habituelle d'abord
 		if t == "":
 			return
 		var men := int(UnitTypes.STATS[t]["count"])
@@ -199,6 +204,32 @@ func manage_company(reserve: float) -> void:
 		if camp.gold - camp.recruit_cost(t, men) < (camp.daily_wage() + new_wage) * reserve:
 			return
 		if camp.recruit(t) != "":
+			return
+	equip_company(maxf(reserve, GEAR_RESERVE))
+
+
+## Une fois les rangs pleins : équipe les régiments, la pièce la moins chère d'abord, tant qu'il
+## reste reserve jours de solde en caisse.
+func equip_company(reserve: float) -> void:
+	if camp.company.size() < CampaignState.MAX_REGIMENTS:
+		return
+	while true:
+		var best_i := -1
+		var best_id := ""
+		var best_cost := 1 << 30
+		for i in camp.company.size():
+			for slot in Equipment.SLOTS:
+				var id := Equipment.next_item(camp.company[i], slot)
+				if id == "" or Equipment.refusal(camp, i, id) != "":
+					continue
+				var cost := Equipment.cost(camp, i, id)
+				if cost < best_cost:
+					best_cost = cost
+					best_i = i
+					best_id = id
+		if best_i < 0 or camp.gold - best_cost < camp.daily_wage() * reserve:
+			return
+		if Equipment.buy(camp, best_i, best_id) != "":
 			return
 
 
@@ -243,7 +274,10 @@ static func unit_power(type: String, men: int, rank: int) -> float:
 func company_power() -> float:
 	var p := 0.0
 	for r in camp.battle_army():
-		p += unit_power(str(r["type"]), int(r["men"]), CampaignState.rank_of(r))
+		var gear := 0
+		for slot in Equipment.SLOTS:
+			gear += Equipment.tier(r, slot)
+		p += unit_power(str(r["type"]), int(r["men"]), CampaignState.rank_of(r)) * (1.0 + GEAR_POWER * gear)
 	return p
 
 

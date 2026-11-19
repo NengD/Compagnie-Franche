@@ -1088,7 +1088,8 @@ static func cap_first(s: String) -> String:
 ## (town_owner) ; foe_override impose la faction ennemie (l'assiégeant d'une ville assiégée), sinon tirée.
 func make_contract(town: int, foe_override := -1) -> Dictionary:
 	var top := max_level()
-	var d := rng.randi_range(maxi(1, top - 1), top)
+	# Du niveau le plus élevé à deux en dessous : une compagnie encore verte trouve toujours du travail
+	var d := rng.randi_range(maxi(1, top - 2), top)
 	var kind: Dictionary = CONTRACT_KINDS[d - 1]
 	var foe_f := roll_enemy_faction(town)
 	if foe_override >= 0 and foe_override != town_owner(town):
