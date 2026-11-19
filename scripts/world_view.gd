@@ -144,53 +144,23 @@ static func draw_army(map: Node2D, state: CampaignState, a: WorldArmy) -> void:
 	var p := army_spot(a).round()
 	var col: Color = CampaignState.FACTIONS[a.faction]["color"]
 	var hostile := state.world.hostile_to_player(state, a)
-	map.draw_circle(p + Vector2(0, 6), 11.0, Color(0, 0, 0, 0.25))
 	if hostile:
-		map.draw_arc(p + Vector2(0, 2), 13.0, 0, TAU, 20, Color(0.9, 0.15, 0.1, 0.9), 1.5)
-	# Petits soldats : un par tranche de 80 hommes (de 1 à 4)
-	var n := clampi(ceili(a.force / 80.0), 1, 4)
-	for k in n:
-		var s := p + Vector2(-6 + k * 4, 4 - (k % 2) * 2)
-		map.draw_rect(Rect2(s + Vector2(0, -4), Vector2(3, 5)), col.darkened(0.3))
-		map.draw_rect(Rect2(s + Vector2(0, -6), Vector2(3, 2)), Color(0.85, 0.75, 0.6))
-		map.draw_line(s + Vector2(3, -8), s + Vector2(3, 1), Color(0.75, 0.75, 0.8), 1.0)
-	# Bannière
-	map.draw_line(p + Vector2(-8, -12), p + Vector2(-8, 4), WOOD, 2.0)
-	map.draw_rect(Rect2(p + Vector2(-7, -12), Vector2(9, 6)), col)
-	map.draw_rect(Rect2(p + Vector2(-7, -12), Vector2(9, 6)), Color(0, 0, 0, 0.6), false, 1.0)
+		map.draw_arc(p + Vector2(0, -3), 17.0, 0, TAU, 24, Color(0.9, 0.15, 0.1, 0.9), 1.5)
+	# Figurines (MapIcons) : cavaliers et piquiers, d'autant plus nombreux que l'armée est grande
+	var horse := clampi(ceili(a.force / 120.0), 1, 3)
+	var foot := clampi(ceili(a.force / 90.0), 1, 4)
+	var face := 1.0
+	var step := 0
+	if map.has_method("face_of"):
+		face = map.face_of(a)
+		step = map.step_of(a) if a.mode != "siege" else 0
+	map.draw_set_transform(p, 0.0, Vector2(face, 1.0))
+	MapIcons.army(map, horse, foot, col, step)
+	map.draw_set_transform(Vector2.ZERO)
 	var font: Font = map.font
 	var label := str(a.force)
-	map.draw_string(font, p + Vector2(-13, 19), label, HORIZONTAL_ALIGNMENT_CENTER, 26, 10, Color(0, 0, 0, 0.85))
-	map.draw_string(font, p + Vector2(-14, 18), label, HORIZONTAL_ALIGNMENT_CENTER, 26, 10, Color(1, 0.6, 0.5) if hostile else Color(1, 0.95, 0.85))
-
-
-## Voile de saison et pluie animée sur la partie visible de la carte (view, coordonnées de la carte).
-static func draw_weather(map: Node2D, view := Rect2(Vector2.ZERO, MAP_SIZE)) -> void:
-	var state: CampaignState = map.state
-	var size := view.size
-	map.draw_set_transform(view.position)
-	var season := WorldSim.season_of(state.day)
-	match season:
-		WorldSim.WINTER:
-			map.draw_rect(Rect2(Vector2.ZERO, size), Color(0.9, 0.95, 1.0, 0.2))
-		2:
-			map.draw_rect(Rect2(Vector2.ZERO, size), Color(0.75, 0.45, 0.15, 0.07))
-		1:
-			map.draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 0.9, 0.5, 0.04))
-	var t := Time.get_ticks_msec() / 1000.0
-	if season == WorldSim.WINTER:
-		# Flocons qui tombent doucement
-		for k in 90:
-			var x := fposmod(k * 97.3 + sin(t + k) * 6.0, size.x)
-			var y := fposmod(k * 53.1 + t * 18.0, size.y)
-			map.draw_rect(Rect2(Vector2(x, y).round(), Vector2(2, 2)), Color(1, 1, 1, 0.7))
-	if state.world.raining:
-		var drop := Color(0.75, 0.85, 1.0, 0.5)
-		for k in 140:
-			var x := fposmod(k * 61.7 + t * 40.0, size.x)
-			var y := fposmod(k * 37.9 + t * 260.0, size.y)
-			map.draw_line(Vector2(x, y), Vector2(x - 3, y + 9), drop, 1.0)
-	map.draw_set_transform(Vector2.ZERO)
+	map.draw_string(font, p + Vector2(-13, 15), label, HORIZONTAL_ALIGNMENT_CENTER, 26, 10, Color(0, 0, 0, 0.85))
+	map.draw_string(font, p + Vector2(-14, 14), label, HORIZONTAL_ALIGNMENT_CENTER, 26, 10, Color(1, 0.6, 0.5) if hostile else Color(1, 0.95, 0.85))
 
 
 ## Cartouche du calendrier et des guerres, en haut à droite de la carte.

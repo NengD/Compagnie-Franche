@@ -137,6 +137,9 @@ var men_lost := 0
 var enemies_killed := 0
 var gold_earned := 0 ## Primes, butin et escortes
 var captain := Captain.new() ## Capitaine de la compagnie (voir captain.gd)
+## Armoiries de la compagnie : {"field", "charge", "colors": ["#rrggbb" x3]} (voir heraldry.gd).
+## Tirées au hasard au départ, modifiables dans l'onglet Compagnie, portées sur sa bannière.
+var arms: Dictionary = {}
 var world := WorldSim.new() ## Monde vivant : saisons, météo, guerres et armées (voir world_sim.gd)
 var overworld := Overworld.new() ## Carte en temps réel : heure, compagnie et groupes (voir overworld.gd)
 
@@ -154,6 +157,7 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 	else:
 		c.rng.randomize()
 	c.captain = Captain.recruit(c.rng.seed)
+	c.arms = Heraldry.random(c.rng.seed)
 	c.world = WorldSim.create(c.rng.seed)
 	if empty:
 		c.gold = float(START_GOLD + c.start_company_value())
@@ -217,6 +221,7 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 10 : armoiries de la compagnie (« arms » ; avant : tirées d'après la graine).
 ## Version 9 : carte en temps réel (heure, position et chemin de la compagnie, groupes ; voir
 ## overworld.gd) sur une carte trois fois plus grande (positions des armées agrandies à la relecture).
 ## Version 8 : objectif des contrats (« objective ») et faction ennemie (« enemy_faction »).
@@ -227,7 +232,7 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Les versions 1 (sans expérience, réputation ni renommée) à 8 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 9
+const SAVE_VERSION := 10
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -288,6 +293,7 @@ func to_dict() -> Dictionary:
 		"ended": ended, "end_day": end_day, "end_note": end_note,
 		"men_lost": men_lost, "enemies_killed": enemies_killed, "gold_earned": gold_earned,
 		"captain": captain.to_dict(),
+		"arms": arms.duplicate(true),
 		"world": world.to_dict(),
 		"overworld": overworld.to_dict(),
 		"encounters": encounters_to_dict(), # Rencontres de la carte (bloc en fin de fichier)
@@ -410,6 +416,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.rng.seed = str(d.get("rng_seed", "1")).to_int()
 	c.rng.state = str(d.get("rng_state", "1")).to_int()
 	c.captain = Captain.from_dict(d.get("captain", {}), c.rng.seed) # Version 5 et avant : capitaine neuf
+	c.arms = Heraldry.sanitize(d.get("arms", {}), c.rng.seed) # Version 9 et avant : tirées d'après la graine
 	# Version 6 et avant : monde neuf ; version 8 et avant : petite carte (positions agrandies)
 	c.world = WorldSim.from_dict(d.get("world", {}), c.rng.seed, c.day, MapData.SCALE if version <= 8 else 1.0)
 	if c.world == null:

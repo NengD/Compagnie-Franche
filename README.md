@@ -113,11 +113,28 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     ombrage du relief (lumière du nord-ouest), arbres stylisés avec leur ombre, roche, marais, eau et rives
     sablonneuses. Pics des montagnes, bosses des collines, routes, ponts et noms sont tracés une seule fois ;
     chaque lieu a son icône (ville, village, château, abbaye, moulin, pont, gué, mine, ruines, repaire).
+  - **Figurines des groupes** (`scripts/map_icons.gd`) : chaque sorte a la sienne, tournée dans le sens de
+    sa marche, jambes qui alternent au pas : **caravane** (charrette bâchée et deux bœufs), **villageois**
+    (chapeaux de paille, fourche, baluchon), **patrouille** (cavaliers et bannière de la faction), **armée**
+    (cavaliers, piquiers et grande bannière fourchée de la faction), **bandits** (silhouettes encapuchonnées,
+    lames, chiffon noir), **déserteurs** (piques basses, bannière déchirée et délavée). Une **trace de
+    marche** discrète (empreintes qui s'effacent) suit les groupes en mouvement.
+  - **Armoiries** (`scripts/heraldry.gd`) : votre compagnie porte les siennes sur sa bannière. Tirées au
+    hasard au départ (partition, meuble, trois émaux, en respectant la règle des émaux), modifiables dans
+    l'onglet **Compagnie** (section « Armoiries » : partition, meuble, couleurs, au hasard) et sauvegardées.
+  - **Saisons et météo visibles** (`scripts/map_sky.gd` et le shader) : prés en fleurs au printemps, blés
+    mûrs en été, feuillage roux (orange, rouge, or ; les sapins restent verts) et herbe jaunie en automne ;
+    en hiver, la neige tient peu à peu au sol et sur les arbres, la glace borde l'eau, les toits blanchissent,
+    puis tout fond au début du printemps. Les jours de pluie, le ciel se voile et la pluie tombe (la neige,
+    en hiver) ; **brouillard** le matin (plus épais près de l'eau, en automne et sous la pluie). La
+    mini-carte suit la saison.
   - **Le temps s'écoule** en heures de jeu (barre en haut à gauche : jour, heure, saison, météo ; 24 h = un
     jour de campagne, avec sa solde, ses contrats qui expirent, sa météo et le monde vivant). **Espace** :
     pause ; boutons ou touches **1, 2, 3** de la rangée du haut (& é " en AZERTY) : vitesses x1, x2, x4
     (x1 = 1,5 heure par seconde). Le temps s'arrête quand le panneau d'une ville ou une rencontre est ouvert.
-    La carte s'assombrit la nuit et rougeoie à l'aube et au crépuscule. Sauvegarde automatique chaque jour.
+    Jour et nuit marqués : aube rose, crépuscule orangé, nuit bleue où s'allument les fenêtres des villes,
+    villages et châteaux, les feux des repaires et des camps de siège et la torche de la compagnie.
+    Sauvegarde automatique chaque jour.
   - **Marcher** : clic gauche sur la carte, la compagnie y va (chemin A* qui préfère les routes et contourne
     l'eau et les montagnes ; pointillés jusqu'au but). Sur la route on marche à x1,3 ; en forêt x0,6, dans les collines x0,7,
     dans les marais x0,5 ; en hiver tout est x0,7. Valombre → Saint-Aubin prend environ deux jours.
@@ -265,9 +282,9 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
+  Format versionné (version 10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
   8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
-  cours) ; les versions 1 à 8 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours) ; les versions 1 à 9 se relisent (sans armoiries : tirées d'après la graine de la campagne) (difficulté normale, mode indulgent désactivé, aucune bataille en
   cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
   armées sont replacées sur la grande carte).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
@@ -482,8 +499,14 @@ scripts/campaign_map.gd    Carte du monde en temps réel : rendu, caméra, mini-
 scripts/map_data.gd     Géographie (MapData, seule source de vérité) : taille, lieux et leurs sortes, routes
                         (tracés, sortes, ponts), rivières, lacs, montagnes, forêts, régions, terrain sur une
                         grille, vitesse (speed_at), terrain de bataille (battle_terrain_at), chemins A*
-scripts/map_render.gd   Rendu du fond de la carte (MapRender) : textures de champs, shader du terrain, pics,
-                        collines, routes, ponts, noms des régions et des lieux naturels
+scripts/map_render.gd   Rendu du fond de la carte (MapRender) : textures de champs, shader du terrain (et ses
+                        saisons), pics, collines, routes, ponts, noms des régions et des lieux naturels
+scripts/map_icons.gd    Figurines des groupes sur la carte (MapIcons) : caravane, villageois, patrouille, armée,
+                        bandits, déserteurs, compagnie et sa bannière
+scripts/map_sky.gd      Saisons, lumière et météo de la carte (MapSky) : mélange des saisons, jour et nuit,
+                        brouillard, pluie et neige, lumières de la nuit (calques légers)
+scripts/heraldry.gd     Armoiries de la compagnie (Heraldry) : tirage, validation, dessin, blason, section
+                        « Armoiries » de l'onglet Compagnie
 scripts/overworld.gd    Carte en temps réel sans rendu (Overworld) : heure, compagnie, registre des groupes,
                         contact et rencontres, fin de journée, population (plafonds, saisons, guerres,
                         déserteurs des batailles), sauvegarde
@@ -522,7 +545,7 @@ scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, g
 scripts/encounter.gd    Rencontres de la carte (Encounter) : choix par sorte et attitude, résolution, accueil
 scripts/encounter_panel.gd Panneau d'une rencontre (EncounterPanel) : choix numérotés, Échap, signal closed
 scripts/world_army.gd   Armée de faction sur la carte (WorldArmy, une Party « army ») : marche, siège, sauvegarde
-scripts/world_view.gd   Affichage du monde sur la carte (WorldView) : armées, sièges, météo, section « Le pays »
+scripts/world_view.gd   Affichage du monde sur la carte (WorldView) : armées, sièges, section « Le pays »
 scripts/soldier.gd      Soldat individuel
 scripts/unit_types.gd   Statistiques et capacités des unités (seule source lue par la simulation)
 scripts/battle_objectives.gd Objectifs de bataille (détruire, tenir, escorter, prendre, poursuivre) : victoire,
@@ -571,9 +594,13 @@ tests/overworld_test.gd Test de la carte en temps réel (MapData : lieux, routes
                         migration v8, scène : clics, pause, vitesses, rencontre, retour de bataille)
 tests/party_ai_test.gd  Test des groupes de la carte : marché des villageois, chasse et fuite des bandits,
                         caravanes et escorte, patrouilles, déserteurs, peuplement, déterminisme, performances
-tests/overworld_capture.gd Captures de la carte (ville, marche, nuit, rencontre) dans user://captures (avec fenêtre)
-tests/map_capture.gd    Captures de la grande carte (vue éloignée, moyenne, rapprochée, montagnes, sud ; avec fenêtre ;
-                        option --out)
+tests/overworld_capture.gd Captures de la carte (ville, marche, nuit, rencontre, figurines des groupes, printemps,
+                        automne, hiver, nuit d'hiver sous la neige, pluie, brouillard, lumières d'une ville la nuit)
+                        dans user://captures (avec fenêtre ; option --out)
+tests/map_capture.gd    Captures de la grande carte (vue éloignée, moyenne, rapprochée, montagnes, sud, hiver, automne,
+                        nuit, pluie, fenêtre de la compagnie et ses armoiries ; avec fenêtre ; option --out)
+tests/map_visuals_test.gd Test du rendu de la carte : armoiries (tirage, sauvegarde v10, relecture v9, réparation,
+                        blason, boutons), saisons, nuit et brouillard, traces et sens de marche, shader et mini-carte
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
