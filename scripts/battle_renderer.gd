@@ -17,6 +17,10 @@ const ENEMY := BattleSim.ENEMY
 const ROAD_HALF := BattleSim.ROAD_HALF
 const TEAM_COLORS := [Color(0.22, 0.38, 0.85), Color(0.78, 0.16, 0.14)]
 const TEAM_DARK := [Color(0.12, 0.18, 0.42), Color(0.42, 0.08, 0.07)]
+## Alliés (camp du joueur, menés par l'IA) : bleu-vert, proche du bleu de la compagnie
+const ALLY_COLOR := Color(0.18, 0.62, 0.66)
+const ALLY_DARK := Color(0.08, 0.3, 0.32)
+const ALLY_MOD := Color(0.5, 1.15, 0.62) ## Teinte appliquée aux planches bleues des alliés
 const SKIN := Color(0.93, 0.76, 0.6)
 const STEEL := Color(0.72, 0.74, 0.78)
 const WOOD := Color(0.48, 0.32, 0.17)
@@ -182,7 +186,7 @@ func _draw() -> void:
 
 	# Flèche d'orientation de chaque régiment du joueur (plus visible s'il est sélectionné)
 	for r in sim.regiments:
-		if r.team != PLAYER or r.is_dead() or r.routing:
+		if r.team != PLAYER or r.allied or r.is_dead() or r.routing:
 			continue
 		var acol := Color(1, 0.95, 0.4, 0.9) if r.selected else Color(1, 1, 1, 0.45)
 		# Vers sa destination s'il marche, sinon sur place
@@ -328,6 +332,8 @@ func draw_soldier(s: Soldier) -> void:
 		draw_rect(Rect2(p.x - 5, p.y - 1, 10, 3), Color(0, 0, 0, 0.22))
 		var tint: Color = f["tint"]
 		var mod := Color(tint.r, tint.g, tint.b, hidden_alpha)
+		if r.allied:
+			mod *= ALLY_MOD
 		if s.flash > 0.0:
 			mod = Color(2.5, 2.5, 2.5, hidden_alpha) # Éclair blanc quand il est touché
 		draw_texture_rect_region(f["tex"], Rect2(p - foot, src.size), src, mod)
@@ -383,8 +389,8 @@ func draw_soldier_code(s: Soldier) -> void:
 		fx = 1 if s.foe.pos.x >= s.pos.x else -1
 	if s.attack_anim > 0.0:
 		p.x += fx
-	var col: Color = TEAM_COLORS[r.team]
-	var dark: Color = TEAM_DARK[r.team]
+	var col: Color = team_color(r)
+	var dark: Color = ALLY_DARK if r.allied else TEAM_DARK[r.team]
 	if s.flash > 0.0:
 		col = Color.WHITE
 	var step := 0.0
@@ -507,7 +513,7 @@ func draw_banner(r: Regiment) -> void:
 	var at := (r.center + Vector2(0, -lift)).round()
 	draw_set_transform(at, 0.0, Vector2(PX, PX))
 	draw_banner_shape(r, Vector2.ZERO)
-	effects.draw_banner_tail(self, r, (TEAM_COLORS[r.team] as Color).darkened(0.5 if r.routing else 0.0))
+	effects.draw_banner_tail(self, r, team_color(r).darkened(0.5 if r.routing else 0.0))
 	draw_set_transform(Vector2.ZERO)
 	if GameOptions.team_shapes:
 		Hud.draw_team_shape(self, r.team, at + Vector2(-9, -15), 4.5)
@@ -530,8 +536,13 @@ func draw_team_marks() -> void:
 			draw_line(p + Vector2(2.5, -2.5), p + Vector2(-2.5, 2.5), Color(1, 0.85, 0.6, 0.9), 1.0)
 
 
+## Couleur du camp d'un régiment (les alliés ont la leur).
+func team_color(r: Regiment) -> Color:
+	return ALLY_COLOR if r.allied else TEAM_COLORS[r.team]
+
+
 func draw_banner_shape(r: Regiment, base: Vector2) -> void:
-	var col: Color = TEAM_COLORS[r.team]
+	var col: Color = team_color(r)
 	if r.routing:
 		col = col.darkened(0.5)
 	draw_line(base, base + Vector2(0, -10), WOOD, 1.0)

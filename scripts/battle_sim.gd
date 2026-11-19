@@ -57,6 +57,8 @@ var rng := RandomNumberGenerator.new()
 var road_noise := FastNoiseLite.new()
 var terrain := Terrain.new() ## Collines, rivière, village, palissade (voir terrain.gd)
 var ai := EnemyAI.new()
+var ally_ai: AlliedAI = null ## IA des alliés (null sans alliés, voir spawn_allies)
+var allies: Array = [] ## Groupes alliés de la carte : {"party", "name", "faction", "troops"}
 var siege: Siege = null ## Vrai siège (ville fortifiée, voir siege.gd), null sinon
 
 var retreated := false ## La bataille s'est terminée par une retraite
@@ -83,33 +85,33 @@ func clear() -> void:
 
 ## Route, terrain (kind : voir Terrain.KINDS ; vide = tiré au sort), forêts et arbres isolés.
 ## Le sol dessiné (battle_renderer.gd) se construit juste après, avec le même rng.
-func generate_world(kind := "") -> void:
+## site : champ tiré de l'endroit de la carte (BattleSite.describe) ; ses bois sont plantés d'abord.
+func generate_world(kind := "", site: Dictionary = {}) -> void:
 	road_noise.seed = rng.randi()
 	road_noise.frequency = 0.0075
 	if kind == "":
 		kind = Terrain.KINDS[rng.randi() % Terrain.KINDS.size()]
-	terrain.setup(kind, rng, WORLD_SIZE, road_y)
+	terrain.setup(kind, rng, WORLD_SIZE, road_y, site)
 	if terrain.town != null:
 		siege = Siege.new(terrain.town)
 
-	# Forêts (pour les embuscades)
+	# Forêts (pour les embuscades) : celles de la carte, puis quelques bosquets
+	var want := terrain.forest_count()
+	if not terrain.site.is_empty():
+		for f in terrain.site["forests"]:
+			if f is Array and (f as Array).size() >= 3:
+				plant_forest(Vector2(float(f[0]), float(f[1])), float(f[2]))
+		want = (8 - forests.size()) if terrain.kind == "forest" else (1 if forests.size() > 0 else 3)
 	var placed := 0
 	var tries := 0
-	while placed < terrain.forest_count() and tries < 200:
+	while placed < want and tries < 200:
 		tries += 1
 		var c := Vector2(rng.randf_range(300, WORLD_SIZE.x - 300), rng.randf_range(560, WORLD_SIZE.y - 560))
 		var r := rng.randf_range(100, 190)
 		if not terrain.forest_ok(c, r):
 			continue
 		placed += 1
-		forests.append([c, r])
-		var n := int(r * r / 150.0)
-		for j in n:
-			var a := rng.randf() * TAU
-			var d := sqrt(rng.randf()) * r
-			var t := c + Vector2(cos(a), sin(a)) * d
-			if terrain.tree_ok(t):
-				trees.append(t)
+		plant_forest(c, r)
 	# Quelques arbres isolés
 	for i in 40:
 		var p := Vector2(rng.randf_range(0, WORLD_SIZE.x), rng.randf_range(0, WORLD_SIZE.y))
@@ -118,13 +120,31 @@ func generate_world(kind := "") -> void:
 	trees.sort_custom(func(a, b): return a.y < b.y)
 
 
-## Vrai si p est sur la route (pas de route quand la rivière la remplace).
+## Un bois de centre c et de rayon r, et ses arbres (même ordre de tirages qu'avant le site).
+func plant_forest(c: Vector2, r: float) -> void:
+	forests.append([c, r])
+	var n := int(r * r / 150.0)
+	for j in n:
+		var a := rng.randf() * TAU
+		var d := sqrt(rng.randf()) * r
+		var t := c + Vector2(cos(a), sin(a)) * d
+		if terrain.tree_ok(t) and not terrain.on_extra_road(t, Terrain.EXTRA_ROAD_HALF + 4.0):
+			trees.append(t)
+
+
+## Vrai si p est sur la route (pas de route quand la rivière la remplace), ou sur une des routes
+## de la carte qui croisent le champ (site).
 func on_road(p: Vector2, half: float) -> bool:
-	return terrain.has_road() and absf(p.y - road_y(p.x)) < half
+	if terrain.has_road() and absf(p.y - road_y(p.x)) < half:
+		return true
+	return not terrain.extra_roads.is_empty() and terrain.on_extra_road(p, half - ROAD_HALF + Terrain.EXTRA_ROAD_HALF)
 
 
-## Hauteur de la route qui traverse le champ de bataille.
+## Hauteur de la route qui traverse le champ de bataille (ou de la rivière qui la remplace) ;
+## celle de la carte quand le champ en vient (site).
 func road_y(x: float) -> float:
+	if not terrain.line.is_empty():
+		return BattleSite.line_y(terrain.line, x)
 	return WORLD_SIZE.y * 0.5 + sin(x * 0.003125) * 112.0 + road_noise.get_noise_1d(x) * 64.0
 
 
@@ -261,6 +281,75 @@ func spawn_army(team: int, list: Array) -> void:
 			r.company_index = i
 
 
+const MAX_ALLY_REGIMENTS := 4 ## Régiments alliés au plus sur le champ
+const ALLY_Y := 1720.0 ## Les alliés se déploient derrière les ailes de la compagnie
+const ALLY_X := 1250.0 ## ... à cette distance du centre, de part et d'autre
+
+
+## Régiments des groupes alliés de la carte (contrat « allies » : {"party", "name", "faction",
+## "troops": [{"type", "men", "rank"}]}), au plus MAX_ALLY_REGIMENTS, sur les ailes, derrière la
+## compagnie. Camp du joueur, marqués « allied » : menés par AlliedAI, pas commandables.
+func spawn_allies(list: Array) -> void:
+	var placed := 0
+	for g in list:
+		if not g is Dictionary:
+			continue
+		var gi := allies.size()
+		allies.append(g)
+		for t in g.get("troops", []):
+			if placed >= MAX_ALLY_REGIMENTS or not t is Dictionary or not UnitTypes.STATS.has(str(t.get("type", ""))):
+				continue
+			var men := int(t.get("men", 0))
+			if men <= 0:
+				continue
+			var side := -1.0 if placed % 2 == 0 else 1.0
+			@warning_ignore("integer_division")
+			var x := WORLD_SIZE.x * 0.5 + side * (ALLY_X + (placed / 2) * 240.0)
+			var r := add_regiment(PLAYER, str(t["type"]), Vector2(clampf(x, 140.0, WORLD_SIZE.x - 140.0), ALLY_Y), Vector2.UP, men)
+			r.allied = true
+			r.ally_group = gi
+			r.set_rank(clampi(int(t.get("rank", 0)), 0, 2))
+			placed += 1
+	if placed > 0:
+		ally_ai = AlliedAI.new()
+		ally_ai.configure(difficulty)
+
+
+## Nombre de régiments alliés sur le champ.
+func allies_count() -> int:
+	var n := 0
+	for r in regiments:
+		if r.allied:
+			n += 1
+	return n
+
+
+## Noms des groupes alliés (« la patrouille du Comté et ... »).
+func allies_names() -> String:
+	var names: Array[String] = []
+	for g in allies:
+		names.append(str(g.get("name", "des alliés")))
+	return " et ".join(names) if not names.is_empty() else "des alliés"
+
+
+## Bilan de chaque groupe allié : {"party", "before", "survivors", "kills"} (survivants : debout
+## ou enfuis), dans l'ordre de allies.
+func ally_tally() -> Array:
+	var out: Array = []
+	for g in allies:
+		out.append({"party": int(g.get("party", -1)), "before": 0, "survivors": 0, "kills": 0})
+	for r in regiments:
+		if not r.allied or r.ally_group < 0 or r.ally_group >= out.size():
+			continue
+		var t: Dictionary = out[r.ally_group]
+		t["before"] += r.soldiers.size()
+		t["kills"] += r.kills
+		for s in r.soldiers:
+			if s.alive or s.fled:
+				t["survivors"] += 1
+	return out
+
+
 ## Crée un régiment de type (clé de UnitTypes.STATS) ; men > 0 limite son effectif.
 func add_regiment(team: int, type: String, at: Vector2, facing: Vector2, men := -1) -> Regiment:
 	var r := Regiment.new()
@@ -302,6 +391,8 @@ func step(dt: float) -> void:
 	if state == State.BATTLE:
 		battle_time += dt
 		ai.think(self, dt)
+		if ally_ai != null:
+			ally_ai.think(self, dt)
 	rebuild_grid()
 	for r in regiments:
 		update_regiment(r, dt)
@@ -356,7 +447,7 @@ func soldiers_near(p: Vector2, radius: float) -> Array:
 func player_regiments() -> Array[Regiment]:
 	var out: Array[Regiment] = []
 	for r in regiments:
-		if r.team == PLAYER and not r.is_dead() and not r.routing:
+		if r.team == PLAYER and not r.allied and not r.is_dead() and not r.routing:
 			out.append(r)
 	return out
 
@@ -410,6 +501,8 @@ func team_strength(team: int) -> int:
 
 
 func team_label(r: Regiment) -> String:
+	if r.allied:
+		return "Les " + r.display_name().to_lower() + " alliés"
 	if r.team == PLAYER:
 		return "Vos " + r.display_name().to_lower()
 	return "Les " + r.display_name().to_lower() + " ennemis"
@@ -968,7 +1061,7 @@ func order_retreat() -> bool:
 	retreated = true
 	retreat_caught = 0
 	for r in regiments:
-		if r.team != PLAYER or r.routing:
+		if r.team != PLAYER or r.routing or r.allied:
 			continue
 		for s in r.soldiers:
 			if s.alive and s.foe != null and s.foe.alive and s.pos.distance_to(s.foe.pos) < 30.0 and rng.randf() < 0.5:
@@ -986,7 +1079,7 @@ func order_retreat() -> bool:
 func casualties() -> Dictionary:
 	var rows: Array[Dictionary] = []
 	var t := {"player_before": 0, "player_after": 0, "player_dead": 0, "player_fled": 0, "player_healed": 0,
-		"enemy_before": 0, "enemy_dead": 0, "enemy_fled": 0, "enemy_standing": 0}
+		"enemy_before": 0, "enemy_dead": 0, "enemy_fled": 0, "enemy_standing": 0, "ally_before": 0, "ally_dead": 0}
 	for r in regiments:
 		var standing := 0
 		var fled := 0
@@ -1003,6 +1096,10 @@ func casualties() -> Dictionary:
 			t["enemy_dead"] += dead
 			t["enemy_fled"] += fled
 			t["enemy_standing"] += standing
+			continue
+		if r.allied: # Les alliés ont leur propre bilan (ally_tally)
+			t["ally_before"] += r.soldiers.size()
+			t["ally_dead"] += dead
 			continue
 		rows.append({"index": rows.size(), "name": r.display_name(), "type": r.type, "rank": r.rank, "rank_after": r.rank,
 			"before": r.soldiers.size(), "standing": standing, "fled": fled, "dead": dead, "healed": 0,

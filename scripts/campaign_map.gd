@@ -1090,7 +1090,11 @@ func build_contact() -> void:
 	var enc := Overworld.encounter_script()
 	if enc != null:
 		add_label(str(enc.call("greeting", state, ow.player, contact)), 12, Color(0.92, 0.88, 0.78))
-	add_label("Terrain du combat : %s." % str(Terrain.NAMES.get(MapData.battle_terrain_at(ow.player.pos), "plaine")).to_lower(), 12, Color(0.75, 0.72, 0.65))
+	var site := ow.battle_site(contact)
+	add_label("Terrain du combat : %s, %s." % [str(Terrain.NAMES.get(str(site["kind"]), "plaine")).to_lower(), str(site["label"])], 12, Color(0.75, 0.72, 0.65))
+	var allies := ow.allies_line(state, contact)
+	if allies != "":
+		add_label("À vos côtés : %s." % allies, 12, Color(0.55, 0.85, 0.8))
 	var n := 0
 	for o in ow.options(state, contact):
 		n += 1

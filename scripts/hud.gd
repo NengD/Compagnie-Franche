@@ -193,7 +193,9 @@ static func morale_word(r: Regiment) -> String:
 ## Lignes de l'info-bulle d'un régiment : type, effectif, moral, endurance, rang.
 func tooltip_lines(r: Regiment) -> Array[String]:
 	var head := r.display_name()
-	if r.team == Battle.PLAYER:
+	if r.allied:
+		head += " (allié)"
+	elif r.team == Battle.PLAYER:
 		var n: int = battle.orders.roster_number(r)
 		head = ("%d  " % n if n > 0 else "") + head + " (vous)"
 	else:

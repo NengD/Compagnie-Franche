@@ -201,7 +201,7 @@ func finish_selection(a: Vector2, b: Vector2, add: bool) -> void:
 		if sim.captain != null and sim.captain.pick(b):
 			return # Clic sur le capitaine : lui et son escorte
 		var r := sim.regiment_at(b, PLAYER)
-		if r != null:
+		if r != null and not r.allied: # Les alliés ne se commandent pas
 			r.selected = true
 		return
 	for r in sim.player_regiments():
@@ -239,7 +239,7 @@ func group_members(idx: int) -> Array[Regiment]:
 func roster() -> Array[Regiment]:
 	var fresh: Array[Regiment] = []
 	for r in sim.regiments:
-		if r.team == PLAYER and not roster_list.has(r):
+		if r.team == PLAYER and not r.allied and not roster_list.has(r):
 			fresh.append(r)
 	if not fresh.is_empty():
 		fresh.sort_custom(func(x: Regiment, y: Regiment) -> bool:

@@ -177,7 +177,7 @@ static func random_point(ow: Overworld, center: Vector2, radius: float) -> Vecto
 
 ## La compagnie, vue comme une proie ou une menace par p (null : hors de vue, dans les murs, à l'abri).
 static func player_seen(c: CampaignState, ow: Overworld, p: Party, radius: float) -> Party:
-	if ow.inside >= 0 or c.is_destroyed() or c.is_over() or ow.cooldown.has(str(p.id)):
+	if ow.sheltered() or c.is_destroyed() or c.is_over() or ow.cooldown.has(str(p.id)):
 		return null
 	if p.pos.distance_to(ow.player.pos) > radius:
 		return null
@@ -206,7 +206,7 @@ static func chased(c: CampaignState, ow: Overworld, p: Party, max_dist: float) -
 	var t := lookup(c, ow, p.target_id)
 	if t == null or t.is_dead() or t.hidden or p.pos.distance_to(t.pos) > max_dist:
 		return null
-	if t == ow.player and (ow.inside >= 0 or ow.cooldown.has(str(p.id)) or c.is_destroyed()):
+	if t == ow.player and (ow.sheltered() or ow.cooldown.has(str(p.id)) or c.is_destroyed()):
 		return null
 	if t != ow.player and ow.truce.has(str(t.id)):
 		return null
@@ -710,6 +710,8 @@ static func skirmishes(c: CampaignState, ow: Overworld) -> void:
 				continue # Une patrouille n'attaque pas une armée
 			if a.strength() < b.strength() * FIGHT_DARE:
 				continue
+			if ow.offer_joint(c, a, b):
+				continue # Le groupe que suit la compagnie : la bataille lui est proposée
 			fight(c, ow, a, b)
 
 

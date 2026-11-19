@@ -34,6 +34,10 @@ const SPAWN_DAYS := 5.0 ## Une sorte vidée retrouve son plafond en à peu près
 const WAR_DESERTER_CHANCE := 0.3 ## Chaque jour de guerre, chance que des soldats désertent (par guerre)
 const BANDIT_NAMES := ["les Écorcheurs", "les Loups de Valfrène", "la bande du Borgne", "les Coupe-Bourses", "les Tard-Venus", "les Malandrins du Gué"]
 const ENCOUNTER_SCRIPT := "res://scripts/encounter.gd"
+const ALLY_RANGE := 120.0 ## Un groupe ami à moins de tant (carte) du combat se bat aux côtés de la compagnie
+const JOIN_RANGE := ALLY_RANGE ## « Se joindre à eux » : la compagnie est assez près pour prendre part au combat
+const MAX_ALLY_GROUPS := 2 ## Groupes alliés au plus dans une bataille
+const WALLED := ["town", "castle"] ## Lieux à l'abri des murs : on n'y est jamais attaqué
 
 var hour := START_HOUR ## Heure du jour (0 à 24)
 var player := Party.new() ## La compagnie sur la carte (ses régiments : CampaignState.company)
@@ -46,6 +50,9 @@ var truce := {} ## id de groupe -> heures pendant lesquelles aucun autre groupe 
 var rng := RandomNumberGenerator.new()
 var steps := 0 ## Pas de simulation écoulés (les groupes regardent autour d'eux un pas sur deux)
 var spawning := true ## Faux : plus aucune réapparition (tests de comportement ; non sauvegardé)
+## Bataille commune proposée : le groupe que suit la compagnie (« Se joindre à eux ») engage un
+## ennemi à portée. {"ally": id, "enemy": id} ; vide sinon (non sauvegardé).
+var joint := {}
 
 
 func _init() -> void:
@@ -270,6 +277,8 @@ func step(c: CampaignState, h: float) -> Dictionary:
 		truce[k] = float(truce[k]) - h
 		if float(truce[k]) <= 0.0:
 			truce.erase(k)
+	if out.is_empty() and not joint.is_empty():
+		out = {"event": "contact", "id": int(joint["enemy"])} # Le groupe suivi engage le combat
 	if out.is_empty():
 		var who := contact(c)
 		if who != null:
@@ -291,7 +300,7 @@ func step(c: CampaignState, h: float) -> Dictionary:
 ## Groupe qui touche la compagnie : celui qu'elle poursuit, ou un groupe hostile qui la rattrape
 ## (jamais dans les murs d'un lieu, ni pendant une bataille). null sinon.
 func contact(c: CampaignState) -> Party:
-	if inside >= 0 or c.in_battle() or c.is_over() or c.is_destroyed() or c.world.has_encounter():
+	if sheltered() or c.in_battle() or c.is_over() or c.is_destroyed() or c.world.has_encounter():
 		return null
 	for p in near(c, player.pos, CONTACT_RANGE):
 		if p.hidden or cooldown.has(str(p.id)):
@@ -301,6 +310,11 @@ func contact(c: CampaignState) -> Party:
 		if p.id == player.target_id or hostile(c, p):
 			return p
 	return null
+
+
+## La compagnie est-elle à l'abri des murs (ville, château) ? Dans un village, on peut l'attaquer.
+func sheltered() -> bool:
+	return inside >= 0 and str(MapData.place(inside)["kind"]) in WALLED
 
 
 ## Fin de journée : le jour de campagne passe, puis les évènements de la marche s'il y en a eu.
@@ -530,6 +544,13 @@ static func _has_static(s: Script, method: String) -> bool:
 ## Choix proposés quand la compagnie touche other : ceux d'encounter.gd (Encounter.options), sinon
 ## « Attaquer » et « Passer son chemin » (fuir, s'il est hostile). Chaque choix : {"id", "text"}.
 func options(c: CampaignState, other: Party) -> Array[Dictionary]:
+	if is_joint(other):
+		var ally := by_id(c, int(joint["ally"]))
+		var who := ally.display_name() if ally != null else "vos alliés"
+		return [
+			{"id": "join_battle", "text": "Combattre aux côtés de %s" % who, "hint": "Ils se battent avec vous, menés par leurs chefs."},
+			{"id": "stand_aside", "text": "Les laisser se battre seuls", "hint": ""},
+		] as Array[Dictionary]
 	var enc := encounter_script()
 	if enc != null and _has_static(enc, "options"):
 		var got: Variant = enc.call("options", c, player, other)
@@ -553,7 +574,12 @@ func resolve(c: CampaignState, other: Party, option_id: String) -> Dictionary:
 	var out := {}
 	var logged := false # encounter.gd tient déjà le journal
 	var enc := encounter_script()
-	if enc != null and _has_static(enc, "resolve"):
+	if is_joint(other):
+		out = resolve_joint(c, other, option_id)
+		logged = true
+		if out.is_empty():
+			return {"battle": false, "contract": {}, "text": "", "remove_other": false}
+	elif enc != null and _has_static(enc, "resolve"):
 		var got: Variant = enc.call("resolve", c, player, other, option_id)
 		if got is Dictionary:
 			out = got
@@ -571,7 +597,12 @@ func resolve(c: CampaignState, other: Party, option_id: String) -> Dictionary:
 			k = party_battle(c, other) # Une armée de faction : bataille du monde vivant (dispersée si vaincue)
 		k["party"] = other.id
 		if not k.has("siege"):
-			k["terrain"] = MapData.battle_terrain_at(player.pos) # Le terrain de l'endroit du contact
+			var site := battle_site(other)
+			k["site"] = site # L'endroit exact du contact (battle_site.gd)
+			k["terrain"] = str(site["kind"])
+			var allies := allies_for(c, other)
+			if not allies.is_empty():
+				k["allies"] = allies
 		out["contract"] = k
 		c.pending = k
 	if bool(out.get("remove_other", false)):
@@ -621,7 +652,7 @@ func default_resolve(c: CampaignState, other: Party, option_id: String) -> Dicti
 ## (WorldSim.make_battle), CampaignState.party_contract s'il existe (module des rencontres), sinon
 ## l'armée tirée des régiments du groupe (ni prime ni faction : le butin).
 func party_battle(c: CampaignState, other: Party) -> Dictionary:
-	var land := MapData.battle_terrain_at(player.pos)
+	var land := str(battle_site(other)["kind"])
 	var town := MapData.nearest_town(player.pos)
 	if other is WorldArmy:
 		return c.world.make_battle(c, other as WorldArmy, town, land)
@@ -671,6 +702,125 @@ func after_battle(c: CampaignState, victory: bool, result: Dictionary) -> String
 	c.gold_earned += loot
 	remove(c, other)
 	return " %s : le groupe est dispersé%s." % [CampaignState.cap_first(other.display_name()), (", %d écus repris" % loot) if loot > 0 else ""]
+
+
+# ---------------------------------------------------------------- Champ de bataille et alliés
+
+## Champ de bataille de l'endroit exact où la compagnie rencontre other (battle_site.gd) ;
+## dans un village où elle se trouvait, on se bat dans le village.
+func battle_site(other: Party) -> Dictionary:
+	return BattleSite.describe(player.pos, other.pos if other != null else player.pos, inside)
+
+
+## Groupe qui se battrait aux côtés de la compagnie contre foe : patrouille ou armée d'une faction
+## qui ne lui est pas hostile et qu'elle suit (« Se joindre à eux »), qui sert la faction du
+## contrat, ou qui combat foe (bandits et déserteurs sont les ennemis de toutes les patrouilles ;
+## sinon, une faction en guerre contre celle de foe).
+func friendly_to(c: CampaignState, p: Party, foe: Party) -> bool:
+	if p == null or p == foe or p == player or p.is_dead() or not p.kind in ["patrol", "army"] or p.faction < 0:
+		return false
+	if hostile(c, p) or c.faction_closed(p.faction) or c.reputation[p.faction] < 0:
+		return false
+	if p.id == player.target_id and player.state == "follow":
+		return true
+	if foe == null:
+		return false
+	if p.faction == int(c.pending.get("faction", -2)):
+		return true
+	if foe.kind in ["bandits", "deserters"]:
+		return true
+	return foe.faction >= 0 and foe.faction != p.faction and c.world.at_war(p.faction, foe.faction)
+
+
+## Groupes amis à portée du combat contre other, pour le contrat (« allies ») : {party, name,
+## faction, troops} ; au plus MAX_ALLY_GROUPS, les plus proches d'abord.
+func allies_for(c: CampaignState, other: Party) -> Array:
+	var list: Array[Party] = []
+	for p in near(c, player.pos, ALLY_RANGE, other.id if other != null else -1):
+		if friendly_to(c, p, other):
+			list.append(p)
+	list.sort_custom(func(a: Party, b: Party) -> bool: return a.pos.distance_to(player.pos) < b.pos.distance_to(player.pos))
+	var out: Array = []
+	for p in list:
+		if out.size() >= MAX_ALLY_GROUPS:
+			break
+		if p is WorldArmy:
+			(p as WorldArmy).sync_troops()
+		var troops: Array = []
+		for r in p.troops:
+			var type := str(r.get("type", ""))
+			var men := int(r.get("men", 0))
+			if not UnitTypes.STATS.has(type) or men <= 0:
+				continue
+			var full := int(UnitTypes.STATS[type]["count"])
+			while men > 0: # En régiments complets
+				troops.append({"type": type, "men": mini(men, full), "rank": CampaignState.rank_from_xp(float(r.get("xp", 0.0)))})
+				men -= full
+		if not troops.is_empty():
+			out.append({"party": p.id, "name": p.display_name(), "faction": p.faction, "troops": troops})
+	return out
+
+
+## Noms des groupes amis qui combattraient aux côtés de la compagnie contre other ("" : aucun).
+func allies_line(c: CampaignState, other: Party) -> String:
+	var names: Array[String] = []
+	for g in allies_for(c, other):
+		names.append(str(g["name"]))
+	return " et ".join(names)
+
+
+## Le groupe que suit la compagnie (« Se joindre à eux ») va combattre a ou b : si la compagnie
+## est à portée, la bataille lui est proposée au lieu d'être résolue d'office (PartyAI.skirmishes,
+## WorldSim.clashes). Renvoie vrai si la proposition est faite (le combat attend la réponse).
+func offer_joint(c: CampaignState, a: Party, b: Party) -> bool:
+	if not joint.is_empty():
+		return int(joint["ally"]) in [a.id, b.id] or int(joint["enemy"]) in [a.id, b.id]
+	if player.state != "follow" or player.target_id < 0 or sheltered() or c.in_battle() or c.is_destroyed() or c.is_over():
+		return false
+	var ally: Party = null
+	if a.id == player.target_id:
+		ally = a
+	elif b.id == player.target_id:
+		ally = b
+	if ally == null:
+		return false
+	var foe := b if ally == a else a
+	if cooldown.has(str(foe.id)) or player.pos.distance_to(ally.pos) > JOIN_RANGE:
+		return false
+	joint = {"ally": ally.id, "enemy": foe.id}
+	for p in [a, b]:
+		if not p is WorldArmy:
+			(p as Party).busy_hours = maxf((p as Party).busy_hours, 0.5) # Ils se font face
+	return true
+
+
+func is_joint(other: Party) -> bool:
+	return other != null and not joint.is_empty() and int(joint["enemy"]) == other.id
+
+
+## Réponse à une bataille commune : « join_battle » (la compagnie combat aux côtés du groupe
+## suivi, et de tout autre ami à portée) ou « stand_aside » (le combat se résout sans elle).
+func resolve_joint(c: CampaignState, other: Party, option_id: String) -> Dictionary:
+	var ally := by_id(c, int(joint["ally"]))
+	joint = {}
+	if ally == null or ally.is_dead():
+		return {}
+	if option_id == "join_battle":
+		var k := party_battle(c, other)
+		var who := ally.display_name()
+		k["title"] = "Aux côtés de %s contre %s" % [who, other.display_name()]
+		k["text"] = "%s engage %s ; la compagnie se jette dans la mêlée." % [CampaignState.cap_first(who), other.display_name()]
+		var text := "La compagnie combat aux côtés de %s contre %s." % [who, other.display_name()]
+		c.add_log("Jour %d : %s" % [c.day, text])
+		return {"battle": true, "contract": k, "text": text, "remove_other": false}
+	cooldown[str(other.id)] = COOLDOWN_HOURS # On ne propose plus ce combat
+	if other is WorldArmy and ally is WorldArmy:
+		c.world.clashes(c) # Les deux armées se battent sans la compagnie
+	else:
+		PartyAI.fight(c, self, ally, other)
+	var text := "La compagnie regarde %s se battre contre %s." % [ally.display_name(), other.display_name()]
+	c.add_log("Jour %d : %s" % [c.day, text])
+	return {"battle": false, "contract": {}, "text": text, "remove_other": false}
 
 
 # ---------------------------------------------------------------- Sauvegarde

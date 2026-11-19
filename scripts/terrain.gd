@@ -51,6 +51,9 @@ const BREACH_HALF := 56.0 ## Demi-largeur d'une brèche
 const WALL_COVER := 0.5 ## Part des flèches arrêtées par les pieux
 const SIEGE_REINFORCEMENTS := ["archer"] ## Régiments ajoutés à l'assaillant
 const WALL_COVER_DIST := 80.0 ## Distance derrière la palissade où l'on est abrité
+const BRIDGE_HALF := 30.0 ## Demi-largeur d'un pont (le long de la rivière)
+const POND_CELL := 20.0 ## Pas de la grille de l'eau des lacs
+const EXTRA_ROAD_HALF := 16.0 ## Demi-largeur des routes de la carte qui croisent le champ
 
 var kind := "plain"
 var active := true ## Faux : terrain neutre (sert aux tests des ordres)
@@ -68,6 +71,17 @@ var breaches: Array[float] = [] ## Abscisses des brèches de la palissade
 var walls: Array[Rect2] = [] ## Tronçons de palissade
 var obstacles: Array[Rect2] = [] ## Maisons + palissade (+ rempart et tours d'une ville fortifiée)
 var town: SiegeTerrain = null ## Ville fortifiée (terrains TOWN_KINDS), null sinon
+## Champ tiré de la carte (battle_site.gd) : vide = ancien tirage au sort
+var site: Dictionary = {}
+var river_on := false ## Une rivière traverse le champ (sa ligne : road_y)
+var road_main := true ## Une route le traverse d'ouest en est (sa ligne : road_y)
+var line: Array = [] ## Hauteurs de la rivière ou de la route du site (voir BattleSite.line_y)
+var extra_roads: Array[PackedVector2Array] = [] ## Autres routes du site (elles franchissent la rivière)
+var extra_boxes: Array[Rect2] = []
+var bridges: Array[float] = [] ## Abscisses des ponts (ils comptent aussi parmi les gués)
+var ponds := PackedByteArray() ## Eau des lacs : 2 dans l'eau, 1 sur la rive, 0 ailleurs
+var pw := 0
+var ph := 0
 
 
 ## Terrain d'un contrat de campagne (ville et difficulté).
@@ -82,6 +96,11 @@ static func for_contract(town: int, difficulty: int, towns: Array) -> String:
 
 func display_name() -> String:
 	return str(NAMES.get(kind, kind))
+
+
+## Où se livre la bataille sur la carte (« au pont sur la Vionne, près de... »), "" hors site.
+func place_text() -> String:
+	return str(site.get("label", ""))
 
 
 func hint() -> String:
@@ -99,17 +118,26 @@ func forest_count() -> int:
 
 
 func has_road() -> bool:
-	return kind != "river"
+	return road_main and not river_on
 
 
 func has_river() -> bool:
-	return kind == "river"
+	return river_on
 
 
-func setup(k: String, rng: RandomNumberGenerator, size: Vector2, road: Callable) -> void:
+## s : descripteur du champ tiré de la carte (BattleSite.describe) ; vide = tirage au sort.
+func setup(k: String, rng: RandomNumberGenerator, size: Vector2, road: Callable, s: Dictionary = {}) -> void:
 	kind = k if k in KINDS or k in TOWN_KINDS else "plain"
 	world = size
 	road_y = road
+	river_on = kind == "river"
+	road_main = true
+	site = BattleSite.sanitize(s) if kind in MapData.BATTLE_TERRAINS else {}
+	if not site.is_empty():
+		kind = str(site["kind"])
+		apply_site(rng)
+		refresh_obstacles()
+		return
 	match kind:
 		"hills":
 			make_hills(rng)
@@ -139,12 +167,101 @@ func refresh_obstacles() -> void:
 		obstacles.append_array(town.solid)
 
 
+## Champ tiré de la carte : rivière ou route, passages, autres routes, relief, lacs, village.
+## (Les bois du site sont plantés par BattleSim.generate_world.)
+func apply_site(rng: RandomNumberGenerator) -> void:
+	line = site["line"]
+	river_on = bool(site["river"])
+	road_main = bool(site["road"]) and not river_on
+	for r in site["roads"]:
+		if not r is Array:
+			continue
+		var pts := PackedVector2Array()
+		for j in range(0, (r as Array).size() - 1, 2):
+			pts.append(Vector2(float(r[j]), float(r[j + 1])))
+		if pts.size() < 2:
+			continue
+		var box := Rect2(pts[0], Vector2.ZERO)
+		for p in pts:
+			box = box.expand(p)
+		extra_roads.append(pts)
+		extra_boxes.append(box.grow(EXTRA_ROAD_HALF + 24.0))
+	if river_on:
+		for c in site["crossings"]:
+			if not c is Array or (c as Array).size() < 2:
+				continue
+			fords.append(float(c[0]))
+			if str(c[1]) == "bridge":
+				bridges.append(float(c[0]))
+	for h in site["hills"]:
+		if h is Array and (h as Array).size() >= 4:
+			hills.append([Vector2(float(h[0]), float(h[1])), float(h[2]), float(h[3])])
+	if not hills.is_empty():
+		build_heights()
+	elif kind == "hills":
+		make_hills(rng)
+	if not (site["ponds"] as Array).is_empty():
+		build_ponds(site["ponds"])
+	if kind == "village":
+		var v: Array = site["village"]
+		make_village(rng, float(v[0]) if v.size() >= 2 else NAN)
+
+
+## Vrai si p est sur une des routes du site qui croisent le champ.
+func on_extra_road(p: Vector2, half: float) -> bool:
+	for i in extra_roads.size():
+		if not extra_boxes[i].has_point(p):
+			continue
+		var pts := extra_roads[i]
+		for j in pts.size() - 1:
+			if p.distance_squared_to(Geometry2D.get_closest_point_to_segment(p, pts[j], pts[j + 1])) < half * half:
+				return true
+	return false
+
+
+func build_ponds(list: Array) -> void:
+	pw = int(world.x / POND_CELL) + 1
+	ph = int(world.y / POND_CELL) + 1
+	ponds.resize(pw * ph)
+	ponds.fill(0)
+	for c in list:
+		if not c is Array or (c as Array).size() < 3:
+			continue
+		var at := Vector2(float(c[0]), float(c[1]))
+		var r := float(c[2])
+		var n := int((r + 16.0) / POND_CELL) + 1
+		var gc := Vector2i(at / POND_CELL)
+		for y in range(gc.y - n, gc.y + n + 1):
+			for x in range(gc.x - n, gc.x + n + 1):
+				if x < 0 or y < 0 or x >= pw or y >= ph:
+					continue
+				var d := ((Vector2(x, y) + Vector2(0.5, 0.5)) * POND_CELL - at).length()
+				var v := 2 if d < r else (1 if d < r + 16.0 else 0)
+				ponds[y * pw + x] = maxi(ponds[y * pw + x], v)
+
+
+## Dans l'eau d'un lac (margin > 0 : sur sa rive aussi).
+func in_pond(p: Vector2, margin := 0.0) -> bool:
+	if ponds.is_empty():
+		return false
+	var x := int(p.x / POND_CELL)
+	var y := int(p.y / POND_CELL)
+	if x < 0 or y < 0 or x >= pw or y >= ph:
+		return false
+	return ponds[y * pw + x] >= (1 if margin > 0.0 else 2)
+
+
 func make_hills(rng: RandomNumberGenerator) -> void:
 	var n := rng.randi_range(3, 4)
 	for i in n:
 		# Collines entre les deux armées, plutôt sur les côtés pour laisser des choix
 		var c := Vector2(rng.randf_range(350, world.x - 350), rng.randf_range(520, 1350))
 		hills.append([c, rng.randf_range(150, 230), rng.randf_range(0.7, 1.0)])
+	build_heights()
+
+
+## Grille des hauteurs d'après les collines (centre, rayon, hauteur).
+func build_heights() -> void:
 	hw = int(world.x / HEIGHT_CELL) + 2
 	hh = int(world.y / HEIGHT_CELL) + 2
 	heights.resize(hw * hh)
@@ -158,9 +275,14 @@ func make_hills(rng: RandomNumberGenerator) -> void:
 			heights[y * hw + x] = 1.0 - exp(-2.0 * h) # Sommets arrondis, sans plateau
 
 
-func make_village(rng: RandomNumberGenerator) -> void:
+func make_village(rng: RandomNumberGenerator, at_x := NAN) -> void:
 	var cx := rng.randf_range(world.x * 0.35, world.x * 0.65)
+	if not is_nan(at_x):
+		cx = at_x # Le village de la carte
 	var cy: float = road_y.call(cx)
+	if not site.is_empty() and not road_main and not river_on:
+		var v: Array = site["village"]
+		cy = float(v[1]) if v.size() >= 2 else world.y * 0.5
 	village_rect = Rect2(cx - 330, cy - 230, 660, 460)
 	var tries := 0
 	while houses.size() < 11 and tries < 400:
@@ -172,7 +294,9 @@ func make_village(rng: RandomNumberGenerator) -> void:
 		var r := Rect2(p, Vector2(w, h))
 		# Pas sur la route (les maisons la bordent)
 		var ry: float = road_y.call(r.get_center().x)
-		if r.end.y + 26.0 > ry - 18.0 and r.position.y - 26.0 < ry + 18.0:
+		if (road_main or river_on) and r.end.y + 26.0 > ry - 18.0 and r.position.y - 26.0 < ry + 18.0:
+			continue
+		if on_extra_road(r.get_center(), maxf(w, h) * 0.5 + 26.0) or in_pond(r.get_center(), 1.0):
 			continue
 		var ok := true
 		for o in houses:
@@ -197,6 +321,8 @@ func forest_ok(c: Vector2, r: float) -> bool:
 	if kind == "village" and village_rect.grow(r + 40.0).has_point(c):
 		return false
 	if kind == "siege" and absf(c.y - WALL_Y) < r + 50.0:
+		return false
+	if in_pond(c):
 		return false
 	if town != null and town.depth(c) > -r - 60.0 and c.x > SiegeTerrain.X0 - r - 60.0 and c.x < SiegeTerrain.X1 + r + 60.0:
 		return false
@@ -248,22 +374,34 @@ func height_damage(a: Vector2, b: Vector2) -> float:
 # ---------------------------------------------------------------- Rivière
 
 ## Vrai si p est dans le lit de la rivière (marge en plus de la largeur).
+## (Ou dans l'eau d'un lac du site.)
 func is_river(p: Vector2, margin := 0.0) -> bool:
-	if kind != "river" or not road_y.is_valid():
-		return false
-	return absf(p.y - float(road_y.call(p.x))) < RIVER_HALF + margin
+	if river_on and road_y.is_valid() and absf(p.y - float(road_y.call(p.x))) < RIVER_HALF + margin:
+		return true
+	return in_pond(p, margin)
 
 
 func is_ford(p: Vector2) -> bool:
 	for f in fords:
-		if absf(p.x - f) < FORD_HALF:
+		if absf(p.x - f) < (BRIDGE_HALF if bridges.has(f) else FORD_HALF):
 			return true
 	return false
 
 
-## Eau profonde (hors gué) : on y avance lentement.
+func is_bridge(p: Vector2) -> bool:
+	for f in bridges:
+		if absf(p.x - f) < BRIDGE_HALF:
+			return true
+	return false
+
+
+## Eau profonde (hors gué ou pont, ou lac) : on y avance lentement.
 func is_deep_water(p: Vector2) -> bool:
-	return active and is_river(p) and not is_ford(p)
+	if not active:
+		return false
+	if in_pond(p):
+		return true
+	return river_on and is_river(p) and not is_ford(p)
 
 
 # ---------------------------------------------------------------- Requêtes pour l'IA
@@ -494,14 +632,14 @@ func wall_shelters(from: Vector2, p: Vector2) -> bool:
 ## Couche transparente posée sur le sol : relief (éclairci + courbes de niveau), rivière et gués.
 ## Renvoie null si le terrain n'en a pas besoin.
 func build_overlay(rng: RandomNumberGenerator) -> ImageTexture:
-	if kind != "hills" and kind != "river":
+	if heights.is_empty() and not river_on and ponds.is_empty():
 		return null
 	var w := int(world.x / OVERLAY_SCALE)
 	var h := int(world.y / OVERLAY_SCALE)
 	var img := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
 	var was := active
 	active = true
-	if kind == "hills":
+	if not heights.is_empty():
 		var prev := PackedInt32Array()
 		prev.resize(w)
 		for y in h:
@@ -520,7 +658,18 @@ func build_overlay(rng: RandomNumberGenerator) -> ImageTexture:
 				img.set_pixel(x, y, c)
 				prev[x] = lv
 				left = lv
-	else:
+	if not ponds.is_empty():
+		for y in h:
+			for x in w:
+				var p := (Vector2(x, y) + Vector2(0.5, 0.5)) * OVERLAY_SCALE
+				if in_pond(p):
+					var c := Color(0.22, 0.4, 0.62)
+					if (x * 7 + y * 13) % 23 == 0:
+						c = c.lightened(0.2) # Reflets
+					img.set_pixel(x, y, c)
+				elif in_pond(p, 1.0):
+					img.set_pixel(x, y, Color(0.42, 0.36, 0.22, 0.8)) # Rive
+	if river_on:
 		var noise := FastNoiseLite.new()
 		noise.seed = rng.randi()
 		noise.frequency = 0.02
@@ -528,13 +677,22 @@ func build_overlay(rng: RandomNumberGenerator) -> ImageTexture:
 			var wx := (x + 0.5) * OVERLAY_SCALE
 			var ry: float = road_y.call(wx)
 			var ford := is_ford(Vector2(wx, ry))
+			var bridge := INF ## Écart au milieu du pont le plus proche (INF : pas de pont ici)
+			for b in bridges:
+				if absf(wx - b) < BRIDGE_HALF:
+					bridge = wx - b
 			var y0 := maxi(int((ry - RIVER_HALF - 10.0) / OVERLAY_SCALE), 0)
 			var y1 := mini(int((ry + RIVER_HALF + 10.0) / OVERLAY_SCALE), h - 1)
 			for y in range(y0, y1 + 1):
 				var wy := (y + 0.5) * OVERLAY_SCALE
 				var d := absf(wy - ry)
 				var c: Color
-				if d >= RIVER_HALF:
+				if bridge < INF:
+					# Pont de planches, garde-corps sombres sur les bords
+					c = Color(0.52, 0.37, 0.2) if int(wy / 8.0) % 2 == 0 else Color(0.45, 0.31, 0.16)
+					if absf(bridge) > BRIDGE_HALF - 6.0:
+						c = Color(0.3, 0.2, 0.1)
+				elif d >= RIVER_HALF:
 					c = Color(0.42, 0.34, 0.2, 0.85) # Berge boueuse
 				elif ford:
 					c = Color(0.44, 0.6, 0.68)

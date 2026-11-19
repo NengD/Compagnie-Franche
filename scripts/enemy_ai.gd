@@ -130,9 +130,9 @@ func think(b: BattleSim, dt: float) -> void:
 	for r in b.regiments:
 		if r.is_dead() or r.routing:
 			continue
-		if r.team == team:
+		if controls(r):
 			mine.append(r)
-		else:
+		elif r.team != team:
 			all_theirs.append(r)
 			if not r.hidden:
 				theirs.append(r)
@@ -151,7 +151,7 @@ func think(b: BattleSim, dt: float) -> void:
 	if not withdrawing and p_mine < start_power[0] * WITHDRAW_LEFT and p_mine < p_theirs * WITHDRAW_RATIO:
 		withdrawing = true
 		advance = false
-		b.message("L'ennemi sonne la retraite et décroche en bon ordre !" if team == 1 else "Votre compagnie sonne la retraite.")
+		b.message(retreat_message())
 	if withdrawing:
 		for r in mine:
 			withdraw(b, r, theirs)
@@ -170,6 +170,16 @@ func think(b: BattleSim, dt: float) -> void:
 
 	for r in mine:
 		think_regiment(b, r, mine, theirs)
+
+
+## Régiments menés par cette IA : tout le camp team (l'IA des alliés, allied_ai.gd, ne mène que
+## les régiments alliés du camp du joueur).
+func controls(r: Regiment) -> bool:
+	return r.team == team and not r.allied
+
+
+func retreat_message() -> String:
+	return "L'ennemi sonne la retraite et décroche en bon ordre !" if team == 1 else "Votre compagnie sonne la retraite."
 
 
 ## Aiguillage par type. Un nouveau type ajoute ici sa branche (et sa fonction think_xxx).
