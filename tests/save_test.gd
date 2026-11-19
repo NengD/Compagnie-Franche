@@ -247,7 +247,7 @@ func _test_versions() -> void:
 		old["version"] = v
 		old.erase("lenient")
 		old.erase("world") # Monde vivant : version 7
-		for key in ["supplies", "prisoners", "companions"]: # Version 10 : vivres, prisonniers, compagnons
+		for key in ["supplies", "prisoners", "companions", "realm"]: # Vivres, prisonniers, compagnons ; domaine
 			old.erase(key)
 		var l := CampaignState.from_dict(JSON.parse_string(JSON.stringify(old)))
 		check(l != null and not l.lenient and not l.in_battle() and l.world.wars.is_empty(), "version %d illisible" % v)

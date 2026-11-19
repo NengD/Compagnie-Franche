@@ -475,6 +475,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				toggle_view("world")
 			KEY_J:
 				toggle_view("journal")
+			KEY_T:
+				toggle_view("quests") # Onglet des quêtes (realm_panel.gd)
 			KEY_SPACE:
 				toggle_pause()
 			KEY_KP_1:
@@ -757,7 +759,7 @@ func build_ui() -> void:
 	refresh_speed_buttons()
 	LifePanel.build_bar(self, row) # Marche forcée, camp (life_panel.gd)
 	row.add_child(VSeparator.new())
-	for v in [["company", "Compagnie", "E"], ["world", "Monde", "M"], ["journal", "Journal", "J"], ["menu", "Menu", "Échap"]]:
+	for v in [["company", "Compagnie", "E"], ["world", "Monde", "M"], ["journal", "Journal", "J"], ["quests", "Quêtes", "T"], ["menu", "Menu", "Échap"]]:
 		var b := Button.new()
 		b.text = v[1]
 		b.tooltip_text = "Touche %s" % v[2]
@@ -1002,6 +1004,7 @@ func refresh_ui() -> void:
 			CompanyPanel.build(self)
 			Heraldry.build_panel(self) # Armoiries de la bannière
 			LifePanel.build(self) # Vivres, prisonniers, compagnons
+			RealmPanel.build_company(self) # Allégeance, fiefs, cargaison
 		"world":
 			window_title.text = "Le monde"
 			add_section("Objectif")
@@ -1020,6 +1023,8 @@ func refresh_ui() -> void:
 				add_label("Rien à signaler pour l'instant.", 12, DIM_COL)
 			for s in state.log_lines:
 				add_label(s, 12, Color(0.8, 0.77, 0.7))
+		"quests":
+			RealmPanel.build_quests(self)
 		"menu":
 			build_menu()
 	scroll.scroll_vertical = 0
@@ -1030,6 +1035,8 @@ func refresh_ui() -> void:
 func build_place() -> void:
 	var here := town_here()
 	var ow := state.overworld
+	if here < 0 and RealmPanel.build_place(self, ow.inside): # Château, repaire ou pont d'une quête
+		return
 	if here < 0:
 		window_title.text = str(MapData.place(ow.inside)["name"]) if ow.inside >= 0 else "En campagne"
 		if ow.inside >= 0:
@@ -1049,6 +1056,7 @@ func build_place() -> void:
 		build_company(here, closed)
 	CompanyPanel.build(self) # Capitaine, traits et équipement (achats en ville)
 	LifePanel.build(self) # Vivres, prisonniers, compagnons (achats, rançons, engagements en ville)
+	RealmPanel.build_town(self, here) # Marché, quêtes, allégeance
 
 
 ## Onglet Menu : quitter, escarmouche, nouvelle campagne, aide.
@@ -1068,7 +1076,7 @@ func build_menu() -> void:
 	add_section("Commandes")
 	add_label("Clic gauche : marcher (sur une ville : y entrer ; sur un groupe : le poursuivre). Clic droit : halte.", 12, DIM_COL)
 	add_label("F : marche forcée (x2, épuisante) ; K : camper (repos, soins).", 12, DIM_COL)
-	add_label("Espace : pause ; 1, 2, 3 : vitesses. E : compagnie ; M : monde ; J : journal ; Échap : fermer ou menu.", 12, DIM_COL)
+	add_label("Espace : pause ; 1, 2, 3 : vitesses. E : compagnie ; M : monde ; J : journal ; T : quêtes ; Échap : fermer ou menu.", 12, DIM_COL)
 	add_label("ZQSD, flèches, bord de l'écran ou clic molette : déplacer la vue ; molette : zoom ; C : recentrer.", 12, DIM_COL)
 	add_label("La route va plus vite ; forêts, collines, marais et hiver ralentissent. Chaque jour coûte la solde ; sans or, des hommes désertent. Les groupes cerclés de rouge vous attaquent s'ils vous rattrapent.", 11, HINT_COL)
 	add_label("Sauvegarde automatique chaque jour, à chaque arrivée, recrutement et bataille.", 11, HINT_COL)
@@ -1235,6 +1243,7 @@ func place_lines(i: int) -> Array[String]:
 	else:
 		var f := int(pl["faction"])
 		lines.append("%s%s" % [CampaignState.cap_first(str(MapData.KIND_NAMES.get(pl["kind"], pl["kind"]))), (" de %s" % CampaignState.FACTIONS[f]["short"]) if f >= 0 else ""])
+	lines.append_array(RealmPanel.place_lines(state, i)) # Fief, marché, quêtes
 	lines.append("Région : %s" % MapData.REGIONS[MapData.region_at(pl["pos"])]["name"])
 	var ow := state.overworld
 	if ow.inside == i:
@@ -1331,6 +1340,7 @@ func draw_place(i: int, zoom := 1.0) -> void:
 			draw_lair(p)
 		_:
 			draw_village(p)
+	RealmPanel.draw_place(self, i, p) # Bannière des fiefs, cibles des quêtes
 	var town := kind == "town"
 	if not town and not here and i != hover_place and zoom < 0.55:
 		return

@@ -52,7 +52,7 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
 - Carte de campagne épurée : la carte occupe tout l'écran, sous une fine barre (date, or, solde, effectif,
   pause et vitesses, Marche forcée et Camper (touches F et K), vivres et fatigue, onglets Compagnie, Monde,
-  Journal et Menu ; touches E, M, J et Échap). Une fenêtre
+  Journal, Quêtes et Menu ; touches E, M, J, T et Échap). Une fenêtre
   centrale n'apparaît que pour une ville, une rencontre ou un onglet ouvert ; Échap ou ✕ la ferme. Les
   messages (arrivée, refus, évènements) s'affichent en bas de l'écran puis s'effacent. Le menu principal
   est dans l'onglet Menu.
@@ -358,14 +358,15 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 12 : vivres, fatigue, blessés, prisonniers et compagnons ; 11 : champ de bataille
-  tiré de la carte et alliés de la bataille en cours ; 10 : armoiries de la compagnie ; 9 : carte en temps réel —
-  heure, position et chemin de la compagnie, groupes ; 8 : objectifs des contrats ; 7 : monde vivant ;
-  6 : capitaine ; 5 : emplacements, mode indulgent, bataille en cours) ; les versions 1 à 11 se relisent
-  (difficulté normale, mode indulgent désactivé, aucune bataille en cours, monde neuf et en paix ; avant la
-  version 9, la compagnie se retrouve au matin dans sa ville et les armées sont replacées sur la grande carte ;
-  avant la version 10, les armoiries sont tirées de la graine de la campagne ; avant la version 12, dix jours de
-  vivres, ni prisonniers ni compagnons).
+  Format versionné (version 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
+  prisonniers et compagnons ; 11 : champ de bataille tiré de la carte et alliés de la bataille en cours ;
+  10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
+  8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
+  cours) ; les versions 1 à 12 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
+  armées sont replacées sur la grande carte ; avant la version 10, les armoiries sont tirées de la graine de la
+  campagne ; avant la version 12, dix jours de vivres, ni prisonniers ni compagnons ; avant la 13, ni fief, ni
+  cargaison, ni serment, et de premières offres de quêtes).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
@@ -432,6 +433,41 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     locale, armée -5 / +5 à ses ennemis).
   - Aucun tirage pendant l'affichage : le hasard (fuite, intimidation, terrain) est tiré dans `resolve` avec une
     graine dérivée du groupe, du jour et du choix ; le `rng` de la campagne n'est pas touché.
+- **Domaine** (`scripts/fiefs.gd`, `trade.gd`, `diplomacy.gd`, `quests.gd` ; fenêtres `scripts/realm_panel.gd`) :
+  quatre systèmes branchés sur `campaign_state.gd` par quelques lignes (bloc « Domaine » en fin de fichier).
+  Sans serment, fief ni quête, la campagne reste celle d'avant (ils ne tirent jamais son hasard).
+  - **Fiefs** : les six châteaux de la carte (Tour du Guet, Grisemont, Fort-Lisière, Château-Corbin, Fort-Orient,
+    Castel-Brume) appartiennent à une faction. Entrez dans un château : on peut l'**acheter** (6 000 écus, -20 % chez
+    son suzerain ; réputation 20 au moins) ou **donner l'assaut** (siège avec bélier et échelles contre sa garnison,
+    de 5 à 6 régiments à moitié aguerris ; -20 de réputation auprès de son seigneur, renommée +10 s'il tombe). Son
+    fief rapporte **400 écus par semaine** moins la solde de sa garnison (moitié de la solde en campagne). On y lève
+    les **sept sortes de troupes** à -10 %, et on y laisse jusqu'à **4 régiments en garnison** (la compagnie garde
+    au moins un régiment). Une faction hostile (portes fermées, en guerre avec votre suzerain, ou dépossédée et
+    encore méfiante) peut l'**assiéger** (3 % par jour, après 10 jours) : la compagnie a **3 jours** pour venir le
+    défendre (bataille de défense des murs, l'ennemi diminué de ce que retient la garnison) ; sinon la garnison
+    se bat seule (sa force doublée par les murs) et le château est perdu si elle cède. Le fief porte la bannière bleue
+    et or de la compagnie, cerclée de bleu (de rouge s'il est assiégé).
+  - **Commerce** : grain, vin, draps, fer et sel (prix de base 6, 16, 24, 14, 10 écus la charge). Chaque ville vend
+    bon marché ce qu'elle **produit** (x0,65) et cher ce qui lui **manque** (x1,6) ; infobulle et section « Marché »
+    de la fenêtre de la ville. Chaque charge achetée fait monter le prix (vendue : baisser), puis l'offre revient
+    vers la normale (15 % par jour) ; les **caravanes** arrivées en ville y déchargent ce que produit leur ville
+    d'origine, et une ville **assiégée** paie tout 30 % plus cher, son grain et son vin s'épuisant. Le marchand
+    rachète à 88 % du prix. **Charge** : une demi-charge par homme, +25 par **chariot** (60 écus, 6 au plus,
+    revendus à moitié prix). Une défaite fait perdre la moitié de la cargaison.
+  - **Allégeance** (section de la fenêtre de la ville) : à 20 de réputation, prêter serment à la faction qui tient
+    la ville. Vassale : **solde mensuelle** (150 écus + 2 par point de renommée), levées dans les **châteaux du
+    suzerain** (piquiers, hommes d'armes, archers, cavaliers), un **contrat réservé** (+25 %) dans sa capitale. Mais
+    ses ennemis deviennent les vôtres : -10 de réputation chez eux au serment, leurs villes vous ferment leurs portes,
+    leurs patrouilles et armées vous pourchassent ; combattre les troupes du suzerain coûte -15. **Rompre** le
+    serment : -45 de réputation, -15 de renommée, et la faction ne vous reprend pas avant 60 jours. Un suzerain
+    qui perd toutes ses villes vous libère.
+  - **Quêtes** (onglet « Quêtes », touche **T** ; les villes et les seigneurs des châteaux en proposent, 8 offres au
+    plus, valables 10 jours ; 3 quêtes à la fois) : **nettoyer un repaire** (ruines ou repaire : la bande y attend,
+    on l'attaque depuis le lieu), **escorter un noble** jusqu'à une ville (à remettre dans sa fenêtre ; une défaite
+    en route et il est pris), **tenir un pont ou un gué** 2 ou 3 jours (dresser le camp sur place : chaque jour une
+    bande de pillards, menée par l'IA des groupes, vient attaquer ; s'éloigner remet le compte à zéro), **livrer
+    des marchandises** à une ville qui en manque. Réussie : la récompense, +5 de réputation auprès de qui la donne,
+    +3 de renommée ; manquée (date limite, abandon) : -5. Les cibles des quêtes portent un « ! » doré sur la carte.
 - **Mode indulgent** (option de la nouvelle campagne) : la bataille en cours n'est pas sauvegardée. Fermer
   la fenêtre en pleine bataille revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
 
@@ -671,6 +707,8 @@ tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le
 tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge, équipement) (avec fenêtre ; option --out)
 tests/visuals_test.gd   Test du rendu : équipement porté en bataille, planches repeintes, armoiries (sauvegarde),
                         bannières des factions, corps qui gardent leur régiment
+tests/realm_test.gd     Test du domaine (commerce, fiefs et leurs sièges, allégeance, quêtes, sauvegarde, fenêtres)
+tests/realm_capture.gd  Captures du domaine (marché de la ville, onglet Quêtes, fief) (avec fenêtre ; option --out)
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
