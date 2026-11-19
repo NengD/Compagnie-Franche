@@ -626,6 +626,8 @@ func siege_info(town: int) -> Dictionary:
 ## Une armée est hostile à la compagnie si sa faction lui ferme ses portes, ou si elle s'en
 ## méfie (réputation négative) et que la compagnie est amie d'une faction qu'elle combat.
 func hostile_to_player(c: CampaignState, a: WorldArmy) -> bool:
+	if c.diplomacy.at_war_with(c, a.faction): # Vassale : en guerre avec les ennemis de son suzerain
+		return true
 	var r := c.reputation[a.faction]
 	if r <= CampaignState.REP_CLOSED:
 		return true

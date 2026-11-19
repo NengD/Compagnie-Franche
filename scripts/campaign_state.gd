@@ -163,6 +163,7 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
 	c.overworld = Overworld.create(c)
+	c.realm_start() # Domaine : premières quêtes (bloc en fin de fichier)
 	if empty:
 		c.add_log("Jour 1 : vous arrivez à %s avec %d écus et pas un homme (difficulté : %s). Levez vos premiers régiments, puis trouvez un contrat !" % [TOWNS[0]["name"], int(c.gold), Difficulty.display_name(c.difficulty).to_lower()])
 	else:
@@ -227,7 +228,8 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Les versions 1 (sans expérience, réputation ni renommée) à 8 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 9
+## Version 10 : domaine (fiefs, commerce, diplomatie, quêtes ; bloc « realm », absent avant : rien).
+const SAVE_VERSION := 10
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -291,6 +293,7 @@ func to_dict() -> Dictionary:
 		"world": world.to_dict(),
 		"overworld": overworld.to_dict(),
 		"encounters": encounters_to_dict(), # Rencontres de la carte (bloc en fin de fichier)
+		"realm": realm_to_dict(), # Domaine : fiefs, commerce, diplomatie, quêtes (bloc en fin de fichier)
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -350,6 +353,9 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		out["terrain"] = str(k["terrain"])
 	if k.has("party"): # Bataille contre un groupe de la carte (overworld.gd)
 		out["party"] = int(k["party"])
+	for key in REALM_KEYS: # Domaine : fief assiégé, quête, contrat du suzerain
+		if k.has(key):
+			out[key] = k[key] if key == "liege" else int(k[key])
 	return out
 
 
@@ -426,6 +432,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.enemies_killed = maxi(0, int(d.get("enemies_killed", 0)))
 	c.gold_earned = maxi(0, int(d.get("gold_earned", 0)))
 	c.encounters_from_dict(d.get("encounters", {})) # Rencontres de la carte (bloc en fin de fichier)
+	c.realm_from_dict(d.get("realm", {})) # Domaine (bloc en fin de fichier)
 	if c.ended == "":
 		c.keep_final_in_patron_town() # Sauvegarde d'avant le correctif : bataille décisive en ville ennemie
 	return c
@@ -623,6 +630,9 @@ func contract_reward(contract: Dictionary) -> int:
 
 ## Message de refus si la faction de la ville actuelle nous ferme ses portes, sinon "".
 func closed_message(town: int) -> String:
+	var at_war := realm_closed(town) # Vassal : les villes des ennemis du suzerain (bloc Domaine)
+	if at_war != "":
+		return at_war
 	var f := town_owner(town)
 	if faction_closed(f):
 		return "%s vous ferme ses portes (réputation %d)." % [str(FACTIONS[f]["short"]).capitalize(), reputation[f]]
@@ -962,6 +972,7 @@ func pass_day() -> void:
 	for i in TOWNS.size():
 		if rng.randf() < 0.15:
 			refresh_contracts(i)
+	realm_day() # Domaine : fiefs, commerce, diplomatie, quêtes (bloc en fin de fichier)
 	offer_final()
 
 
@@ -1622,6 +1633,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			rep_note = " Réputation : %s %+d." % [FACTIONS[f]["short"], loss]
 	rep_note += world.after_battle(self, victory) # Armée rencontrée : dispersée ou non
 	rep_note += overworld.after_battle(self, victory, out) # Groupe de la carte en temps réel
+	rep_note += realm_after_battle(victory, killed) # Domaine : fief, quête, suzerain, cargaison
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
@@ -1882,3 +1894,65 @@ func encounters_from_dict(v: Variant) -> void:
 			escorts.append({"party_id": int(e["party_id"]), "reward": maxi(0, int(e.get("reward", 0))),
 				"faction": clampi(int(e.get("faction", -1)), -1, FACTIONS.size() - 1),
 				"goal": int(e.get("goal", -1)), "expires": int(e.get("expires", 0))})
+
+
+# ---------------------------------------------------------------- Domaine : fiefs, commerce, diplomatie, quêtes
+# Quatre systèmes dans leurs propres fichiers (fiefs.gd, trade.gd, diplomacy.gd, quests.gd ; panneau :
+# realm_panel.gd). Branchés ailleurs par des lignes seules : new_game (realm_start), to_dict et
+# from_dict (« realm »), pass_day (realm_day), finish_battle (realm_after_battle), contract_from_dict
+# (REALM_KEYS) et closed_message (realm_closed). Sans serment, sans fief ni quête, la campagne est
+# celle d'avant : ces systèmes ne tirent jamais le hasard de la campagne (rng) pour un indépendant.
+
+const REALM_KEYS := ["fief", "quest", "liege"] ## Clés des contrats propres au domaine
+
+var fiefs := Fiefs.new()
+var trade := Trade.new()
+var diplomacy := Diplomacy.new()
+var quests := Quests.new()
+
+
+## Campagne neuve : hasards propres et premières offres de quêtes.
+func realm_start() -> void:
+	fiefs.rng.seed = hash([rng.seed, "fiefs"])
+	quests.rng.seed = hash([rng.seed, "quêtes"])
+	quests.refresh_offers(self, 0.5)
+
+
+func realm_day() -> void:
+	diplomacy.day(self)
+	fiefs.day(self)
+	trade.day(self)
+	trade.fit_load(self)
+	quests.day(self)
+
+
+func realm_after_battle(victory: bool, killed: int) -> String:
+	var note := fiefs.after_battle(self, victory)
+	note += quests.after_battle(self, victory, killed)
+	note += diplomacy.after_battle(self, victory)
+	note += trade.after_battle(self, victory)
+	return note
+
+
+func realm_closed(town: int) -> String:
+	return diplomacy.closed(self, town)
+
+
+func realm_to_dict() -> Dictionary:
+	return {"fiefs": fiefs.to_dict(), "trade": trade.to_dict(), "diplomacy": diplomacy.to_dict(), "quests": quests.to_dict()}
+
+
+## Relit le domaine (sauvegarde d'avant la version 10 : rien, et de premières quêtes).
+func realm_from_dict(v: Variant) -> void:
+	if not v is Dictionary or (v as Dictionary).is_empty():
+		fiefs = Fiefs.from_dict({}, rng.seed)
+		trade = Trade.new()
+		diplomacy = Diplomacy.new()
+		quests = Quests.from_dict({}, rng.seed)
+		quests.refresh_offers(self, 0.5)
+		return
+	fiefs = Fiefs.from_dict(v.get("fiefs", {}), rng.seed)
+	trade = Trade.from_dict(v.get("trade", {}))
+	diplomacy = Diplomacy.from_dict(v.get("diplomacy", {}))
+	quests = Quests.from_dict(v.get("quests", {}), rng.seed)
+	overworld.player.faction = diplomacy.liege
