@@ -17,6 +17,10 @@ const ENEMY := BattleSim.ENEMY
 const ROAD_HALF := BattleSim.ROAD_HALF
 const TEAM_COLORS := [Color(0.22, 0.38, 0.85), Color(0.78, 0.16, 0.14)]
 const TEAM_DARK := [Color(0.12, 0.18, 0.42), Color(0.42, 0.08, 0.07)]
+## Alliés (camp du joueur, menés par l'IA) : bleu-vert, proche du bleu de la compagnie
+const ALLY_COLOR := Color(0.18, 0.62, 0.66)
+const ALLY_DARK := Color(0.08, 0.3, 0.32)
+const ALLY_MOD := Color(0.5, 1.15, 0.62) ## Teinte appliquée aux planches bleues des alliés
 const SKIN := Color(0.93, 0.76, 0.6)
 const STEEL := Color(0.72, 0.74, 0.78)
 const WOOD := Color(0.48, 0.32, 0.17)
@@ -196,7 +200,7 @@ func _draw() -> void:
 
 	# Flèche d'orientation de chaque régiment du joueur (plus visible s'il est sélectionné)
 	for r in sim.regiments:
-		if r.team != PLAYER or r.is_dead() or r.routing:
+		if r.team != PLAYER or r.allied or r.is_dead() or r.routing:
 			continue
 		var acol := Color(1, 0.95, 0.4, 0.9) if r.selected else Color(1, 1, 1, 0.45)
 		# Vers sa destination s'il marche, sinon sur place
@@ -341,6 +345,8 @@ func draw_soldier(s: Soldier) -> void:
 		draw_rect(Rect2(p.x - 5, p.y - 1, 10, 3), Color(0, 0, 0, 0.22))
 		var tint: Color = f["tint"]
 		var mod := Color(tint.r, tint.g, tint.b, hidden_alpha)
+		if r.allied:
+			mod *= ALLY_MOD
 		if s.flash > 0.0:
 			mod = Color(2.5, 2.5, 2.5, hidden_alpha) # Éclair blanc quand il est touché
 		var lk := look_of(r)
@@ -459,8 +465,8 @@ func draw_soldier_code(s: Soldier) -> void:
 		fx = 1 if s.foe.pos.x >= s.pos.x else -1
 	if s.attack_anim > 0.0:
 		p.x += fx
-	var col: Color = TEAM_COLORS[r.team]
-	var dark: Color = TEAM_DARK[r.team]
+	var col: Color = team_color(r)
+	var dark: Color = ALLY_DARK if r.allied else TEAM_DARK[r.team]
 	if s.flash > 0.0:
 		col = Color.WHITE
 	var step := 0.0
@@ -614,6 +620,8 @@ func draw_banner(r: Regiment) -> void:
 ## Couleur principale du drapeau : armoiries de la compagnie, couleur de la faction ennemie du
 ## contrat, sinon le rouge des ennemis sans seigneur (bandits, pillards).
 func flag_color(r: Regiment) -> Color:
+	if r.allied:
+		return ALLY_COLOR
 	if r.team == PLAYER:
 		return Heraldry.color(arms, 0)
 	if enemy_faction >= 0 and enemy_faction < CampaignState.FACTIONS.size():
@@ -623,7 +631,7 @@ func flag_color(r: Regiment) -> Color:
 
 ## Couleur du bord flottant du drapeau (celle de son côté droit).
 func flag_tail_color(r: Regiment) -> Color:
-	if r.team == PLAYER and str(arms.get("field", "")) in ["per_pale", "quarterly"]:
+	if r.team == PLAYER and not r.allied and str(arms.get("field", "")) in ["per_pale", "quarterly"]:
 		return Heraldry.color(arms, 1)
 	return flag_color(r)
 
@@ -645,13 +653,18 @@ func draw_team_marks() -> void:
 			draw_line(p + Vector2(2.5, -2.5), p + Vector2(-2.5, 2.5), Color(1, 0.85, 0.6, 0.9), 1.0)
 
 
+## Couleur du camp d'un régiment (les alliés ont la leur).
+func team_color(r: Regiment) -> Color:
+	return ALLY_COLOR if r.allied else TEAM_COLORS[r.team]
+
+
 ## Étendard (repère agrandi PX fois) : à droite de la hampe, le drapeau aux armoiries de la
 ## compagnie ou aux couleurs de la faction ennemie ; à gauche, une plaque à la couleur du camp
 ## (bleu ou rouge) avec le pictogramme du type de régiment ; dessous, la barre de moral.
 func draw_banner_shape(r: Regiment, base: Vector2) -> void:
 	draw_line(base, base + Vector2(0, -10), WOOD, 1.0)
 	var flag := Rect2(base.x, base.y - 10, 7, 5)
-	if r.team == PLAYER:
+	if r.team == PLAYER and not r.allied:
 		Heraldry.draw(self, flag, arms)
 	else:
 		var fc := flag_color(r)
@@ -662,7 +675,7 @@ func draw_banner_shape(r: Regiment, base: Vector2) -> void:
 		draw_rect(flag, Color(0, 0, 0, 0.5))
 	draw_rect(flag, Color(0, 0, 0, 0.6), false, 0.5)
 	# Plaque du camp, pictogramme du type
-	var col: Color = TEAM_COLORS[r.team]
+	var col: Color = team_color(r)
 	if r.routing:
 		col = col.darkened(0.5)
 	draw_rect(Rect2(base.x - 8, base.y - 10, 7, 5), col)

@@ -8,6 +8,8 @@ const FORMATION_NAMES := ["ligne", "colonne", "carré"]
 var id := 0
 var company_index := -1 ## Indice dans l'armée de campagne (-1 hors campagne)
 var team := 0 ## 0 = joueur, 1 = ennemi
+var allied := false ## Régiment allié (camp du joueur, mené par AlliedAI, pas commandable)
+var ally_group := -1 ## Groupe allié de la carte (indice dans BattleSim.allies), -1 sinon
 var type := ""
 var stats: Dictionary = {}
 var soldiers: Array = []

@@ -219,6 +219,8 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 11 : champ de bataille tiré de la carte (« site » du contrat en cours, voir battle_site.gd)
+## et groupes alliés qui combattent aux côtés de la compagnie (« allies »).
 ## Version 10 : armoiries de la compagnie (« arms », voir heraldry.gd ; tirées de la graine si absentes).
 ## Version 9 : carte en temps réel (heure, position et chemin de la compagnie, groupes ; voir
 ## overworld.gd) sur une carte trois fois plus grande (positions des armées agrandies à la relecture).
@@ -227,10 +229,10 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée) à 8 restent lisibles
+## Les versions 1 (sans expérience, réputation ni renommée) à 10 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 10
+const SAVE_VERSION := 11
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -354,6 +356,31 @@ static func contract_from_dict(k: Variant) -> Dictionary:
 		out["terrain"] = str(k["terrain"])
 	if k.has("party"): # Bataille contre un groupe de la carte (overworld.gd)
 		out["party"] = int(k["party"])
+	var site := BattleSite.sanitize(k.get("site", {})) # Version 10 : l'endroit exact de la carte
+	if not site.is_empty():
+		out["site"] = site
+	var allies := allies_from_dict(k.get("allies", []))
+	if not allies.is_empty():
+		out["allies"] = allies
+	return out
+
+
+## Relit les groupes alliés d'un contrat (version 10) : [{party, name, faction, troops}].
+static func allies_from_dict(v: Variant) -> Array:
+	var out: Array = []
+	if not v is Array:
+		return out
+	for g in v:
+		if not g is Dictionary:
+			continue
+		var troops: Array = []
+		for t in g.get("troops", []):
+			if t is Dictionary and UnitTypes.STATS.has(str(t.get("type", ""))) and int(t.get("men", 0)) > 0:
+				troops.append({"type": str(t["type"]), "men": int(t["men"]), "rank": clampi(int(t.get("rank", 0)), 0, 2)})
+		if troops.is_empty():
+			continue
+		out.append({"party": int(g.get("party", -1)), "name": str(g.get("name", "des alliés")),
+			"faction": clampi(int(g.get("faction", -1)), -1, FACTIONS.size() - 1), "troops": troops})
 	return out
 
 
@@ -840,7 +867,9 @@ func march_day(to: int, ow: Overworld) -> void:
 	road_event(kind, to)
 	match kind:
 		"ambush":
-			pending["terrain"] = MapData.battle_terrain_at(ow.player.pos)
+			var dir := Vector2.UP.rotated(float(day % 8) * TAU / 8.0) # Les brigands surgissent d'un côté quelconque
+			pending["site"] = BattleSite.describe(ow.player.pos, ow.player.pos + dir * 30.0, ow.inside)
+			pending["terrain"] = str(pending["site"]["kind"])
 		"storm":
 			ow.player.busy_hours = 12.0
 
@@ -1533,8 +1562,13 @@ func battle_army() -> Array[Dictionary]:
 ## Renvoie le bilan structuré (voir finish_report) ; son « text » est le compte rendu du journal.
 ## objective : bilan de l'objectif de la bataille (BattleObjectives.Objective.result ; vide = détruire),
 ## pour le supplément de prime (escorte) et le compte rendu.
-func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false, objective: Dictionary = {}) -> Dictionary:
+## allies : bilan des groupes alliés (BattleSim.ally_tally : party, before, survivors, kills) ;
+## leurs pertes sont reportées sur leurs groupes et ils prennent leur part du butin.
+func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat := false, objective: Dictionary = {}, allies: Array = []) -> Dictionary:
 	var army := battle_army()
+	var company_men := 0
+	for r in army:
+		company_men += int(r["men"])
 	var lost := 0
 	var healed := 0
 	var promoted: Array[String] = []
@@ -1578,7 +1612,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	if victory:
 		victories += 1
 		var reward := contract_reward(pending)
-		var loot := killed * LOOT_PER_KILL + Traits.extra_loot(army, kills)
+		var loot := share_loot(killed, company_men, allies, out) + Traits.extra_loot(army, kills)
 		var extra := objective_bonus(pending, objective, reward)
 		out["reward"] = reward
 		out["loot"] = loot
@@ -1627,6 +1661,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			rep_note = " Réputation : %s %+d." % [FACTIONS[f]["short"], loss]
 	rep_note += world.after_battle(self, victory) # Armée rencontrée : dispersée ou non
 	rep_note += overworld.after_battle(self, victory, out) # Groupe de la carte en temps réel
+	rep_note += apply_allies(victory, allies, out) # Groupes alliés : pertes, butin, réputation
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
@@ -1650,6 +1685,77 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	out["fame_after"] = fame
 	out["reputation_after"] = reputation.duplicate()
 	return out
+
+
+const REP_ALLY := 4 ## Victoire aux côtés des troupes d'une faction : elle vous en sait gré
+
+
+## Butin des ennemis tués (LOOT_PER_KILL par tué) : avec des alliés, les tués des deux camps font
+## un seul butin, partagé selon les hommes engagés. La part des alliés va dans out["ally_loot"].
+func share_loot(killed: int, company_men: int, allies: Array, out: Dictionary) -> int:
+	if allies.is_empty():
+		return killed * LOOT_PER_KILL
+	var ally_kills := 0
+	var ally_men := 0
+	for t in allies:
+		ally_kills += int(t.get("kills", 0))
+		ally_men += int(t.get("before", 0))
+	var pool := (killed + ally_kills) * LOOT_PER_KILL
+	var mine := int(round(pool * company_men / float(maxi(company_men + ally_men, 1))))
+	out["ally_loot"] = pool - mine
+	return mine
+
+
+## Après une bataille livrée aux côtés de groupes alliés de la carte : leurs pertes sont reportées
+## sur leurs groupes (une armée perd de sa force), ils gagnent de l'expérience et leur part du
+## butin ; une victoire vaut REP_ALLY auprès de chacune de leurs factions. Renvoie la note.
+func apply_allies(victory: bool, allies: Array, out: Dictionary) -> String:
+	if allies.is_empty():
+		return ""
+	var parts: Array[String] = []
+	var factions: Array[int] = []
+	var men := 0
+	for t in allies:
+		men += int(t.get("before", 0))
+	var loot_left := int(out.get("ally_loot", 0))
+	var rows: Array = []
+	for t in allies:
+		var p := overworld.by_id(self, int(t.get("party", -1)))
+		var lost := maxi(0, int(t.get("before", 0)) - int(t.get("survivors", 0)))
+		var row := {"party": int(t.get("party", -1)), "lost": lost, "kills": int(t.get("kills", 0)), "name": ""}
+		rows.append(row)
+		if p == null:
+			continue
+		row["name"] = p.display_name()
+		PartyAI.lose_men(p, lost)
+		if p is WorldArmy:
+			(p as WorldArmy).sync_troops()
+		else:
+			for r in p.troops:
+				r["xp"] = minf(float(r.get("xp", 0.0)) + XP_BATTLE + (XP_VICTORY if victory else 0.0), XP_MAX)
+			if victory and men > 0:
+				var g := int(round(int(out.get("ally_loot", 0)) * int(t.get("before", 0)) / float(men)))
+				g = mini(g, loot_left)
+				loot_left -= g
+				p.gold += g
+		parts.append("%s perd %s" % [p.display_name(), plural(lost, "homme", "hommes")] if lost > 0 else "%s ne perd personne" % p.display_name())
+		if victory and p.faction >= 0 and not p.faction in factions:
+			factions.append(p.faction)
+		if p.is_dead():
+			overworld.remove(self, p)
+	out["allies"] = rows
+	var note := ""
+	if not parts.is_empty():
+		note = " Vos alliés : %s." % ", ".join(parts)
+	if int(out.get("ally_loot", 0)) > 0:
+		note += " Ils prennent leur part du butin (%d écus)." % int(out["ally_loot"])
+	var rep: Array[String] = []
+	for f in factions:
+		change_reputation(f, REP_ALLY)
+		rep.append("%s %+d" % [FACTIONS[f]["short"], REP_ALLY])
+	if not rep.is_empty():
+		note += " Réputation pour avoir combattu à leurs côtés : %s." % ", ".join(rep)
+	return note
 
 
 ## Complète le bilan de finish_battle : issue, contrat, totaux et compte rendu texte.

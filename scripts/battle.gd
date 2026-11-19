@@ -49,6 +49,8 @@ var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-
 
 var seed_override := 0 ## Graine fixe pour les tests (0 = aléatoire)
 var terrain_override := "" ## Terrain imposé (tests) ; vide = au hasard ou d'après le contrat
+var allies_override: Array = [] ## Groupes alliés imposés hors campagne (tests), même forme que contract["allies"]
+var site_override: Dictionary = {} ## Champ tiré de la carte imposé (tests, BattleSite.describe) ; son « kind » sert de terrain
 var objective_override := "" ## Objectif imposé hors campagne (tests) : clé de BattleObjectives.NAMES
 var objective_params: Dictionary = {} ## Réglages de l'objectif imposé (tests)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
@@ -100,8 +102,10 @@ func _ready() -> void:
 	if campaign != null:
 		spawn_army(PLAYER, campaign.battle_army())
 		spawn_army(ENEMY, campaign.pending["enemy"])
+		sim.spawn_allies(campaign.pending.get("allies", [])) # Groupes amis de la carte, à vos côtés
 	else:
 		spawn_armies()
+		sim.spawn_allies(allies_override)
 	if sim.terrain.kind == "siege":
 		sim.setup_siege()
 	elif sim.siege != null:
@@ -131,8 +135,12 @@ func _ready() -> void:
 		add_message("Contrat : %s" % campaign.pending["title"])
 		if sim.raining:
 			add_message("Il pleut aujourd'hui : les archers tirent moins loin et moins juste.")
-	if sim.terrain.kind != "plain":
+	if sim.terrain.place_text() != "":
+		add_message("On se bat %s (%s). %s" % [sim.terrain.place_text(), sim.terrain.display_name(), sim.terrain.hint()])
+	elif sim.terrain.kind != "plain":
 		add_message("Terrain : %s. %s" % [sim.terrain.display_name(), sim.terrain.hint()])
+	if sim.allies_count() > 0:
+		add_message("À vos côtés : %s (bannières bleu-vert), sous leurs propres chefs." % sim.allies_names())
 	if sim.objective.briefing() != "":
 		add_message(sim.objective.briefing())
 	add_message("Placez vos troupes, puis appuyez sur Espace pour lancer la bataille.")
@@ -148,7 +156,8 @@ func _exit_tree() -> void:
 ## Monde (simulation) puis sol dessiné : l'ordre des tirages de rng compte.
 ## Le tutoriel remplace cette fonction.
 func generate_world() -> void:
-	sim.generate_world(choose_terrain())
+	var t := choose_terrain()
+	sim.generate_world(t, choose_site(t))
 	if not build_tiled_ground():
 		build_procedural_ground()
 	renderer.terrain_tex = sim.terrain.build_overlay(sim.rng)
@@ -161,13 +170,28 @@ func choose_terrain() -> String:
 	var t := ""
 	if terrain_override != "":
 		t = terrain_override
+	elif not site_override.is_empty():
+		t = str(site_override.get("kind", "plain"))
 	elif campaign != null and str(campaign.pending.get("siege", "")) != "":
 		return Siege.terrain_for(str(campaign.pending["siege"])) # Contrat de siège
+	elif campaign != null and campaign.pending.get("site", {}) is Dictionary and not (campaign.pending.get("site", {}) as Dictionary).is_empty():
+		t = str(campaign.pending["site"].get("kind", "plain")) # L'endroit exact de la carte (battle_site.gd)
 	elif campaign != null and str(campaign.pending.get("terrain", "")) != "":
 		t = str(campaign.pending["terrain"]) # Rencontre sur la route (WorldSim.make_battle)
 	elif campaign != null:
 		t = Terrain.for_contract(int(campaign.pending.get("town", -1)), int(campaign.pending.get("difficulty", 1)), CampaignState.TOWNS)
 	return sim.objective.fit_terrain(t, sim.rng.seed)
+
+
+## Champ tiré de la carte (contrat d'une rencontre), imposé par les tests, sinon vide (tirage au
+## sort). Ignoré si l'objectif a dû changer de terrain.
+func choose_site(t: String) -> Dictionary:
+	var s: Variant = site_override
+	if s.is_empty() and campaign != null and terrain_override == "":
+		s = campaign.pending.get("site", {})
+	if not s is Dictionary or (s as Dictionary).is_empty() or str(s.get("kind", "")) != t:
+		return {}
+	return s
 
 
 ## Objectif de la bataille : celui du contrat, imposé par les tests, sinon détruire l'ennemi.
@@ -311,7 +335,7 @@ func order_retreat() -> void:
 ## Reporte les pertes sur la compagnie : les hommes debout et ceux qui ont fui survivent.
 func finish_campaign() -> void:
 	var tally := sim.company_tally(campaign.battle_army().size())
-	campaign_result = campaign.finish_battle(sim.state == State.VICTORY, tally["survivors"], tally["kills"], sim.retreated, sim.objective.result(sim))
+	campaign_result = campaign.finish_battle(sim.state == State.VICTORY, tally["survivors"], tally["kills"], sim.retreated, sim.objective.result(sim), sim.ally_tally())
 	campaign_report = str(campaign_result["text"])
 	campaign.save()
 

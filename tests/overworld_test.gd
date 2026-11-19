@@ -356,7 +356,7 @@ func _test_contact() -> void:
 	ow.inside = -1
 	# Attaquer : la bataille est en attente sur le terrain de l'endroit, contre les régiments du groupe
 	out = ow.resolve(c, b, "attack")
-	check(bool(out["battle"]) and c.in_battle() and int(c.pending["party"]) == b.id and str(c.pending["terrain"]) == MapData.battle_terrain_at(ow.player.pos), "bandits : bataille mal préparée")
+	check(bool(out["battle"]) and c.in_battle() and int(c.pending["party"]) == b.id and c.pending.has("site") and str(c.pending["terrain"]) == str(c.pending["site"]["kind"]) and str(c.pending["terrain"]) in MapData.BATTLE_TERRAINS, "bandits : bataille mal préparée")
 	var foes := 0
 	for r in c.pending["enemy"]:
 		foes += int(r["men"])

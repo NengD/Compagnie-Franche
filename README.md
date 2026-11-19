@@ -148,10 +148,35 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     déplacent sur la carte (infobulle au survol). Cliquez sur un groupe pour le **poursuivre** ; au contact,
     le temps s'arrête et une **rencontre** s'ouvre (« Attaquer » ou « Passer son chemin », ou les choix du
     module des rencontres). Les bandits, les patrouilles et armées hostiles fondent sur la compagnie quand elle passe à
-    portée en rase campagne (jamais dans les murs d'une ville) ; fuir coûte 8 % de l'or en bagages.
-    Une bataille se livre sur le **terrain de l'endroit** (village près d'un lieu habité, rivière près de
-    l'eau ou des marais, forêt, collines, sinon plaine) ; au retour, la carte reprend à l'endroit du combat.
-    Un groupe vaincu est dispersé et son or va au butin.
+    portée en rase campagne ou dans un village (jamais dans les murs d'une ville ou d'un château) ; fuir
+    coûte 8 % de l'or en bagages.
+    - **Le champ de bataille vient de l'endroit exact de la carte** (`scripts/battle_site.gd`) : une fenêtre
+      de la carte autour du point de contact (6 pixels de bataille par pixel de carte) devient le champ.
+      S'il y a une rivière à moins de 90 px, elle traverse le champ entre les deux armées, la compagnie sur sa
+      rive, avec **le pont ou le gué de la carte** là où la route la franchit (un pont de planches se
+      traverse à pied sec ; sans passage, deux hauts-fonds). Sinon, une route proche traverse le champ d'ouest
+      en est, à l'endroit et avec les virages de la carte ; les autres routes et chemins aussi. Les **bois**
+      sont ceux de la carte (la lisière du bon côté), les **collines** sont là où le relief monte, l'eau d'un
+      **lac** voisin ralentit, et l'on se bat **dans le village** où se trouvait la compagnie (ou tout contre).
+      Le contrat porte ce descripteur (`contract["site"]`), sauvegardé avec la bataille en cours ; la
+      rencontre l'annonce (« Terrain du combat : rivière, au pont sur la Vionne, près de... ») et la bataille
+      aussi. Les embuscades de la route en ont un. Sans descripteur (contrats des villes, escarmouche),
+      le terrain est tiré comme avant.
+    - **Combattre aux côtés d'alliés** : une patrouille ou une armée d'une faction à moins de 120 px du
+      combat se bat avec la compagnie si elle ne vous est pas hostile (réputation positive) et qu'elle sert
+      la faction du contrat, que vous la suivez, ou qu'elle combat l'ennemi (bandits et déserteurs pour
+      toutes les patrouilles, sinon une faction en guerre avec la sienne). Deux groupes au plus, quatre
+      régiments au plus, sur les ailes derrière la compagnie. Ils sont menés par leur propre IA
+      (`scripts/allied_ai.gd`, plan agressif : droit sur l'ennemi), dessinés en **bleu-vert**, ne se
+      sélectionnent pas et n'ont pas de carte de régiment. La rencontre annonce « À vos côtés : ... ».
+      Après la bataille, leurs **pertes sont reportées sur leur groupe** (une armée perd de sa force), le
+      butin des tués des deux camps est **partagé** selon les hommes engagés, et une victoire vaut **+4** auprès
+      de leur faction.
+    - **Se joindre à eux** : quand le groupe que suit la compagnie engage un ennemi (bandits, déserteurs,
+      patrouille ou armée d'une faction en guerre) et que la compagnie est à portée, le temps s'arrête :
+      « Combattre aux côtés de... » lance la bataille commune, « Les laisser se battre seuls » laisse le combat
+      se résoudre d'office comme avant.
+    Au retour, la carte reprend à l'endroit du combat. Un groupe vaincu est dispersé et son or va au butin.
   - **Une carte vivante** (`scripts/party_ai.gd`) : chaque sorte de groupe a son comportement.
     - **Villageois** : ils mènent leurs marchandises du village au marché le plus proche (ville ou bourg), y
       restent quelques heures, puis rentrent ; ils fuient les bandits qu'ils voient.
@@ -290,12 +315,13 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et
-  chemin de la compagnie, groupes ; 8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ;
-  5 : emplacements, mode indulgent, bataille en cours) ; les versions 1 à 9 se relisent (difficulté normale,
-  mode indulgent désactivé, aucune bataille en cours, monde neuf et en paix ; avant la version 9, la
-  compagnie se retrouve au matin dans sa ville et les armées sont replacées sur la grande carte ; avant la
-  version 10, les armoiries sont tirées de la graine de la campagne).
+  Format versionné (version 11 : champ de bataille tiré de la carte et alliés de la bataille en cours ;
+  10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
+  8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
+  cours) ; les versions 1 à 10 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
+  armées sont replacées sur la grande carte ; avant la version 10, les armoiries sont tirées de la graine de la
+  campagne).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
@@ -348,7 +374,7 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     contrat de 40 à 250 écus payé à l'arrivée, +3 de réputation), la **piller** (-15 ; elle se rend sans combat
     si ses gardes sont quatre fois plus faibles), passer.
   - **Patrouille ou armée** : parler (guerres en cours, contrats de sa faction), **se joindre** à elle (réputation
-    20 et plus), attaquer si vous êtes en guerre contre elle ou qu'elle est hostile ; hostile et plus forte :
+    20 et plus ; ses combats vous sont alors proposés, voir « Combattre aux côtés d'alliés »), attaquer si vous êtes en guerre contre elle ou qu'elle est hostile ; hostile et plus forte :
     **se rendre** (25 % de l'or confisqué) ou fuir.
   - **Déserteurs** : les recruter (40 % du prix, mais moral bas : moitié moins aguerris), les **livrer** à leur
     faction (3 écus par homme, +3 ; s'ils sont nettement plus faibles), les attaquer.
@@ -434,7 +460,9 @@ Le terrain est affiché en haut de l'écran et annoncé au début de la bataille
   soldats postés juste derrière (moins de 80 px). Votre infanterie est déployée de part et d'autre de chaque
   brèche pour prendre en tenaille ce qui la franchit ; l'assaillant amène en échange un régiment d'archers
   de renfort.
-- **Choix** : en escarmouche, au hasard. En campagne, d'après la ville du contrat : Valombre bois,
+- **Choix** : sur la carte en temps réel, d'après l'endroit exact du combat (voir « Le champ de bataille vient
+  de l'endroit exact de la carte » ; rivière, pont et gué, routes, bois, collines, lac et village peuvent alors
+  se combiner). En escarmouche, au hasard. Pour les contrats des villes, d'après la ville : Valombre bois,
   Saint-Aubin village, Montfaucon et Castelroux collines, Brévannes et Pontrieux rivière, Hautemure rase
   campagne ; les contrats de difficulté 3 et plus à **Hautemure** et **Castelroux** sont des défenses de palissade.
   Table modifiable dans `scripts/terrain.gd` (`TOWN_TERRAINS`, `SIEGE_TOWNS`).
@@ -676,6 +704,8 @@ godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.p
 godot --headless --path . -s tests/encounter_test.gd  # rencontres de la carte : choix, bataille, réputation, fuite
 godot --path . -s tests/encounter_capture.gd          # rencontre_villageois.png, rencontre_bandits.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
+godot --headless --path . -s tests/site_test.gd       # champ tiré de la carte (rivière et pont, route, village...) et alliés
+godot --path . -s tests/site_capture.gd               # site_pont.png, site_allies.png (fenêtre)
 godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)
 godot --path . --resolution 1280x720 -s tests/interface_capture.gd -- --ui=1.5   # captures user://captures_interface/
 godot --path . -s tests/screenshot.gd                 # captures dans le dossier user:// du projet

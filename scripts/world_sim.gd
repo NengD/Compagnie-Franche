@@ -578,6 +578,8 @@ func clashes(c: CampaignState) -> void:
 				continue
 			if a.pos.distance_to(b.pos) > CLASH_RANGE:
 				continue
+			if c.overworld != null and c.overworld.offer_joint(c, a, b):
+				continue # La compagnie suit l'une des deux armées : la bataille lui est proposée
 			var pa := a.force * rng.randf_range(0.75, 1.25)
 			var pb := b.force * rng.randf_range(0.75, 1.25)
 			var win := a if pa >= pb else b
