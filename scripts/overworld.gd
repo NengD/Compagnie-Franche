@@ -247,7 +247,7 @@ func step(c: CampaignState, h: float) -> Dictionary:
 		player.busy_hours = maxf(0.0, player.busy_hours - h)
 	elif not player.path.is_empty() and not c.is_destroyed():
 		marched = true
-		if player.advance(speed_of(c, player) * h) and enter_goal >= 0 and player.target_id < 0:
+		if player.advance(speed_of(c, player) * Supplies.pace(c) * h) and enter_goal >= 0 and player.target_id < 0:
 			var place := enter_goal
 			enter(c, place)
 			out = {"event": "enter", "place": place}
@@ -259,6 +259,7 @@ func step(c: CampaignState, h: float) -> Dictionary:
 		elif not p.path.is_empty():
 			if p.advance(speed_of(c, p) * h):
 				arrived(c, p)
+	Supplies.tick(c, self, h) # Fatigue, repos, camp ; l'éclaireur repère les bandits cachés
 	c.world.tick(c, h) # Les armées de faction
 	PartyAI.skirmishes(c, self) # Combats entre groupes qui se touchent
 	parties = parties.filter(func(p: Party) -> bool: return not p.is_dead())

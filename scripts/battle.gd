@@ -108,6 +108,7 @@ func _ready() -> void:
 		sim.siege.deploy(sim) # Garnison sur les murs, bélier et échelles pour l'assaillant
 	sim.objective.setup(sim) # Zone, convoi, garnison ou bande en fuite
 	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
+	Supplies.enter_battle(self) # Campagne : fatigue, faim, prisonniers enrôlés, sergent
 	if campaign != null:
 		sim.raining = campaign.world.raining # La météo du jour s'impose à la bataille (world_sim.gd)
 

@@ -51,7 +51,8 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   inégales) ; la molette passe d'une échelle entière à la suivante.
   Fichier : `options.cfg` dans le dossier de données du jeu, appliqué au démarrage.
 - Carte de campagne épurée : la carte occupe tout l'écran, sous une fine barre (date, or, solde, effectif,
-  pause et vitesses, onglets Compagnie, Monde, Journal et Menu ; touches E, M, J et Échap). Une fenêtre
+  pause et vitesses, Marche forcée et Camper (touches F et K), vivres et fatigue, onglets Compagnie, Monde,
+  Journal et Menu ; touches E, M, J et Échap). Une fenêtre
   centrale n'apparaît que pour une ville, une rencontre ou un onglet ouvert ; Échap ou ✕ la ferme. Les
   messages (arrivée, refus, évènements) s'affichent en bas de l'écran puis s'effacent. Le menu principal
   est dans l'onglet Menu.
@@ -251,7 +252,49 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   Les anciennes sauvegardes gardent leur équipement : « armure » devient des brigandines, « meilleures
   armes » des armes de maître.
 - **Pertes** : les morts sont perdus pour de bon ; les fuyards reviennent. Après une victoire, 30 % des
-  tombés sont relevés blessés. Les effectifs et l'expérience passent d'une bataille à l'autre.
+  tombés sont relevés blessés (plus avec un chirurgien, qui en relève aussi après une défaite). Les effectifs
+  et l'expérience passent d'une bataille à l'autre. En plus, des **blessés graves** suivent dans les chariots
+  (15 % des tombés restants après une victoire, 5 % après une défaite) : voir « Vivres, fatigue et repos ».
+- **Vivres, fatigue et repos** (`scripts/supplies.gd`) :
+  - **Vivres** : comptés en jours de marche pour l'effectif du moment (un homme, un blessé ou un compagnon
+    mange une ration par jour, un prisonnier une demi-ration ; la barre du haut affiche « vivres N j »). La
+    compagnie part avec 10 jours. On en achète en ville (section « Vivres et repos » : +5 jours, +10 jours,
+    remplir les chariots, qui portent 30 jours ; 0,08 écu la ration, au prix de la ville, x1,5 dans une ville
+    qui vous ferme ses portes) et auprès des villageois et des caravanes (« Acheter des vivres » : 3 jours, un
+    peu moins cher). Sans vivres : **FAMINE** dans la barre, moral de départ x0,75 en bataille, et à partir du
+    troisième jour 6 % des hommes désertent chaque jour.
+  - **Marche forcée** (bouton de la barre ou touche **F**) : la compagnie va deux fois plus vite sur la carte
+    mais se fatigue dix fois plus (fatigue de 0 à 100 : +3 par heure, +0,3 au pas). À 100, elle reprend le pas.
+  - **Camper** (bouton de la barre ou touche **K**) : la compagnie s'arrête et monte le camp (-3 de fatigue par
+    heure, soins) ; un ordre de marche lève le camp. Dans les murs d'un lieu, elle se repose plus vite (-4 par
+    heure) ; à la simple halte, -1 par heure.
+  - **Fatigue en bataille** : l'endurance de départ des régiments baisse avec la fatigue (x0,4 à 100).
+  - **Blessés graves** : ils guérissent au repos (35 % par jour en ville, 25 % au camp, plus avec un
+    chirurgien) et rejoignent un régiment de leur type qui a de la place, avec leur expérience.
+- **Prisonniers** (`scripts/prisoners.gd`) : après une victoire, une part des vaincus est faite prisonnière
+  (30 % des fuyards et 15 % des tués, au plus 0,75 prisonnier par homme de la compagnie). Sections
+  « Prisonniers » de la fenêtre de la ville et de l'onglet Compagnie :
+  - **Rançon** (en ville) : 80 % du prix de recrue de leur type par homme, +50 % par rang ; x1,3 dans une ville
+    de leur faction, moitié moins pour des brigands ;
+  - **Enrôler** : la moitié des hommes accepte de servir ; ils complètent les régiments de leur type, puis en
+    forment un nouveau, avec leur expérience mais de la **rancœur** : moral de départ jusqu'à -50 % pour un
+    régiment fait d'anciens prisonniers, qui s'efface en une vingtaine de jours (plus vite en combattant) ;
+  - **Relâcher** : +1 de réputation auprès de leur faction par 8 hommes (5 au plus).
+
+  Les garder coûte des vivres, et certains s'évadent chaque nuit (3 %, 8 % s'ils sont plus de la moitié de
+  l'effectif de la compagnie, 15 % pendant une famine).
+- **Compagnons** (`scripts/companions.gd`, section « Compagnons ») : des héros qu'on engage dans certaines
+  villes (un de chaque métier au plus), avec un arbre de trois compétences comme le capitaine (un point par
+  niveau, 100 xp par niveau ; 30 xp par bataille, +30 en cas de victoire ; 3 niveaux par compétence). Ils
+  touchent une solde (1,5 à 2,5 écus par jour, +0,5 par niveau) et peuvent être blessés en bataille (6 % des
+  victoires, 20 % des défaites, moitié moins avec un chirurgien) : sans effet pendant 6 jours.
+
+  | Compagnon | Villes | Prix | Effet de base | Compétences |
+  |---|---|---|---|---|
+  | Sergent | Saint-Aubin, Montfaucon, Castelroux | 120 | moral maximal +5 %, désertions -20 % | Exercice (moral +5 %), Discipline (désertions -20 %), Dressage (prisonniers : +10 % de volontaires, rancœur oubliée plus vite) |
+  | Chirurgien | Saint-Aubin, Brévannes, Hautemure | 150 | +5 % de tombés relevés (+15 % après une défaite), +3 % de blessés graves, guérison +20 % | Brancardiers (+5 % relevés), Chariots (+5 % blessés graves), Soins (guérison +30 %) |
+  | Éclaireur | Valombre, Montfaucon, Pontrieux | 100 | repère les bandits cachés à 180 px ; rapport sur les groupes rencontrés (composition approchée) | Œil de lynx (portée +25 %), Pistes (vitesse sur la carte +5 %), Espions (effectifs exacts et rangs) |
+  | Quartier-maître | Valombre, Brévannes, Pontrieux | 110 | vivres -10 %, solde -3 %, rançons +5 % | Rations (vivres -10 %), Trésorier (solde -4 %), Marchandage (rançons +15 %) |
 - **Bilan de fin de bataille** : après quelques secondes de ralenti, un panneau résume la bataille par-dessus
   le champ (qui continue au ralenti) : issue (victoire, défaite, retraite), contrat, terrain et durée ; pour chaque
   régiment, l'effectif avant → après, les morts, les fuyards revenus, les blessés relevés, les ennemis tués,
@@ -265,11 +308,12 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
+  Format versionné (version 10 : vivres, fatigue, blessés, prisonniers et compagnons ; 9 : carte en temps
+  réel — heure, position et chemin de la compagnie, groupes ;
   8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
-  cours) ; les versions 1 à 8 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours) ; les versions 1 à 9 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
   cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
-  armées sont replacées sur la grande carte).
+  armées sont replacées sur la grande carte ; avant la version 10, dix jours de vivres, ni prisonniers ni compagnons).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
@@ -517,6 +561,10 @@ scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; 
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
 scripts/equipment.gd    Équipement des régiments (Equipment) : casque, armes, armure en trois qualités, améliorations
 scripts/company_panel.gd Sections « Capitaine » et « Équipement » des fenêtres de la carte
+scripts/supplies.gd     Vivres, fatigue, marche forcée, camp et blessés graves (Supplies) ; effets en début de bataille
+scripts/prisoners.gd    Prisonniers (Prisoners) : capture, rançon, enrôlement (rancœur), libération, évasions
+scripts/companions.gd   Compagnons (Companions) : sergent, chirurgien, éclaireur, quartier-maître ; compétences, effets
+scripts/life_panel.gd   Sections « Vivres et repos », « Prisonniers », « Compagnons » ; boutons Marche forcée et Camper
 scripts/world_sim.gd    Monde vivant sans rendu (WorldSim) : saisons, météo, guerres, armées, sièges, prises
                         de villes, rencontres, contrats de guerre ; appelé par CampaignState (pass_day, travel)
 scripts/encounter.gd    Rencontres de la carte (Encounter) : choix par sorte et attitude, résolution, accueil
@@ -561,6 +609,8 @@ tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêl�
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
+tests/life_test.gd      Test des prisonniers, des vivres et de la fatigue, des blessés graves, des compagnons
+                        (dont l'éclaireur sur la carte), de la sauvegarde v10, du début de bataille et des panneaux
 tests/world_test.gd     Test du monde vivant (saisons, 200 jours sur 5 graines, prise d'une ville, contrats de
                         guerre, réputation, rencontre, bataille décisive chez son patron, contrats au nom du
                         maître actuel, sièges qui lèvent ou prennent une ville, terrain des rencontres,
@@ -712,6 +762,10 @@ durée médiane) :
 dépasser l'effectif plein d'un régiment.
 
 ### Campagne (banc `tests/campaign_balance.gd`)
+
+Vivres, prisonniers et compagnons (version 10) : le joueur simulé achète 12 jours de vivres et rançonne ses
+prisonniers à chaque passage en ville. Normal, mode rapide, graines 1 à 20 : **6/20** campagnes gagnées,
+contre **7/20** pour la version d'avant mesurée le même jour sur les mêmes graines (écart dans le bruit du banc).
 Un joueur de campagne simulé (`tests/campaign_player.gd`) joue des campagnes entières, sans fenêtre : il lève
 des régiments (4 fantassins, 3 tireurs, 1 cavalier visés ; le plus fort qu'il peut payer, en gardant 8 jours
 de solde), marche vers le contrat qui paie le mieux par jour de marche parmi ceux qu'il peut gagner (force

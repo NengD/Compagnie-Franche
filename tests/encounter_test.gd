@@ -163,15 +163,16 @@ func test_villagers() -> void:
 	var pl := player_party()
 	var v := party("villagers", [["spear", 20]], 0, 60, 200)
 	check(ids(s, pl, v) == ["buy_food", "sell_loot", "recruit", "extort", "attack", "leave"], "choix des villageois : %s" % str(ids(s, pl, v)))
-	# Vivres : la solde du lendemain baisse
-	var wage := s.daily_wage()
-	var r := Encounter.resolve(s, pl, v, "buy_food")
-	check(not r["close"] and s.provisions > 0.0, "vivres achetés")
-	check(not enabled(s, pl, v, "buy_food"), "vivres deux fois")
+	# Vivres : trois jours de plus dans les chariots (supplies.gd), tant qu'ils ne sont pas pleins
+	var food := s.supplies.food
 	var gold := s.gold
+	var r := Encounter.resolve(s, pl, v, "buy_food")
+	check(not r["close"] and is_equal_approx(s.supplies.food - food, Encounter.food_cover(s)) and s.gold < gold, "vivres achetés")
+	s.supplies.food = Supplies.capacity(s)
+	check(not enabled(s, pl, v, "buy_food"), "vivres quand les chariots sont pleins")
+	food = s.supplies.food
 	s.pass_day()
-	check(absf((gold - s.gold) - (wage - Encounter.food_cover(s))) < 1.0 or s.daily_wage() != wage, "solde allégée %f" % (gold - s.gold))
-	check(s.provisions == 0.0, "vivres consommés")
+	check(is_equal_approx(food - s.supplies.food, Supplies.consumption(s)) or s.total_men() == 0, "vivres consommés")
 	# Butin
 	check(not enabled(s, pl, v, "sell_loot"), "vendre sans butin")
 	s.loot = 50

@@ -981,7 +981,8 @@ func _test_endings() -> void:
 	if k.is_empty():
 		return
 	check(k["enemy"].size() >= CampaignState.CONTRACT_KINDS[-1]["army"].size() and "Pontrieux" in c.objective_status(), "fin : bataille décisive trop petite ou mal annoncée")
-	# Il n'expire pas et reste unique
+	# Il n'expire pas et reste unique (vivres en abondance : la famine n'est pas testée ici)
+	c.supplies.food = 1.0e6
 	for i in CampaignState.CONTRACT_DAYS + 2:
 		c.pass_day()
 	check(c.final_contract() == k and c.contracts.filter(func(x): return x.get("final", false)).size() == 1, "fin : contrat final expiré ou dupliqué")
@@ -1001,7 +1002,8 @@ func _test_endings() -> void:
 	check(CampaignState.from_dict(bad) == null, "fin : état de fin inconnu accepté")
 	# Gagner la bataille décisive termine la campagne
 	c.location = int(k["town"])
-	check(c.accept(k) == "", "fin : contrat final refusé")
+	var why := c.accept(k)
+	check(why == "", "fin : contrat final refusé (%s)" % why)
 	var surv := []
 	for r in c.battle_army():
 		surv.append(int(r["men"]))

@@ -221,6 +221,9 @@ func build_totals(box: VBoxContainer) -> void:
 	if not rep.is_empty():
 		fame_line = "Réputation : " + ", ".join(rep) + "   ·   " + fame_line
 	box.add_child(UiTheme.label(fame_line, 15, UiTheme.TEXT))
+	var life := LifePanel.report_line(c) # Prisonniers et blessés graves (life_panel.gd)
+	if life != "":
+		box.add_child(UiTheme.label(life, 15, UiTheme.TEXT))
 
 
 func build_buttons(box: VBoxContainer) -> void:

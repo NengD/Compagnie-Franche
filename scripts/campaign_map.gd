@@ -454,6 +454,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				if digit < opts.size() and bool(opts[digit].get("enabled", true)):
 					choose(str(opts[digit].get("id", "")))
 				return
+		if LifePanel.key(self, k): # F : marche forcée ; K : camper
+			return
 		match k.keycode:
 			KEY_ESCAPE:
 				escape()
@@ -743,6 +745,7 @@ func build_ui() -> void:
 		row.add_child(b)
 		speed_buttons.append(b)
 	refresh_speed_buttons()
+	LifePanel.build_bar(self, row) # Marche forcée, camp (life_panel.gd)
 	row.add_child(VSeparator.new())
 	for v in [["company", "Compagnie", "E"], ["world", "Monde", "M"], ["journal", "Journal", "J"], ["menu", "Menu", "Échap"]]:
 		var b := Button.new()
@@ -867,6 +870,7 @@ func update_top() -> void:
 	if top_label == null:
 		return
 	var s := "%s   ·   %d écus (solde %d / jour)   ·   %s" % [clock_text(), int(state.gold), ceili(state.daily_wage()), CampaignState.plural(state.total_men(), "homme", "hommes")]
+	s += LifePanel.top_text(self) # Vivres et fatigue
 	if time_stopped() and not paused:
 		s += "   ·   temps arrêté"
 	top_label.text = s
@@ -986,6 +990,7 @@ func refresh_ui() -> void:
 			add_label(where_text(), 12, DIM_COL)
 			build_company(-1, "")
 			CompanyPanel.build(self)
+			LifePanel.build(self) # Vivres, prisonniers, compagnons
 		"world":
 			window_title.text = "Le monde"
 			add_section("Objectif")
@@ -1032,6 +1037,7 @@ func build_place() -> void:
 		build_recruits(here, closed)
 		build_company(here, closed)
 	CompanyPanel.build(self) # Capitaine, traits et équipement (achats en ville)
+	LifePanel.build(self) # Vivres, prisonniers, compagnons (achats, rançons, engagements en ville)
 
 
 ## Onglet Menu : quitter, escarmouche, nouvelle campagne, aide.
@@ -1050,6 +1056,7 @@ func build_menu() -> void:
 		add_button("Nouvelle campagne", do_new_campaign)
 	add_section("Commandes")
 	add_label("Clic gauche : marcher (sur une ville : y entrer ; sur un groupe : le poursuivre). Clic droit : halte.", 12, DIM_COL)
+	add_label("F : marche forcée (x2, épuisante) ; K : camper (repos, soins).", 12, DIM_COL)
 	add_label("Espace : pause ; 1, 2, 3 : vitesses. E : compagnie ; M : monde ; J : journal ; Échap : fermer ou menu.", 12, DIM_COL)
 	add_label("ZQSD, flèches, bord de l'écran ou clic molette : déplacer la vue ; molette : zoom ; C : recentrer.", 12, DIM_COL)
 	add_label("La route va plus vite ; forêts, collines, marais et hiver ralentissent. Chaque jour coûte la solde ; sans or, des hommes désertent. Les groupes cerclés de rouge vous attaquent s'ils vous rattrapent.", 11, HINT_COL)
@@ -1090,6 +1097,7 @@ func build_contact() -> void:
 	var enc := Overworld.encounter_script()
 	if enc != null:
 		add_label(str(enc.call("greeting", state, ow.player, contact)), 12, Color(0.92, 0.88, 0.78))
+	LifePanel.build_contact(self, contact) # Rapport de l'éclaireur
 	add_label("Terrain du combat : %s." % str(Terrain.NAMES.get(MapData.battle_terrain_at(ow.player.pos), "plaine")).to_lower(), 12, Color(0.75, 0.72, 0.65))
 	var n := 0
 	for o in ow.options(state, contact):

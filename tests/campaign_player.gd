@@ -25,6 +25,7 @@ const ACCEPT_RATIO := 1.15 ## Force minimale (nous / eux) pour accepter un contr
 const ACCEPT_MIN := 0.75 ## ... qui baisse chaque jour sans contrat, jusqu'à ce plancher
 const ACCEPT_DECAY := 0.02
 const RESERVE_DAYS := 8.0 ## Jours de solde gardés en caisse avant de recruter
+const FOOD_DAYS := 12.0 ## Jours de vivres achetés à chaque passage en ville
 const FINAL_PATIENCE := 45 ## Jours d'attente au plus avant de tenter la bataille décisive...
 const FINAL_MIN := 0.6 ## ... si le rapport de force n'est pas pire que celui-ci
 const FINAL_REST := 10 ## Après un échec, jours de reconstitution au moins avant de la retenter
@@ -131,6 +132,7 @@ func turn() -> void:
 			camp.pass_day()
 			camp.check_ruin()
 		return
+	stock_up() # Rançons et vivres d'abord (supplies.gd, prisoners.gd)
 	# Compagnie décimée : la relever d'abord (moins de réserve)
 	manage_company(RESERVE_DAYS if camp.company.size() >= 6 else 3.0)
 	var target := choose_contract()
@@ -163,6 +165,16 @@ func march_towards(town: int) -> void:
 
 
 # ---------------------------------------------------------------- Compagnie
+
+## En ville : rançonne les prisonniers, puis achète de quoi tenir FOOD_DAYS jours.
+func stock_up() -> void:
+	if Prisoners.ransom_town(camp) < 0:
+		return
+	Prisoners.ransom_all(camp)
+	var days := Supplies.days_left(camp)
+	if days < FOOD_DAYS:
+		Supplies.buy(camp, FOOD_DAYS - days)
+
 
 ## Complète les régiments entamés puis lève de nouveaux régiments, en gardant reserve jours de solde.
 func manage_company(reserve: float) -> void:
