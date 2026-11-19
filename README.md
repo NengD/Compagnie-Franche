@@ -13,9 +13,12 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   **Nouvelle campagne** : choix de la **difficulté** (facile, normal, difficile) et du **mode indulgent**,
   sur le premier emplacement libre, avec un avertissement si l'emplacement contient une campagne en cours.
   Si la campagne sauvegardée est **terminée**, le premier bouton devient **Bilan de la campagne** (écran de fin).
-- **Emplacements de campagne** : 3 emplacements. Chacun affiche le jour, l'or, les hommes, la difficulté
-  (et « indulgent ») et son état (en cours, bataille en cours, terminée par une victoire ou la ruine), avec
-  **Continuer** (ou **Bilan**), **Nouvelle campagne** et **Supprimer** (avec confirmation).
+- **Emplacements de campagne** : 3 emplacements. Chacun montre un **aperçu** : miniature de la carte de
+  campagne (villes aux couleurs de leur maître, position de la compagnie), jour, or, hommes, renommée,
+  difficulté (et « indulgent »), date réelle de la sauvegarde et état (en cours, bataille en cours, terminée
+  par une victoire ou la ruine), avec **Continuer** (ou **Bilan**), **Nouvelle campagne** et **Supprimer**
+  (avec confirmation). L'aperçu est un petit en-tête (`campagne_<n>.apercu.json`) écrit à côté de chaque
+  sauvegarde : le menu ne charge pas les campagnes (une ancienne sauvegarde sans en-tête est lue une fois).
 - **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
   changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
@@ -46,6 +49,11 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   1 à 8) restent fixes toute la bataille et suivent l'ordre de la compagnie : un régiment anéanti ou en
   fuite garde sa carte, grisée. Les cartes sont compactes (56 px de haut) et se cachent d'un coup de Tab ou
   d'un clic sur leur onglet (état mémorisé). À 150 % dans une fenêtre 1280×720, cartes, barre du haut et aide se resserrent.
+- **Mini-carte de bataille** (coin en bas à gauche, au-dessus des cartes si elles prennent la place) : le
+  champ en réduction (sol, relief, forêts, maisons et palissades), la zone de déploiement (bleue pendant le
+  déploiement), les régiments amis et les ennemis **visibles** (jamais ceux cachés en forêt), le rectangle de
+  la vue. Un clic (ou un glisser) dessus y centre la caméra. Touche N (reconfigurable) pour la cacher ou la
+  montrer ; l'état est mémorisé.
 - **Zoom de la bataille** : la taille de l'interface n'agrandit pas le terrain, et le zoom réel est arrondi
   pour qu'un pixel des sprites fasse un nombre entier de pixels de l'écran (pas de pixels de largeurs
   inégales) ; la molette passe d'une échelle entière à la suivante.
@@ -56,12 +64,14 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   centrale n'apparaît que pour une ville, une rencontre ou un onglet ouvert ; Échap ou ✕ la ferme. Les
   messages (arrivée, refus, évènements) s'affichent en bas de l'écran puis s'effacent. Le menu principal
   est dans l'onglet Menu.
-- **Statistiques et succès** : statistiques gardées d'une campagne à l'autre (batailles jouées, gagnées
+- **Statistiques** et **Succès** (deux boutons) : statistiques gardées d'une campagne à l'autre (batailles jouées, gagnées
   et perdues, ennemis tués, hommes perdus, or gagné, campagnes gagnées ou perdues, plus longue campagne,
   régiment le plus ancien et le plus décoré) et 23 succès (première victoire, victoire sans perdre un
   régiment, carré qui repousse une charge, embuscade réussie, campagne gagnée en difficile, régiment
-  d'élite, 1 000 ennemis tués…). Chaque succès obtenu s'annonce par une notification discrète en haut
-  à droite. Fichier : `statistiques.json` dans le dossier de données du jeu (à part des campagnes).
+  d'élite, 1 000 ennemis tués…). La page **Succès** les montre en grille : médaillon (doré une fois
+  obtenu), nom, description, date d'obtention, ou progression pour les succès à compteur (« 37 / 100 »).
+  Chaque succès obtenu s'annonce par une notification discrète en haut à droite (sous la barre de la
+  bataille ; elle reste affichée en passant de la bataille à la carte). Fichier : `statistiques.json` dans le dossier de données du jeu (à part des campagnes).
   La carte et l'écran de fin montrent les statistiques de la campagne en cours.
 
 ## Difficulté
@@ -351,6 +361,10 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   l'expérience gagnée et les **promotions** (ligne dorée « ▲ AGUERRIS ! ») ; puis les pertes des deux camps,
   prime, butin ou pillage, solde du jour, or avant → après, réputation et renommée. En escarmouche et au
   tutoriel, le bilan est simplifié (sans or ni expérience). Entrée affiche le bilan tout de suite, puis continue.
+  L'onglet **Statistiques** du bilan montre une **carte de chaleur des pertes** (où sont tombés vos hommes,
+  en bleu, et les ennemis, en rouge), un **graphique des effectifs** debout des deux camps dans le temps et
+  les **ennemis tués par régiment** (les vôtres, puis les ennemis les plus meurtriers). Les relevés se font
+  toutes les 2 secondes de bataille (`scripts/battle_recorder.gd`), sans coût notable.
 - **Escarmouche libre** : bouton en bas du panneau (bataille hors campagne, Échap : menu pause).
 - **Sauvegarde automatique** après chaque marche, recrutement, contrat accepté et bataille.
   Fichiers : `campagne_1.json`, `campagne_2.json`, `campagne_3.json` dans le dossier de données du jeu
@@ -497,6 +511,7 @@ Les touches marquées * se changent dans **Options**.
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
 | Aide (repliée par défaut, état mémorisé) | F1 * |
 | Cartes des régiments : cacher / montrer (état mémorisé ; aussi l'onglet cliquable au-dessus des cartes) | Tab * |
+| Mini-carte : cacher / montrer (état mémorisé) ; clic ou glisser dessus : y centrer la vue | N * |
 | Fin de bataille | Entrée : afficher le bilan, puis carte de campagne (contrat) ou rejouer (escarmouche, tutoriel) |
 | Menu pause (reprendre, aide, options, abandonner, menu principal) | Échap ; sur l'écran de fin d'escarmouche : retour au menu |
 
@@ -677,7 +692,10 @@ scripts/enemy_ai.gd     IA ennemie
 
 scripts/hud.gd          Interface
 scripts/pause_menu.gd   Menu pause de la bataille (Échap)
-scripts/battle_report.gd  Panneau du bilan de fin de bataille (données : battle.build_end_report)
+scripts/battle_report.gd  Panneau du bilan de fin de bataille (données : battle.build_end_report), onglet Statistiques
+scripts/battle_recorder.gd Relevés de la bataille pour le bilan : effectifs toutes les 2 s, lieux des morts, tués
+scripts/minimap.gd      Mini-carte de bataille (dessinée par le HUD ; clic : battle_orders.gd)
+scripts/save_preview.gd Aperçu des emplacements : en-tête à côté de la sauvegarde, miniature de la carte
 scripts/sprite_bank.gd  Chargement et découpage des sprites (repli en code si absents), planches repeintes
                         selon l'équipement (casque, armure) et pointe des lames (éclat des armes)
 scripts/battle_audio.gd Sons de bataille : banques, cors de charge et de retraite, fanfare, vent, oiseaux, pluie
@@ -709,6 +727,9 @@ tests/visuals_test.gd   Test du rendu : équipement porté en bataille, planches
                         bannières des factions, corps qui gardent leur régiment
 tests/realm_test.gd     Test du domaine (commerce, fiefs et leurs sièges, allégeance, quêtes, sauvegarde, fenêtres)
 tests/realm_capture.gd  Captures du domaine (marché de la ville, onglet Quêtes, fief) (avec fenêtre ; option --out)
+tests/interface_plus_test.gd Test de la mini-carte (cadre, clic, glisser, touche N), des statistiques de
+                        bataille (relevés, morts par camp, onglet du bilan), de l'aperçu des emplacements et
+                        de la page Succès
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
@@ -734,8 +755,10 @@ tests/map_visuals_test.gd Test du rendu de la carte : armoiries (tirage, sauvega
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
-tests/menu_capture.gd   Captures du menu, des options et du tutoriel (avec fenêtre ; option --out)
-tests/report_capture.gd Captures du bilan (contrat avec promotions, escarmouche) (avec fenêtre ; option --out)
+tests/menu_capture.gd   Captures du menu, des options, des emplacements (aperçus), des succès et du tutoriel
+                        (avec fenêtre ; option --out)
+tests/report_capture.gd Captures du bilan et de son onglet Statistiques (contrat avec promotions, escarmouche)
+                        (avec fenêtre ; option --out)
 tests/capture_dir.gd    Dossier de sortie commun des captures (--out=<dossier>, défaut user://captures)
 tests/resolution_capture.gd Captures multi-résolution (menu, carte, fin, bataille, pause) dans user:// (avec fenêtre)
 tests/balance.gd        Banc d'essai d'équilibrage (nombreuses batailles simulées)
@@ -777,6 +800,7 @@ godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, nive
 godot --headless --path . -s tests/ai_test.gd         # IA : formations, carré, colline, gués, défense, retraite, embuscade
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
 godot --headless --path . -s tests/interface_test.gd  # interface de bataille, accessibilité, caméra
+godot --headless --path . -s tests/interface_plus_test.gd  # mini-carte, statistiques du bilan, aperçus, succès
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
@@ -788,10 +812,10 @@ godot --headless --path . -s tests/party_ai_test.gd   # groupes de la carte : co
 godot --path . --resolution 1280x720 -s tests/overworld_capture.gd   # carte_ville/marche/nuit/rencontre.png
 godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, campagne
 godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
-godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, tutoriel.png
+godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, menu_emplacements.png, menu_succes.png, tutoriel.png
 godot --headless --path . -s tests/encounter_test.gd  # rencontres de la carte : choix, bataille, réputation, fuite
 godot --path . -s tests/encounter_capture.gd          # rencontre_villageois.png, rencontre_bandits.png
-godot --path . -s tests/report_capture.gd             # bilan_campagne.png, bilan_escarmouche.png
+godot --path . -s tests/report_capture.gd             # bilan_campagne(_stats).png, bilan_escarmouche(_stats).png
 godot --headless --path . -s tests/site_test.gd       # champ tiré de la carte (rivière et pont, route, village...) et alliés
 godot --path . -s tests/site_capture.gd               # site_pont.png, site_allies.png (fenêtre)
 godot --path . --resolution 2560x1080 -s tests/resolution_capture.gd   # captures user://captures_resolution/ (-- --ui=1.5 : interface à 150 %)
