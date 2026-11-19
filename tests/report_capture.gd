@@ -2,7 +2,7 @@ extends SceneTree
 ## Captures du bilan de fin de bataille (à lancer AVEC fenêtre, pas en --headless) :
 ##   godot --path . -s tests/report_capture.gd [-- --out=<dossier>]
 ## Joue une bataille de contrat (avec une promotion) puis une escarmouche, et enregistre
-## bilan_campagne.png et bilan_escarmouche.png dans user://captures (défaut) ou dans <dossier>
+## bilan_campagne.png et bilan_escarmouche.png (et leur onglet « Statistiques » : *_stats.png) dans user://captures (défaut) ou dans <dossier>
 ## (relatif à la racine du projet : --out=captures met à jour celles du dépôt).
 ## La campagne s'écrit dans user://capture_campagne.json : la vraie sauvegarde n'est pas touchée.
 
@@ -56,6 +56,9 @@ func _process(delta: float) -> bool:
 		end_frame = frame
 	if end_frame > 0 and frame == end_frame + 140: # Ralenti, puis le bilan apparaît en fondu
 		_save("bilan_campagne.png" if phase == "campaign" else "bilan_escarmouche.png")
+		battle.report_panel.show_page(1) # Onglet « Statistiques »
+	elif end_frame > 0 and frame == end_frame + 146:
+		_save("bilan_campagne_stats.png" if phase == "campaign" else "bilan_escarmouche_stats.png")
 		root.remove_child(battle)
 		battle.free()
 		if phase == "campaign":

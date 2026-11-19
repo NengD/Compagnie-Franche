@@ -43,6 +43,7 @@ var audio: BattleAudio
 var paused := false
 var show_help := false ## Aide F1 dépliée (état mémorisé dans GameOptions.show_help)
 var show_cards := true ## Cartes des régiments affichées (Tab ; mémorisé dans GameOptions.show_cards)
+var show_minimap := true ## Mini-carte affichée (N ; mémorisée dans GameOptions.show_minimap)
 var messages: Array = [] ## Messages du HUD : [texte, temps restant]
 var game_speed := 1.0 ## Vitesse de la simulation (options, touche V)
 var slowmo := -1.0 ## Temps réel écoulé depuis le début du ralenti de fin (-1 = pas de ralenti)
@@ -60,6 +61,7 @@ var report_clock := 0.0 ## Temps réel écoulé depuis la fin de la bataille
 var is_tutorial := false ## Bataille du tutoriel (bilan simplifié, Entrée recommence)
 var pause_menu: PauseMenu = null ## Menu pause (Échap), créé à la première ouverture
 var stats_watch: Achievements.Watch = null ## Statistiques et succès de la bataille
+var recorder := BattleRecorder.new() ## Effectifs et pertes dans le temps (graphiques du bilan)
 
 
 # ---------------------------------------------------------------- Mise en place
@@ -74,6 +76,7 @@ func _ready() -> void:
 	game_speed = GameOptions.speed
 	show_help = GameOptions.show_help
 	show_cards = GameOptions.show_cards
+	show_minimap = GameOptions.show_minimap
 	if CampaignState.current != null and CampaignState.current.in_battle():
 		campaign = CampaignState.current
 	if seed_override != 0:
@@ -236,6 +239,7 @@ func time_factor(real_delta: float) -> float:
 ## Un pas de simulation, puis le bruit de galop qui en dépend.
 func simulate(dt: float) -> void:
 	sim.step(dt)
+	recorder.step(sim, dt)
 	update_gallop()
 
 
@@ -293,6 +297,7 @@ func add_marker(p: Vector2, col: Color) -> void:
 ## La simulation vient de finir (victoire, défaite ou retraite) : ralenti, campagne, bilan.
 func _on_battle_ended() -> void:
 	slowmo = 0.0 # Ralenti de quelques secondes sur la fin de la bataille
+	recorder.finish(sim)
 	if campaign != null:
 		finish_campaign()
 	open_report()
@@ -349,7 +354,8 @@ func build_end_report() -> Dictionary:
 		t["player_fled"] += row["fled"]
 		t["player_healed"] += row["healed"]
 	return {"outcome": outcome, "title": title, "terrain": sim.terrain.display_name(), "duration": sim.battle_time,
-		"tutorial": is_tutorial, "rows": rows, "totals": t, "campaign": campaign_result, "objective": sim.objective.result(sim)}
+		"tutorial": is_tutorial, "rows": rows, "totals": t, "campaign": campaign_result, "objective": sim.objective.result(sim),
+		"stats": recorder.to_dict(sim, player_roster())}
 
 
 

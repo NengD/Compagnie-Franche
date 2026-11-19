@@ -12,7 +12,7 @@ const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée
-var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "options" ou "stats"
+var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "options", "stats" ou "achievements"
 var notice := ""
 var target_slot := 1 ## Emplacement visé par « nouvelle campagne » ou « supprimer »
 var lenient_choice := false ## Case « Mode indulgent » de la nouvelle campagne
@@ -96,6 +96,9 @@ func refresh() -> void:
 		"stats":
 			Achievements.build_page(box)
 			focus_later(add_button("Retour", back_to_main))
+		"achievements":
+			Achievements.build_grid_page(box)
+			focus_later(add_button("Retour", back_to_main))
 		"new_campaign":
 			build_new_campaign()
 		"slots":
@@ -138,28 +141,41 @@ func add_button(s: String, cb: Callable, enabled := true, parent: Control = null
 
 
 ## Emplacement que « Continuer la campagne » reprend : celui joué en dernier (0 si aucun).
+## Lu dans les aperçus (save_preview.gd), sans charger les campagnes.
 func continue_slot() -> int:
-	return CampaignState.latest_slot()
+	var best := 0
+	var best_t := -1.0
+	for i in range(1, CampaignState.SLOT_COUNT + 1):
+		var d := SavePreview.read_slot(i)
+		if not d.is_empty() and float(d["saved_at"]) > best_t:
+			best = i
+			best_t = float(d["saved_at"])
+	return best
 
 
 func build_main() -> void:
 	var last := continue_slot()
-	var saved := CampaignState.load_slot(last) if last > 0 else null
-	var over := saved != null and saved.is_over()
-	var b := add_button("Bilan de la campagne" if over else "Continuer la campagne", continue_campaign, saved != null)
+	var saved := SavePreview.read_slot(last) if last > 0 else {}
+	var over := bool(saved.get("over", false))
+	var b := add_button("Bilan de la campagne" if over else "Continuer la campagne", continue_campaign, not saved.is_empty())
 	b.custom_minimum_size.x = 300
-	if saved != null:
-		b.tooltip_text = "Emplacement %d : %s" % [last, saved.summary()]
+	if not saved.is_empty():
+		b.tooltip_text = "Emplacement %d : %s" % [last, str(saved["summary"])]
 		focus_later(b)
 	var nb := add_button("Nouvelle campagne", new_campaign)
-	if saved == null:
+	if saved.is_empty():
 		focus_later(nb)
 	add_button("Emplacements de campagne", open_slots)
 	add_button("Tutoriel", start_tutorial)
 	add_button("Escarmouche", start_skirmish)
 	box.add_child(UiTheme.label("Escarmouche en difficulté %s (Options)" % Difficulty.display_name(GameOptions.difficulty).to_lower(), 13, UiTheme.DIM))
 	add_button("Options", open_options)
-	add_button("Statistiques et succès", open_stats)
+	var pair := HBoxContainer.new() # Deux boutons sur une ligne : le menu reste court
+	pair.add_theme_constant_override("separation", 8)
+	box.add_child(pair)
+	for it in [["Statistiques", open_stats], ["Succès", open_achievements]]:
+		var pb := add_button(it[0], it[1], true, pair)
+		pb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	add_button("Quitter", quit_game)
 	add_notice(300)
 
@@ -172,6 +188,14 @@ func add_notice(width: float) -> void:
 		box.add_child(l)
 
 
+func _wrapped_in(parent: Control, s: String, size: int, col: Color, width: float) -> Label:
+	var l := UiTheme.label(s, size, col)
+	l.custom_minimum_size.x = width
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(l)
+	return l
+
+
 func add_wrapped(s: String, size: int, col: Color, width := 460.0) -> Label:
 	var l := UiTheme.label(s, size, col)
 	l.custom_minimum_size.x = width
@@ -180,27 +204,42 @@ func add_wrapped(s: String, size: int, col: Color, width := 460.0) -> Label:
 	return l
 
 
-## Emplacements : pour chacun, son résumé (jour, or, hommes, difficulté, état) et ses actions.
+## Emplacements : pour chacun, son aperçu (miniature de la carte, jour, or, hommes, renommée,
+## difficulté, date de la sauvegarde, état) et ses actions. Les aperçus sont de petits en-têtes
+## écrits à côté des sauvegardes (save_preview.gd) : les campagnes ne sont pas chargées.
 func build_slots() -> void:
 	box.add_child(UiTheme.label("Emplacements de campagne", 22, UiTheme.GOLD))
 	var first: Button = null
 	for i in range(1, CampaignState.SLOT_COUNT + 1):
 		box.add_child(HSeparator.new())
 		var used := CampaignState.slot_used(i)
-		var saved := CampaignState.load_slot(i) if used else null
-		box.add_child(UiTheme.label("Emplacement %d" % i, 18, UiTheme.TEXT))
-		if saved != null:
-			add_wrapped(saved.summary(), 15, UiTheme.TEXT)
-			add_wrapped(saved.status_text(), 13, UiTheme.WARN if saved.is_over() else UiTheme.DIM)
+		var saved := SavePreview.read_slot(i) if used else {}
+		var line := HBoxContainer.new()
+		line.name = "Apercu_%d" % i
+		line.add_theme_constant_override("separation", 14)
+		box.add_child(line)
+		if not saved.is_empty():
+			var thumb := SavePreview.Thumb.new(saved, 132.0)
+			thumb.name = "Miniature_%d" % i
+			line.add_child(thumb)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 3)
+		line.add_child(col)
+		col.add_child(UiTheme.label("Emplacement %d" % i, 18, UiTheme.TEXT))
+		var text_w := 330.0 if not saved.is_empty() else 460.0
+		if not saved.is_empty():
+			for l in SavePreview.lines(saved):
+				_wrapped_in(col, l, 14, UiTheme.TEXT, text_w)
+			_wrapped_in(col, str(saved["status"]), 13, UiTheme.WARN if bool(saved["over"]) else UiTheme.DIM, text_w)
 		elif used:
-			add_wrapped("Sauvegarde illisible.", 14, UiTheme.WARN)
+			_wrapped_in(col, "Sauvegarde illisible.", 14, UiTheme.WARN, text_w)
 		else:
-			add_wrapped("Vide.", 14, UiTheme.DIM)
+			_wrapped_in(col, "Vide.", 14, UiTheme.DIM, text_w)
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 10)
-		box.add_child(row)
-		if saved != null:
-			var c := add_button("Bilan" if saved.is_over() else "Continuer", continue_campaign.bind(i), true, row)
+		col.add_child(row)
+		if not saved.is_empty():
+			var c := add_button("Bilan" if bool(saved["over"]) else "Continuer", continue_campaign.bind(i), true, row)
 			c.name = "Continuer_%d" % i
 			if first == null:
 				first = c
@@ -544,6 +583,12 @@ func open_options() -> void:
 
 func open_stats() -> void:
 	page = "stats"
+	notice = ""
+	refresh()
+
+
+func open_achievements() -> void:
+	page = "achievements"
 	notice = ""
 	refresh()
 

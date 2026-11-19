@@ -1,7 +1,7 @@
 class_name Hud
 extends Control
 ## Interface : forces en présence, cartes des régiments, messages, aide, info-bulle de survol,
-## sous-titres des évènements sonores et pluie.
+## mini-carte (minimap.gd), sous-titres des évènements sonores et pluie.
 ##
 ## Tout se place d'après la taille visible de la vue (get_viewport_rect), qui dépend de la fenêtre
 ## et de la taille de l'interface : à 150 % dans une fenêtre 1280×720, la vue ne fait que 853×480,
@@ -165,7 +165,7 @@ func find_hovered(mouse: Vector2, vs: Vector2) -> Regiment:
 		return null
 	if mouse.y < BAR_H or not Rect2(Vector2.ZERO, vs).has_point(mouse):
 		return null
-	if cards_tab_rect(vs).has_point(mouse):
+	if cards_tab_rect(vs).has_point(mouse) or Minimap.rect(self, vs).grow(3.0).has_point(mouse):
 		return null
 	if battle.show_cards:
 		for rect in card_rects(vs, battle.player_roster().size()):
@@ -267,6 +267,9 @@ func _draw() -> void:
 	var report_shown: bool = battle.report_panel != null and battle.report_panel.visible
 	if not report_shown:
 		draw_objective(vs)
+		var mm := Minimap.rect(self, vs)
+		if mm.has_area():
+			Minimap.draw(self, mm)
 		draw_messages()
 		draw_help(vs)
 		draw_captions(vs)
@@ -540,13 +543,17 @@ func free_width(vs: Vector2) -> float:
 func draw_captions(vs: Vector2) -> void:
 	var y := vs.y - cards_height() - 22.0
 	var fw := free_width(vs)
+	var left := 0.0 # Pas sur la mini-carte : centrés dans la place à sa droite
+	var mm := Minimap.rect(self, vs)
+	if mm.has_area() and mm.end.y > y - 18.0 - 29.0 * (captions.size() - 1):
+		left = mm.end.x + 6.0
 	for i in range(captions.size() - 1, -1, -1):
 		var c: Array = captions[i]
 		var a := clampf(float(c[1]), 0.0, 1.0)
-		var s := fit(str(c[0]), 16, fw - 28.0)
+		var s := fit(str(c[0]), 16, fw - left - 28.0)
 		var w := text_width(s, 16)
-		draw_rect(Rect2((fw - w) * 0.5 - 10.0, y - 18.0, w + 20.0, 25.0), Color(0, 0, 0, 0.72 * a))
-		text(Vector2(0, y), s, 16, Color(1, 1, 0.85, a), HORIZONTAL_ALIGNMENT_CENTER, fw)
+		draw_rect(Rect2(left + (fw - left - w) * 0.5 - 10.0, y - 18.0, w + 20.0, 25.0), Color(0, 0, 0, 0.72 * a))
+		text(Vector2(left, y), s, 16, Color(1, 1, 0.85, a), HORIZONTAL_ALIGNMENT_CENTER, fw - left)
 		y -= 29.0
 
 
@@ -575,6 +582,7 @@ static func help_lines(rain_key := true) -> Array[String]:
 		"Alt+Entrée / F11 : plein écran",
 		"Échap : menu pause (options, abandon)",
 		"%s : cacher / montrer les cartes des régiments" % GameOptions.key_label("cards"),
+		"%s : mini-carte (clic dessus : y centrer la vue)" % GameOptions.key_label("minimap"),
 		"%s : masquer l'aide" % GameOptions.key_label("help"),
 	]
 	return lines

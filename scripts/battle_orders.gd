@@ -24,6 +24,7 @@ var dragging := false ## Cadre de sélection (clic gauche maintenu)
 var drag_start := Vector2.ZERO
 var drag_now := Vector2.ZERO
 var panning := false ## Clic du milieu maintenu
+var minimap_dragging := false ## Clic gauche maintenu sur la mini-carte : la vue suit la souris
 var line_double := false ## Le clic droit en cours est un double clic (ordre de course)
 var line_dragging := false ## Clic droit maintenu : tracé d'une ligne de formation
 var line_start := Vector2.ZERO
@@ -45,6 +46,7 @@ func cancel_gestures() -> void:
 	dragging = false
 	line_dragging = false
 	panning = false
+	minimap_dragging = false
 
 
 # ---------------------------------------------------------------- Saisie
@@ -65,6 +67,8 @@ func handle_input(event: InputEvent) -> void:
 	if mm != null:
 		if panning:
 			battle.camera.pan(mm.relative)
+		if minimap_dragging:
+			minimap_click(mm.position)
 		if dragging:
 			drag_now = battle.event_world_pos(mm)
 		if line_dragging:
@@ -81,6 +85,12 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 		MOUSE_BUTTON_LEFT:
 			if mb.pressed and battle.hud != null and battle.hud.cards_tab_rect(battle.hud.get_viewport_rect().size).has_point(mb.position):
 				toggle_cards() # Onglet des cartes : les cacher ou les montrer
+				return
+			if mb.pressed and minimap_click(mb.position):
+				minimap_dragging = true # Glisser sur la mini-carte : la vue suit
+				return
+			if not mb.pressed and minimap_dragging:
+				minimap_dragging = false
 				return
 			if mb.pressed:
 				dragging = true
@@ -110,6 +120,27 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 				battle.camera.zoom_at(1.0 / 1.15)
 		MOUSE_BUTTON_MIDDLE:
 			panning = mb.pressed
+
+
+## Clic sur la mini-carte (position dans la vue) : centre la caméra sur ce point du champ.
+## Renvoie faux si le point n'est pas sur la mini-carte (ou si elle est cachée).
+func minimap_click(screen_pos: Vector2) -> bool:
+	if battle.hud == null or battle.camera == null:
+		return false
+	var r := Minimap.rect(battle.hud, battle.hud.get_viewport_rect().size)
+	if not r.has_area() or not (minimap_dragging or r.grow(2.0).has_point(screen_pos)):
+		return false
+	battle.camera.position = Minimap.to_world(screen_pos, r)
+	battle.camera.clamp_to_world()
+	return true
+
+
+## Affiche ou cache la mini-carte (mémorisé pour les batailles suivantes).
+func toggle_minimap() -> void:
+	battle.show_minimap = not battle.show_minimap
+	GameOptions.show_minimap = battle.show_minimap
+	minimap_dragging = false
+	GameOptions.save_options()
 
 
 ## Affiche ou cache les cartes des régiments (mémorisé pour les batailles suivantes).
@@ -142,6 +173,8 @@ func handle_key(k: InputEventKey) -> void:
 			halt()
 		KEY_TAB:
 			toggle_cards()
+		KEY_N:
+			toggle_minimap()
 		KEY_F1:
 			battle.show_help = not battle.show_help
 			GameOptions.show_help = battle.show_help # Mémorisé pour les batailles suivantes

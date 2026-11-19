@@ -36,6 +36,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "retreat", "name": "Retraite", "key": KEY_R},
 	{"id": "captain", "name": "Capitaine : rejoindre la sélection", "key": KEY_C},
 	{"id": "cards", "name": "Cartes des régiments (afficher / cacher)", "key": KEY_TAB},
+	{"id": "minimap", "name": "Mini-carte (afficher / cacher)", "key": KEY_N},
 ]
 ## Défilement de la caméra : touches repérées par leur position physique (« key » est un
 ## physical_keycode : W = Z en AZERTY). Les flèches marchent toujours en plus.
@@ -78,6 +79,7 @@ static var binds := {} ## id d'action -> keycode
 static var camera_binds := {} ## id d'action de caméra -> physical_keycode
 static var show_help := false ## Aide de bataille (F1) dépliée ; mémorisée d'une bataille à l'autre
 static var show_cards := true ## Cartes des régiments affichées en bataille (Tab) ; mémorisé aussi
+static var show_minimap := true ## Mini-carte de bataille affichée (N) ; mémorisée aussi
 static var team_shapes := false ## Accessibilité : formes et motifs en plus du bleu et du rouge
 static var subtitles := false ## Accessibilité : sous-titres des évènements sonores importants
 
@@ -100,6 +102,7 @@ static func reset_all() -> void:
 	difficulty = Difficulty.NORMAL
 	show_help = false
 	show_cards = true
+	show_minimap = true
 	team_shapes = false
 	subtitles = false
 	effects = "full"
@@ -132,6 +135,7 @@ static func load_options() -> void:
 	difficulty = Difficulty.sanitize(str(cfg.get_value("jeu", "difficulte", difficulty)))
 	show_help = bool(cfg.get_value("interface", "aide", show_help))
 	show_cards = bool(cfg.get_value("interface", "cartes", show_cards))
+	show_minimap = bool(cfg.get_value("interface", "minicarte", show_minimap))
 	team_shapes = bool(cfg.get_value("accessibilite", "formes_camps", team_shapes))
 	subtitles = bool(cfg.get_value("accessibilite", "sous_titres", subtitles))
 	var fx := str(cfg.get_value("affichage", "effets", effects))
@@ -159,6 +163,7 @@ static func save_options() -> bool:
 	cfg.set_value("jeu", "difficulte", difficulty)
 	cfg.set_value("interface", "aide", show_help)
 	cfg.set_value("interface", "cartes", show_cards)
+	cfg.set_value("interface", "minicarte", show_minimap)
 	cfg.set_value("accessibilite", "formes_camps", team_shapes)
 	cfg.set_value("accessibilite", "sous_titres", subtitles)
 	for id in binds:

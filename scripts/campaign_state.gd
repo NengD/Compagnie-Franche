@@ -458,6 +458,7 @@ func save() -> bool:
 	if err != OK:
 		push_warning("Sauvegarde impossible : %s" % error_string(err))
 		return false
+	SavePreview.write(self, path) # En-tête lu par le menu sans charger la campagne
 	return true
 
 
@@ -500,7 +501,7 @@ static func delete_save() -> void:
 
 
 static func delete_file(path: String) -> void:
-	for p in [path, path + ".bak", path + ".tmp"]:
+	for p in [path, path + ".bak", path + ".tmp", SavePreview.path_for(path)]:
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(p)
 

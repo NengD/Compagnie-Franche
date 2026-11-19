@@ -222,7 +222,9 @@ static func build_page(box: VBoxContainer) -> void:
 	box.add_child(scroll)
 
 
-## Notification discrète en haut à droite, posée sur la racine (survit aux changements de scène).
+## Notification discrète en haut à droite, sous la barre du haut et l'onglet d'aide de la bataille :
+## médaillon, « Succès obtenu » et nom. Posée sur la racine (survit aux changements de scène :
+## bataille → carte de campagne) ; plusieurs succès s'empilent.
 static func notify(ids: Array[String]) -> void:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree == null or tree.root == null:
@@ -235,19 +237,249 @@ static func notify(ids: Array[String]) -> void:
 		layer.layer = 50
 		layer.name = "Succes_" + ids[i]
 		var panel := PanelContainer.new()
-		panel.theme = UiTheme.make(14)
+		var th := UiTheme.make(14)
+		var sb: StyleBoxFlat = th.get_stylebox("panel", "PanelContainer").duplicate()
+		sb.set_content_margin_all(8)
+		sb.set_border_width_all(2)
+		th.set_stylebox("panel", "PanelContainer", sb)
+		panel.theme = th
 		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(row)
+		row.add_child(Icon.new(str(ICONS.get(ids[i], "star")), true, 30.0))
 		var box := VBoxContainer.new()
-		box.add_child(UiTheme.label("Succès : %s" % a["name"], 15, UiTheme.GOLD))
-		box.add_child(UiTheme.label(str(a["desc"]), 12, UiTheme.DIM))
-		panel.add_child(box)
+		box.add_theme_constant_override("separation", 0)
+		box.add_child(UiTheme.label("Succès obtenu", 11, UiTheme.DIM))
+		box.add_child(UiTheme.label(str(a["name"]), 15, UiTheme.GOLD))
+		row.add_child(box)
 		layer.add_child(panel)
 		var vs := tree.root.get_visible_rect().size
-		panel.position = Vector2(vs.x - 340.0, 16.0 + i * 64.0)
+		var w := 260.0
+		panel.custom_minimum_size.x = w
+		var y := 68.0 + i * 58.0 # Sous la barre du haut (32 px) et l'onglet « F1 : aide »
+		panel.position = Vector2(vs.x - w - 10.0 + 40.0, y)
 		panel.modulate.a = 0.0
 		tree.root.add_child.call_deferred(layer)
 		var tw := panel.create_tween()
-		tw.tween_property(panel, "modulate:a", 1.0, 0.3).set_delay(0.5 * i)
+		tw.tween_interval(0.5 * i + 0.01)
+		tw.tween_property(panel, "modulate:a", 1.0, 0.3)
+		tw.parallel().tween_property(panel, "position:x", vs.x - w - 10.0, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		tw.tween_interval(4.0)
 		tw.tween_property(panel, "modulate:a", 0.0, 0.6)
 		tw.tween_callback(layer.queue_free)
+
+
+# ---------------------------------------------------------------- Page « Succès » (grille)
+
+## Icône de chaque succès (dessinée par Icon).
+const ICONS := {
+	"premiere_victoire": "sword", "sans_perte_regiment": "shield", "sans_un_mort": "star", "carre": "square",
+	"embuscade": "tree", "brigands": "shield", "siege": "castle", "eclair": "bolt", "un_contre_deux": "swords",
+	"retraite": "flag", "elite": "chevron", "doyen": "chevron", "escarmouche_difficile": "skull",
+	"tues_100": "skull", "tues_1000": "skull", "batailles_10": "swords", "batailles_50": "swords",
+	"victoires_25": "laurel", "riche": "coin", "campagne_gagnee": "crown", "campagne_difficile": "crown",
+	"campagne_rapide": "bolt", "dissous": "flag",
+}
+## Succès à compteur : [clé de Stats (ou « oldest » : batailles du doyen), objectif].
+const GOALS := {
+	"tues_100": ["enemies_killed", 100], "tues_1000": ["enemies_killed", 1000],
+	"batailles_10": ["battles", 10], "batailles_50": ["battles", 50], "victoires_25": ["victories", 25],
+	"riche": ["gold_earned", 5000], "doyen": ["oldest", 10],
+	"campagne_gagnee": ["campaigns_won", 1], "dissous": ["campaigns_lost", 1],
+}
+
+
+## Progression d'un succès à compteur : [valeur, objectif] ; [] pour un succès d'un seul coup.
+static func progress(id: String) -> Array:
+	if not GOALS.has(id):
+		return []
+	var g: Array = GOALS[id]
+	var v := 0
+	if g[0] == "oldest":
+		v = int((Stats.data["oldest"] as Dictionary).get("battles", 0))
+	else:
+		v = Stats.count(g[0])
+	return [mini(v, int(g[1])), int(g[1])]
+
+
+## Date d'obtention (« 18/11/2026 »), vide si le succès n'est pas obtenu.
+static func unlocked_date(id: String) -> String:
+	if not Stats.is_unlocked(id):
+		return ""
+	var unix := int(Stats.data["achievements"][id])
+	if unix <= 0:
+		return "date inconnue"
+	var t := Time.get_datetime_dict_from_unix_time(unix + int(Time.get_time_zone_from_system()["bias"]) * 60)
+	return "%02d/%02d/%d" % [t["day"], t["month"], t["year"]]
+
+
+## Page « Succès » du menu principal : une grille (icône, nom, description, obtenu le…,
+## progression des succès à compteur). Le menu ajoute le bouton Retour.
+static func build_grid_page(box: VBoxContainer) -> void:
+	Stats.ensure_loaded()
+	var got := 0
+	for a in LIST:
+		if Stats.is_unlocked(a["id"]):
+			got += 1
+	box.add_child(UiTheme.label("Succès : %d / %d" % [got, LIST.size()], 24, UiTheme.GOLD))
+	box.add_child(progress_bar(got, LIST.size(), Vector2(300, 8)))
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(880, 400)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var grid := GridContainer.new()
+	grid.name = "GrilleSucces"
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	for a in LIST:
+		grid.add_child(card(a))
+	scroll.add_child(grid)
+	box.add_child(scroll)
+
+
+## Jauge de progression aux couleurs des menus (rainure sombre, remplissage doré).
+static func progress_bar(value: int, max_value: int, min_size: Vector2) -> ProgressBar:
+	var pb := ProgressBar.new()
+	pb.max_value = maxi(max_value, 1)
+	pb.value = value
+	pb.show_percentage = false
+	pb.custom_minimum_size = min_size
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(0.05, 0.04, 0.03)
+	bg.border_color = Color(0.45, 0.35, 0.2)
+	bg.set_border_width_all(1)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Color(0.85, 0.66, 0.28)
+	pb.add_theme_stylebox_override("background", bg)
+	pb.add_theme_stylebox_override("fill", fill)
+	return pb
+
+
+## Une case de la grille.
+static func card(a: Dictionary) -> Control:
+	var id: String = a["id"]
+	var on := Stats.is_unlocked(id)
+	var holder := PanelContainer.new()
+	holder.name = "Succes_" + id
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.2, 0.15, 0.08, 0.9) if on else Color(0.09, 0.08, 0.07, 0.9)
+	sb.border_color = UiTheme.GOLD if on else Color(0.3, 0.27, 0.22)
+	sb.set_border_width_all(1)
+	sb.set_content_margin_all(6)
+	holder.add_theme_stylebox_override("panel", sb)
+	holder.custom_minimum_size = Vector2(286, 0)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	holder.add_child(row)
+	var icon := Icon.new(str(ICONS.get(id, "star")), on, 40.0)
+	row.add_child(icon)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 1)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(col)
+	col.add_child(UiTheme.label(str(a["name"]), 14, UiTheme.GOLD if on else UiTheme.TEXT))
+	var desc := UiTheme.label(str(a["desc"]), 12, UiTheme.TEXT if on else UiTheme.DIM)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size.x = 220
+	col.add_child(desc)
+	var prog := progress(id)
+	if on:
+		col.add_child(UiTheme.label("Obtenu le " + unlocked_date(id), 11, Color(0.6, 0.9, 0.5)))
+	elif not prog.is_empty() and int(prog[1]) > 1:
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 6)
+		var pb := progress_bar(int(prog[0]), int(prog[1]), Vector2(120, 7))
+		pb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(pb)
+		line.add_child(UiTheme.label("%d / %d" % [int(prog[0]), int(prog[1])], 11, UiTheme.DIM))
+		col.add_child(line)
+	else:
+		col.add_child(UiTheme.label("À obtenir", 11, UiTheme.DIM))
+	return holder
+
+
+## Médaillon d'un succès : doré une fois obtenu, gris sinon, avec un symbole simple.
+class Icon extends Control:
+	var kind := "star"
+	var on := false
+
+	func _init(k: String, unlocked: bool, s := 40.0) -> void:
+		kind = k
+		on = unlocked
+		custom_minimum_size = Vector2(s, s)
+		size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var r := minf(size.x, size.y) * 0.5 - 1.0
+		var ring := UiTheme.GOLD if on else Color(0.42, 0.4, 0.36)
+		var fill := Color(0.35, 0.22, 0.08) if on else Color(0.16, 0.15, 0.14)
+		var ink := Color(1, 0.92, 0.65) if on else Color(0.5, 0.48, 0.44)
+		draw_circle(c, r, ring)
+		draw_circle(c, r - 2.5, fill)
+		Achievements.draw_glyph(self, kind, c, r * 0.62, ink)
+
+
+## Symbole d'un succès, centré en c, de rayon s (partagé par la grille et la notification).
+static func draw_glyph(ci: CanvasItem, kind: String, c: Vector2, s: float, ink: Color) -> void:
+	var w := maxf(s * 0.16, 1.5)
+	match kind:
+		"sword":
+			ci.draw_line(c + Vector2(-s * 0.7, s * 0.7), c + Vector2(s * 0.7, -s * 0.7), ink, w * 1.3)
+			ci.draw_line(c + Vector2(-s * 0.55, s * 0.1), c + Vector2(-s * 0.1, s * 0.55), ink, w)
+		"swords":
+			ci.draw_line(c + Vector2(-s * 0.7, s * 0.7), c + Vector2(s * 0.7, -s * 0.7), ink, w * 1.2)
+			ci.draw_line(c + Vector2(s * 0.7, s * 0.7), c + Vector2(-s * 0.7, -s * 0.7), ink, w * 1.2)
+		"shield", "square":
+			var pts := PackedVector2Array([c + Vector2(-s * 0.7, -s * 0.75), c + Vector2(s * 0.7, -s * 0.75),
+				c + Vector2(s * 0.7, s * 0.05), c + Vector2(0, s * 0.85), c + Vector2(-s * 0.7, s * 0.05)])
+			if kind == "square":
+				pts = PackedVector2Array([c + Vector2(-s * 0.65, -s * 0.65), c + Vector2(s * 0.65, -s * 0.65),
+					c + Vector2(s * 0.65, s * 0.65), c + Vector2(-s * 0.65, s * 0.65)])
+			ci.draw_colored_polygon(pts, ink)
+		"star":
+			var pts := PackedVector2Array()
+			for i in 10:
+				var rr := s * (0.95 if i % 2 == 0 else 0.42)
+				pts.append(c + Vector2.from_angle(-PI * 0.5 + i * PI / 5.0) * rr)
+			ci.draw_colored_polygon(pts, ink)
+		"tree":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -s * 0.9), c + Vector2(s * 0.65, s * 0.4), c + Vector2(-s * 0.65, s * 0.4)]), ink)
+			ci.draw_line(c + Vector2(0, s * 0.4), c + Vector2(0, s * 0.9), ink, w * 1.4)
+		"castle":
+			ci.draw_rect(Rect2(c + Vector2(-s * 0.75, -s * 0.2), Vector2(s * 1.5, s * 0.95)), ink)
+			for k in 3:
+				ci.draw_rect(Rect2(c + Vector2(-s * 0.75 + k * s * 0.6, -s * 0.55), Vector2(s * 0.3, s * 0.4)), ink)
+		"bolt":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(s * 0.2, -s * 0.95), c + Vector2(-s * 0.5, s * 0.1),
+				c + Vector2(-s * 0.02, s * 0.1), c + Vector2(-s * 0.2, s * 0.95), c + Vector2(s * 0.5, -s * 0.1), c + Vector2(s * 0.02, -s * 0.1)]), ink)
+		"flag":
+			ci.draw_line(c + Vector2(-s * 0.55, -s * 0.85), c + Vector2(-s * 0.55, s * 0.9), ink, w * 1.2)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.5, -s * 0.85), c + Vector2(s * 0.75, -s * 0.5), c + Vector2(-s * 0.5, -s * 0.1)]), ink)
+		"chevron":
+			for k in 2:
+				var y := -s * 0.35 + k * s * 0.6
+				ci.draw_polyline(PackedVector2Array([c + Vector2(-s * 0.7, y + s * 0.35), c + Vector2(0, y - s * 0.2), c + Vector2(s * 0.7, y + s * 0.35)]), ink, w * 1.3)
+		"skull":
+			ci.draw_circle(c + Vector2(0, -s * 0.15), s * 0.62, ink)
+			ci.draw_rect(Rect2(c + Vector2(-s * 0.35, s * 0.3), Vector2(s * 0.7, s * 0.45)), ink)
+			var hole := Color(0.1, 0.07, 0.04)
+			ci.draw_circle(c + Vector2(-s * 0.25, -s * 0.15), s * 0.16, hole)
+			ci.draw_circle(c + Vector2(s * 0.25, -s * 0.15), s * 0.16, hole)
+		"laurel":
+			for side in [-1.0, 1.0]:
+				for k in 4:
+					var a := PI * (0.55 + 0.17 * k)
+					var p := c + Vector2(cos(a) * side, sin(a) - 0.2) * s * 0.75
+					ci.draw_circle(p, s * 0.17, ink)
+		"coin":
+			ci.draw_circle(c, s * 0.8, ink)
+			ci.draw_arc(c, s * 0.55, 0, TAU, 20, Color(0.35, 0.22, 0.08, 0.8), w)
+		"crown":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.8, s * 0.55), c + Vector2(-s * 0.8, -s * 0.5),
+				c + Vector2(-s * 0.4, 0), c + Vector2(0, -s * 0.75), c + Vector2(s * 0.4, 0), c + Vector2(s * 0.8, -s * 0.5), c + Vector2(s * 0.8, s * 0.55)]), ink)
+		_:
+			ci.draw_circle(c, s * 0.5, ink)
