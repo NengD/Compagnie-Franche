@@ -55,6 +55,12 @@ var site_override: Dictionary = {} ## Champ tiré de la carte imposé (tests, Ba
 var objective_override := "" ## Objectif imposé hors campagne (tests) : clé de BattleObjectives.NAMES
 var objective_params: Dictionary = {} ## Réglages de l'objectif imposé (tests)
 var campaign: CampaignState = null ## Bataille d'un contrat de campagne (null = escarmouche)
+## Escarmouche personnalisée (SkirmishSetup.resolve) : armées, terrain, temps, difficulté.
+## Vide : escarmouche par défaut. Lue dans SkirmishSetup.pending au lancement hors campagne.
+var skirmish: Dictionary = {}
+var season := -1 ## Saison de la bataille (indice de WorldSim.SEASONS), -1 : sol sans saison
+var hour := 13.0 ## Heure de la bataille (lumière, voir MapSky.daylight)
+var daylight: CanvasModulate = null ## Lumière de l'heure (aube, crépuscule, nuit)
 var campaign_report := "" ## Compte rendu de fin de bataille en campagne (texte du journal)
 var campaign_result: Dictionary = {} ## Bilan structuré renvoyé par CampaignState.finish_battle
 var end_report: Dictionary = {} ## Bilan de fin de bataille (build_end_report), vide pendant la bataille
@@ -81,6 +87,8 @@ func _ready() -> void:
 	show_minimap = GameOptions.show_minimap
 	if CampaignState.current != null and CampaignState.current.in_battle():
 		campaign = CampaignState.current
+	if campaign == null and not is_tutorial and skirmish.is_empty():
+		skirmish = SkirmishSetup.pending
 	if seed_override != 0:
 		sim.rng.seed = seed_override
 	elif campaign != null:
@@ -88,7 +96,10 @@ func _ready() -> void:
 	else:
 		sim.rng.randomize()
 	if sim.difficulty == "":
-		sim.difficulty = campaign.difficulty if campaign != null else GameOptions.difficulty
+		if campaign != null:
+			sim.difficulty = campaign.difficulty
+		else:
+			sim.difficulty = str(skirmish.get("difficulty", GameOptions.difficulty))
 	sim.difficulty = Difficulty.sanitize(sim.difficulty)
 	sim.ai.configure(sim.difficulty)
 	sim.message_posted.connect(add_message)
@@ -118,6 +129,11 @@ func _ready() -> void:
 	Supplies.enter_battle(self) # Campagne : fatigue, faim, prisonniers enrôlés, sergent
 	if campaign != null:
 		sim.raining = campaign.world.raining # La météo du jour s'impose à la bataille (world_sim.gd)
+	elif not skirmish.is_empty():
+		sim.raining = bool(skirmish.get("raining", false))
+		season = clampi(int(skirmish.get("season", -1)), -1, WorldSim.SEASONS.size() - 1)
+		hour = float(skirmish.get("hour", 13.0))
+	apply_ambiance()
 
 	camera = BattleCamera.new()
 	add_child(camera)
@@ -135,6 +151,8 @@ func _ready() -> void:
 	audio.battle = self
 	add_child(audio)
 
+	if not skirmish.is_empty():
+		add_message("Escarmouche : %s." % SkirmishSetup.describe(skirmish))
 	if campaign != null:
 		add_message("Contrat : %s" % campaign.pending["title"])
 		if sim.raining:
@@ -176,6 +194,8 @@ func choose_terrain() -> String:
 		t = terrain_override
 	elif not site_override.is_empty():
 		t = str(site_override.get("kind", "plain"))
+	elif campaign == null and not skirmish.is_empty():
+		t = str(skirmish.get("terrain", "")) # Escarmouche personnalisée
 	elif campaign != null and str(campaign.pending.get("siege", "")) != "":
 		return Siege.terrain_for(str(campaign.pending["siege"])) # Contrat de siège
 	elif campaign != null and campaign.pending.get("site", {}) is Dictionary and not (campaign.pending.get("site", {}) as Dictionary).is_empty():
@@ -209,7 +229,31 @@ func choose_objective() -> BattleObjectives.Objective:
 
 ## Armées de l'escarmouche (le tutoriel remplace cette fonction).
 func spawn_armies() -> void:
+	if not skirmish.is_empty():
+		spawn_army(PLAYER, skirmish.get("player", []))
+		spawn_army(ENEMY, skirmish.get("enemy", []))
+		return
 	sim.spawn_default_armies()
+
+
+## Teinte du sol selon la saison (neige en hiver, feuilles en automne) et lumière de l'heure
+## (MapSky.daylight : nuit bleue, aube rose, crépuscule orangé). Le HUD n'est pas touché.
+func apply_ambiance() -> void:
+	renderer.ground_tint = SEASON_TINTS[season] if season >= 0 else Color(0, 0, 0, 0)
+	var light := MapSky.daylight(hour)
+	if light == Color.WHITE:
+		if daylight != null:
+			daylight.queue_free()
+			daylight = null
+		return
+	if daylight == null:
+		daylight = CanvasModulate.new()
+		add_child(daylight)
+	daylight.color = light
+
+
+## Voile posé sur le sol par saison (printemps, été, automne, hiver).
+const SEASON_TINTS := [Color(0, 0, 0, 0), Color(0.95, 0.85, 0.35, 0.06), Color(0.62, 0.36, 0.12, 0.14), Color(0.93, 0.96, 1.0, 0.62)]
 
 
 func start_battle() -> void:

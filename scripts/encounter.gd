@@ -271,6 +271,8 @@ static func volunteer_cost(type: String, n: int, unit_price: float) -> int:
 
 ## Combien la compagnie peut accueillir d'hommes d'un type (régiments entamés, puis un nouveau).
 static func room_for(state: CampaignState, type: String) -> int:
+	if Challenges.forbids_type(state.challenges, type):
+		return 0 # Défi « Sans cavalerie »
 	var room := 0
 	for r in state.company:
 		if r["type"] == type:

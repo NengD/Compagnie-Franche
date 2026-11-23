@@ -39,6 +39,7 @@ var sprites := SpriteBank.new()
 var ground_tex: ImageTexture
 var ground_scale := 1.0 ## Taille d'un pixel de ground_tex dans le monde
 var terrain_tex: ImageTexture = null ## Couche du relief et de l'eau posée sur le sol
+var ground_tint := Color(0, 0, 0, 0) ## Voile de saison sur le sol (Battle.apply_ambiance)
 var markers: Array = [] ## Repères d'ordres : [position, couleur, vie restante]
 var effects: BattleEffects ## Sang, fumée, éclaboussures, pluie au sol… (battle_effects.gd)
 var arms: Dictionary = Heraldry.DEFAULT ## Armoiries de la compagnie (bannières du joueur)
@@ -162,6 +163,8 @@ func build_procedural_ground(rng: RandomNumberGenerator) -> void:
 
 func _draw() -> void:
 	draw_texture_rect(ground_tex, Rect2(Vector2.ZERO, WORLD_SIZE), false)
+	if ground_tint.a > 0.0:
+		draw_rect(Rect2(Vector2.ZERO, WORLD_SIZE), ground_tint) # Sous le relief : l'eau et les murs restent nets
 	if terrain_tex != null:
 		draw_texture_rect(terrain_tex, Rect2(Vector2.ZERO, WORLD_SIZE), false)
 	if sim.terrain.has_river():

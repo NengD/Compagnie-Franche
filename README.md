@@ -10,8 +10,8 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
 
 ## Menu principal
 - **Continuer la campagne** : reprend l'emplacement joué en dernier (si une sauvegarde existe).
-  **Nouvelle campagne** : choix de la **difficulté** (facile, normal, difficile) et du **mode indulgent**,
-  sur le premier emplacement libre, avec un avertissement si l'emplacement contient une campagne en cours.
+  **Nouvelle campagne** : choix de la **difficulté** (facile, normal, difficile), du **mode indulgent**
+  et des **défis** (voir « Défis de campagne »), sur le premier emplacement libre, avec un avertissement si l'emplacement contient une campagne en cours.
   Si la campagne sauvegardée est **terminée**, le premier bouton devient **Bilan de la campagne** (écran de fin).
 - **Emplacements de campagne** : 3 emplacements. Chacun montre un **aperçu** : miniature de la carte de
   campagne (villes aux couleurs de leur maître, position de la compagnie), jour, or, hommes, renommée,
@@ -23,8 +23,15 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
   changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
   sur les archers, gagner. Échap : menu pause (Menu principal pour quitter).
-- **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu), à la
-  difficulté des Options (rappelée sous le bouton et dans la barre du haut en bataille).
+- **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu), d'abord
+  **préparée** : pour chaque armée, le nombre de régiments de chaque type (0 à 6, 12 au plus), leur **rang**
+  (recrues, aguerris, vétérans) et leur **équipement** (aucun, simple, bon, de maître : les trois pièces de
+  cette qualité) ; puis le **terrain** (les 6 terrains), la **météo** (clair, pluie), la **saison** (le sol se
+  couvre de neige en hiver, roussit en automne), l'**heure** (aube, plein jour, crépuscule, nuit : lumière de
+  la carte du monde) et la **difficulté** ; chaque réglage peut être « au hasard ». Boutons **Lancer la
+  bataille**, **Au hasard** (tout tiré au sort), **Par défaut** (l'escarmouche classique, 8 contre 8). Le
+  dernier réglage est **mémorisé dans les options** (`[escarmouche]` de `options.cfg`) ; « Recommencer »
+  rejoue la même escarmouche. Données et règles : `scripts/skirmish_setup.gd`.
 - **Menu pause** (Échap en bataille : contrat, escarmouche ou tutoriel) : la bataille s'arrête.
   Reprendre (ou Échap), Aide (toutes les commandes), Options (volumes, vitesse, plein écran, taille de l'interface),
   **Abandonner la bataille** (en contrat : retraite ordonnée, après confirmation ; ailleurs : retour au
@@ -88,8 +95,21 @@ Définie dans `scripts/difficulty.gd` (un seul endroit, valeurs « normal » = 1
 | Primes des contrats | x1,25 | x1 | x0,95 |
 | Vétérans des armées de contrat (les autres sont aguerris) | x0,4 | x0,7 | x0,85 |
 
-L'escarmouche prend la difficulté des Options ; la campagne garde celle choisie à sa création
-(enregistrée dans la sauvegarde, version 4 ; les sauvegardes plus anciennes sont relues en « normal »).
+L'escarmouche prend la difficulté de sa préparation (celle des Options par défaut) ; la campagne garde
+celle choisie à sa création (enregistrée dans la sauvegarde, version 4 ; les sauvegardes plus anciennes
+sont relues en « normal »).
+
+### Défis de campagne
+Cochés à « Nouvelle campagne » (`scripts/challenges.gd`), gardés dans la sauvegarde (version 14) et
+repris par « Nouvelle campagne » de la carte et de l'écran de fin. Ils s'affichent dans la fenêtre du
+monde (« Le pays »), dans l'aperçu de l'emplacement et au bilan de fin.
+- **Homme de fer** : une seule sauvegarde, sans copie de secours `.bak` ni mode indulgent (fermer le jeu
+  en pleine bataille la reprend) ; elle est **effacée** quand la compagnie est ruinée.
+- **Sans cavalerie** : aucun régiment monté (cavaliers, archers montés) ne se lève ni ne se complète :
+  ni en ville, ni au château, ni parmi les volontaires, déserteurs ou prisonniers.
+- **Hiver éternel** : la saison reste l'hiver (marches lentes, froid, armées qui fondent, neige sur la carte).
+- **Bourse plate** : la compagnie part avec la moitié de l'or.
+- **Contrats maigres** : primes des contrats réduites d'un quart.
 
 ## Campagne
 Vous menez une compagnie de mercenaires dans le pays de Valfrène, que se disputent trois factions :
@@ -372,11 +392,11 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
+  Format versionné (version 14 : défis de campagne ; 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
   prisonniers et compagnons ; 11 : champ de bataille tiré de la carte et alliés de la bataille en cours ;
   10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
   8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
-  cours) ; les versions 1 à 12 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours) ; les versions 1 à 13 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
   cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
   armées sont replacées sur la grande carte ; avant la version 10, les armoiries sont tirées de la graine de la
   campagne ; avant la version 12, dix jours de vivres, ni prisonniers ni compagnons ; avant la 13, ni fief, ni
@@ -649,10 +669,12 @@ scripts/party_ai.gd     Comportements des groupes (PartyAI.think -> think_<sorte
                         caravanes, patrouilles, déserteurs) et combats entre groupes (skirmishes, fight)
 scripts/end_screen.gd   Écran de fin : bilan, nouvelle campagne, retour au menu
 scripts/main_menu.gd    Menu principal, page Options (rebind des touches), fond pixel art
-scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, taille de l'interface, vitesse, difficulté, touches
+scripts/game_options.gd Options (GameOptions) : volumes et bus audio, plein écran, taille de l'interface, vitesse, difficulté, touches, dernier réglage d'escarmouche
 scripts/stats.gd        Statistiques globales et succès débloqués (Stats, statique), user://statistiques.json
 scripts/achievements.gd Succès (Achievements) : liste, conditions, notification, observateur de bataille, page du menu
 scripts/difficulty.gd   Niveaux de difficulté (Difficulty) : multiplicateurs ennemis, IA, économie
+scripts/challenges.gd   Défis de campagne (Challenges) : Homme de fer, Sans cavalerie, Hiver éternel...
+scripts/skirmish_setup.gd Escarmouche personnalisée (SkirmishSetup) : réglage, bornes, tirage, armées
 scripts/ui_theme.gd     Thème des menus, placement des panneaux selon la taille de la vue
 scripts/display_keys.gd Autoload DisplayKeys : Alt+Entrée / F11 (plein écran) partout, taille minimale de fenêtre
 scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, étapes validées par les actions
@@ -720,6 +742,8 @@ tests/interface_test.gd Test de l'interface de bataille : numéros fixes, aide, 
 tests/interface_capture.gd Captures de l'interface de bataille dans user://captures_interface/ (avec fenêtre)
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
+tests/skirmish_test.gd  Test de l'escarmouche préparée (armées, terrain, temps, options, menu) et des défis
+                        de campagne (cavalerie refusée, hiver bloqué, sauvegarde unique, aller-retour)
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
 tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le niveau, plafond, option)
 tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge, équipement) (avec fenêtre ; option --out)
@@ -755,6 +779,7 @@ tests/map_visuals_test.gd Test du rendu de la carte : armoiries (tirage, sauvega
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
+tests/skirmish_capture.gd Captures de la préparation d'escarmouche, des défis et de deux batailles préparées (avec fenêtre)
 tests/menu_capture.gd   Captures du menu, des options, des emplacements (aperçus), des succès et du tutoriel
                         (avec fenêtre ; option --out)
 tests/report_capture.gd Captures du bilan et de son onglet Statistiques (contrat avec promotions, escarmouche)
@@ -803,6 +828,7 @@ godot --headless --path . -s tests/interface_test.gd  # interface de bataille, a
 godot --headless --path . -s tests/interface_plus_test.gd  # mini-carte, statistiques du bilan, aperçus, succès
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
+godot --headless --path . -s tests/skirmish_test.gd   # escarmouche préparée et défis de campagne
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
 godot --headless --path . -s tests/stats_test.gd      # statistiques et succès (fichier de test, jamais le vrai)
 godot --headless --path . -s tests/save_test.gd       # sauvegarde : emplacements, .bak, bataille en cours, indulgent

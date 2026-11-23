@@ -12,10 +12,13 @@ const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée
-var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "options", "stats" ou "achievements"
+var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "skirmish" (préparation), "options", "stats" ou "achievements"
 var notice := ""
 var target_slot := 1 ## Emplacement visé par « nouvelle campagne » ou « supprimer »
 var lenient_choice := false ## Case « Mode indulgent » de la nouvelle campagne
+var challenge_choice: Array[String] = [] ## Défis cochés pour la nouvelle campagne (challenges.gd)
+var skirmish_cfg: Dictionary = {} ## Réglage de l'escarmouche en préparation (skirmish_setup.gd)
+var skirmish_rng := RandomNumberGenerator.new() ## Bouton « Au hasard » et tirages au lancement
 var waiting_action := "" ## Action dont on attend la nouvelle touche ("" = aucune)
 var font: Font
 var sprites := SpriteBank.new()
@@ -101,6 +104,8 @@ func refresh() -> void:
 			focus_later(add_button("Retour", back_to_main))
 		"new_campaign":
 			build_new_campaign()
+		"skirmish":
+			build_skirmish()
 		"slots":
 			build_slots()
 		"confirm_delete":
@@ -167,8 +172,7 @@ func build_main() -> void:
 		focus_later(nb)
 	add_button("Emplacements de campagne", open_slots)
 	add_button("Tutoriel", start_tutorial)
-	add_button("Escarmouche", start_skirmish)
-	box.add_child(UiTheme.label("Escarmouche en difficulté %s (Options)" % Difficulty.display_name(GameOptions.difficulty).to_lower(), 13, UiTheme.DIM))
+	add_button("Escarmouche", open_skirmish)
 	add_button("Options", open_options)
 	var pair := HBoxContainer.new() # Deux boutons sur une ligne : le menu reste court
 	pair.add_theme_constant_override("separation", 8)
@@ -286,7 +290,21 @@ func build_new_campaign() -> void:
 	ind.button_pressed = lenient_choice
 	ind.toggled.connect(func(on: bool) -> void: lenient_choice = on)
 	box.add_child(ind)
+	ind.disabled = Challenges.IRONMAN in challenge_choice
 	add_wrapped("Fermer le jeu pendant une bataille de contrat revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée. Sans ce mode, la bataille reprend au lancement suivant.", 13, UiTheme.DIM)
+	box.add_child(UiTheme.label("Défis :", 16))
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	box.add_child(grid)
+	for id in Challenges.IDS:
+		var cb := CheckBox.new()
+		cb.name = "Defi_" + id
+		cb.text = Challenges.display_name(id)
+		cb.button_pressed = id in challenge_choice
+		cb.toggled.connect(toggle_challenge.bind(id))
+		grid.add_child(cb)
+		_wrapped_in(grid, Challenges.hint(id), 12, UiTheme.DIM, 340)
 	box.add_child(UiTheme.label("Choisissez la difficulté :", 16))
 	for id in Difficulty.IDS:
 		var b := add_button(Difficulty.display_name(id), confirm_new_campaign.bind(id))
@@ -297,6 +315,163 @@ func build_new_campaign() -> void:
 	var back := add_button("Retour", back_to_main)
 	if running:
 		focus_later(back)
+
+
+# ---------------------------------------------------------------- Escarmouche personnalisée
+
+## Préparation de l'escarmouche : les deux armées (régiments par type, rang, équipement), le
+## champ (terrain, météo, saison, heure) et la difficulté. Tout changement est mémorisé.
+func build_skirmish() -> void:
+	box.add_child(UiTheme.label("Préparer une escarmouche", 22, UiTheme.GOLD))
+	var sides := HBoxContainer.new()
+	sides.add_theme_constant_override("separation", 24)
+	box.add_child(sides)
+	for side in ["player", "enemy"]:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 4)
+		sides.add_child(col)
+		var tl := UiTheme.label(army_title(side), 17, UiTheme.TEXT)
+		tl.name = "Titre_" + side
+		col.add_child(tl)
+		var grid := GridContainer.new()
+		grid.name = "Armee_" + side
+		grid.columns = 4
+		grid.add_theme_constant_override("h_separation", 8)
+		grid.add_theme_constant_override("v_separation", 3)
+		col.add_child(grid)
+		for h in ["Type", "Nombre", "Rang", "Équipement"]:
+			grid.add_child(UiTheme.label(h, 13, UiTheme.DIM))
+		for type in UnitTypes.ORDER:
+			var e: Dictionary = skirmish_cfg[side].get(type, {"n": 0, "rank": 0, "gear": 0})
+			var l := UiTheme.label(CampaignState.type_name(type), 14)
+			l.custom_minimum_size.x = 140
+			grid.add_child(l)
+			var n := SpinBox.new()
+			n.name = "%s_%s_n" % [side, type]
+			n.min_value = 0
+			n.max_value = SkirmishSetup.MAX_PER_TYPE
+			n.value = int(e["n"])
+			n.value_changed.connect(set_skirmish_unit.bind(side, type, "n"))
+			grid.add_child(n)
+			grid.add_child(_skirmish_option("%s_%s_rank" % [side, type], SkirmishSetup.RANK_NAMES, int(e["rank"]), set_skirmish_unit.bind(side, type, "rank")))
+			grid.add_child(_skirmish_option("%s_%s_gear" % [side, type], SkirmishSetup.GEAR_NAMES, int(e["gear"]), set_skirmish_unit.bind(side, type, "gear")))
+	box.add_child(HSeparator.new())
+	var field := GridContainer.new()
+	field.columns = 4
+	field.add_theme_constant_override("h_separation", 12)
+	field.add_theme_constant_override("v_separation", 6)
+	box.add_child(field)
+	var terrains: Array = [SkirmishSetup.RANDOM] + Terrain.KINDS
+	var terrain_names: Array = ["Au hasard"]
+	for k in Terrain.KINDS:
+		terrain_names.append(CampaignState.cap_first(str(Terrain.NAMES.get(k, k))))
+	_skirmish_choice(field, "Terrain", "terrain", terrains, terrain_names)
+	_skirmish_choice(field, "Météo", "weather", [SkirmishSetup.RANDOM] + SkirmishSetup.WEATHERS, _names_of(SkirmishSetup.WEATHERS, SkirmishSetup.WEATHER_NAMES))
+	_skirmish_choice(field, "Saison", "season", [SkirmishSetup.RANDOM] + SkirmishSetup.SEASONS, _names_of(SkirmishSetup.SEASONS, SkirmishSetup.SEASON_NAMES))
+	_skirmish_choice(field, "Heure", "hour", [SkirmishSetup.RANDOM] + SkirmishSetup.HOUR_IDS, _names_of(SkirmishSetup.HOUR_IDS, SkirmishSetup.HOUR_NAMES))
+	var diff_names: Array = []
+	for id in Difficulty.IDS:
+		diff_names.append(Difficulty.display_name(id))
+	_skirmish_choice(field, "Difficulté", "difficulty", Array(Difficulty.IDS), diff_names)
+	add_notice(560)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	box.add_child(row)
+	var go_b := add_button("Lancer la bataille", start_skirmish, true, row)
+	go_b.name = "Lancer"
+	add_button("Au hasard", randomize_skirmish, true, row).name = "Hasard"
+	add_button("Par défaut", reset_skirmish, true, row)
+	add_button("Retour", back_to_main, true, row)
+	focus_later(go_b)
+
+
+## « Votre armée (8 régiments) ».
+func army_title(side: String) -> String:
+	return "%s (%s)" % ["Votre armée" if side == "player" else "L'ennemi", CampaignState.plural(SkirmishSetup.army_size(skirmish_cfg[side]), "régiment", "régiments")]
+
+
+func _names_of(ids: Array, names: Dictionary) -> Array:
+	var out: Array = ["Au hasard"]
+	for id in ids:
+		out.append(names[id])
+	return out
+
+
+func _skirmish_option(node_name: String, items: Array, selected: int, cb: Callable) -> OptionButton:
+	var o := OptionButton.new()
+	o.name = node_name
+	for it in items:
+		o.add_item(str(it))
+	o.selected = clampi(selected, 0, items.size() - 1)
+	o.item_selected.connect(cb)
+	return o
+
+
+## Une ligne « intitulé : liste » du champ de bataille ; key : clé du réglage.
+func _skirmish_choice(grid: GridContainer, title: String, key: String, ids: Array, names: Array) -> void:
+	grid.add_child(UiTheme.label(title, 15))
+	var cb := func(i: int) -> void: set_skirmish_field(key, str(ids[i]))
+	var o := _skirmish_option("Champ_" + key, names, maxi(ids.find(str(skirmish_cfg[key])), 0), cb)
+	o.custom_minimum_size.x = 170
+	grid.add_child(o)
+
+
+func open_skirmish() -> void:
+	skirmish_cfg = stored_skirmish()
+	page = "skirmish"
+	notice = ""
+	refresh()
+
+
+## Dernier réglage mémorisé dans les options, sinon le réglage par défaut.
+static func stored_skirmish() -> Dictionary:
+	return SkirmishSetup.sanitize(GameOptions.skirmish) if not GameOptions.skirmish.is_empty() else SkirmishSetup.default_config()
+
+
+## Change le nombre, le rang ou l'équipement d'un type de régiment (key : "n", "rank", "gear").
+func set_skirmish_unit(v: float, side: String, type: String, key: String) -> void:
+	var army: Dictionary = skirmish_cfg[side]
+	if not army.has(type):
+		army[type] = {"n": 0, "rank": 0, "gear": 0}
+	army[type][key] = int(v)
+	var total := SkirmishSetup.army_size(army)
+	if key == "n" and total > SkirmishSetup.MAX_REGIMENTS:
+		army[type]["n"] = int(v) - (total - SkirmishSetup.MAX_REGIMENTS)
+		var spin := box.find_child("%s_%s_n" % [side, type], true, false) as SpinBox
+		if spin != null:
+			spin.set_value_no_signal(int(army[type]["n"]))
+		notice = "%d régiments au plus par armée." % SkirmishSetup.MAX_REGIMENTS
+		refresh.call_deferred()
+	remember_skirmish()
+	var tl := box.find_child("Titre_" + side, true, false) as Label
+	if tl != null:
+		tl.text = army_title(side)
+
+
+func set_skirmish_field(key: String, v: String) -> void:
+	skirmish_cfg[key] = v
+	remember_skirmish()
+
+
+## Mémorise le réglage dans les options (on le retrouve au prochain lancement du jeu).
+func remember_skirmish() -> void:
+	GameOptions.skirmish = skirmish_cfg.duplicate(true)
+	GameOptions.save_options()
+
+
+func randomize_skirmish() -> void:
+	skirmish_rng.randomize()
+	skirmish_cfg = SkirmishSetup.random_config(skirmish_rng)
+	notice = ""
+	remember_skirmish()
+	refresh()
+
+
+func reset_skirmish() -> void:
+	skirmish_cfg = SkirmishSetup.default_config()
+	notice = ""
+	remember_skirmish()
+	refresh()
 
 
 # ---------------------------------------------------------------- Options
@@ -357,7 +532,7 @@ func build_options() -> void:
 	df.selected = maxi(Difficulty.IDS.find(GameOptions.difficulty), 0)
 	df.item_selected.connect(set_difficulty)
 	grid.add_child(df)
-	grid.add_child(UiTheme.label("(la campagne a la sienne)", 13, UiTheme.DIM))
+	grid.add_child(UiTheme.label("(par défaut ; la préparation et la campagne ont la leur)", 13, UiTheme.DIM))
 	UiTheme.add_access_options(grid)
 
 	box.add_child(HSeparator.new())
@@ -529,15 +704,28 @@ func new_campaign(i := 0) -> void:
 		i = maxi(continue_slot(), 1)
 	target_slot = i
 	lenient_choice = false
+	challenge_choice = []
 	page = "new_campaign"
 	notice = ""
 	refresh()
 
 
+## Coche ou décoche un défi ; « Homme de fer » interdit le mode indulgent.
+func toggle_challenge(on: bool, id: String) -> void:
+	if on and not id in challenge_choice:
+		challenge_choice.append(id)
+	elif not on:
+		challenge_choice.erase(id)
+	if id == Challenges.IRONMAN:
+		if on:
+			lenient_choice = false
+		refresh()
+
+
 func confirm_new_campaign(level := Difficulty.NORMAL) -> void:
 	CampaignState.use_slot(target_slot)
 	CampaignState.delete_save() # L'ancienne campagne et sa copie de secours disparaissent
-	CampaignState.current = CampaignState.new_game(0, level, lenient_choice, true)
+	CampaignState.current = CampaignState.new_game(0, level, lenient_choice, true, challenge_choice)
 	CampaignState.current.save()
 	page = "main"
 	go(CAMPAIGN_SCENE)
@@ -568,9 +756,16 @@ func start_tutorial() -> void:
 	go(TUTORIAL_SCENE)
 
 
+## Lance l'escarmouche préparée (le dernier réglage mémorisé si la page n'a pas été ouverte).
 func start_skirmish() -> void:
 	if CampaignState.current != null:
 		CampaignState.current.pending = {} # Bataille hors campagne
+	if skirmish_cfg.is_empty():
+		skirmish_cfg = stored_skirmish()
+	remember_skirmish()
+	skirmish_rng.randomize()
+	SkirmishSetup.pending = SkirmishSetup.resolve(skirmish_cfg, skirmish_rng)
+	page = "main"
 	go(BATTLE_SCENE)
 
 

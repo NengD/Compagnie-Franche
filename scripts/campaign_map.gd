@@ -342,7 +342,7 @@ func set_speed(i: int) -> void:
 ## Saison du terrain et de la mini-carte (la nuit, le brouillard et la pluie sont redessinés à
 ## chaque image par les calques de MapSky).
 func update_light() -> void:
-	var s := MapSky.season(state.day, state.overworld.hour)
+	var s := MapSky.season(state.day, state.overworld.hour, state.world.eternal_winter)
 	if s == season:
 		return
 	season = s
@@ -701,7 +701,7 @@ func do_new_campaign() -> void:
 		refresh_ui()
 		return
 	confirm_new = false
-	CampaignState.current = CampaignState.new_game(0, state.difficulty, state.lenient, true) # Mêmes réglages qu'avant
+	CampaignState.current = CampaignState.new_game(0, state.difficulty, state.lenient, true, state.challenges) # Mêmes réglages qu'avant
 	state = CampaignState.current
 	state.world.realtime = true
 	state.save()

@@ -26,6 +26,7 @@ static func make(c: CampaignState) -> Dictionary:
 	return {
 		"version": VERSION, "day": c.day, "gold": int(c.gold), "men": c.total_men(), "fame": c.fame,
 		"difficulty": c.difficulty, "lenient": c.lenient, "saved_at": c.saved_at,
+		"challenges": Array(c.challenges),
 		"status": c.status_text(), "over": c.is_over(), "summary": c.summary(),
 		"pos": [pos.x, pos.y], "owners": owners,
 	}
@@ -88,6 +89,9 @@ static func lines(d: Dictionary) -> Array[String]:
 	if bool(d.get("lenient", false)):
 		diff += ", indulgent"
 	out.append("Renommée %d · %s" % [int(d.get("fame", 0)), diff])
+	var defis: Variant = d.get("challenges", [])
+	if defis is Array and not (defis as Array).is_empty():
+		out.append("Défis : " + Challenges.names(defis))
 	out.append("Sauvegardé le " + date_text(float(d.get("saved_at", 0.0))))
 	return out
 

@@ -349,6 +349,8 @@ func draw_top_bar(vs: Vector2) -> void:
 	var weather := "Pluie" if battle.raining else "Temps clair"
 	if battle.campaign == null: # En campagne, la météo du jour ne se change pas (pas de touche)
 		weather += "  [%s]" % GameOptions.key_label("rain")
+	if battle.season >= 0:
+		weather = CampaignState.cap_first(str(WorldSim.SEASONS[battle.season])) + " · " + weather
 	items.append([weather, Color(0.85, 0.85, 0.85)])
 	items.append(["Terrain : " + battle.terrain.display_name(), Color(0.85, 0.85, 0.85)])
 	if battle.sim.siege != null:

@@ -45,7 +45,10 @@ static func soft() -> GradientTexture2D:
 ## Mélange des saisons à cet instant : {"snow", "autumn", "summer", "spring"} (0 à 1).
 ## La neige tient dès le 2e jour d'hiver et fond pendant les 4 premiers jours du printemps ; le
 ## feuillage roussit à la fin de l'été et tombe au début de l'hiver.
-static func season(day: int, hour: float) -> Dictionary:
+## frozen : défi « Hiver éternel » (la neige couvre tout, toujours).
+static func season(day: int, hour: float, frozen := false) -> Dictionary:
+	if frozen:
+		return {"snow": 1.0, "autumn": 0.0, "summer": 0.0, "spring": 0.0}
 	var s := WorldSim.season_of(day)
 	var t := float(WorldSim.season_day(day) - 1) + hour / 24.0 # Jours écoulés dans la saison
 	var left := float(WorldSim.SEASON_DAYS) - t # Jours restants
@@ -224,7 +227,7 @@ class RainLayer extends Node2D:
 		var t := Time.get_ticks_msec() / 1000.0
 		var light := MapSky.daylight(state.overworld.hour)
 		draw_set_transform(view.position, 0.0, Vector2(z, z))
-		if WorldSim.season_of(state.day) == WorldSim.WINTER:
+		if state.world.season(state.day) == WorldSim.WINTER:
 			var flake := Color(1, 1, 1, 0.85) * Color(light, 1.0)
 			for k in SNOW_FLAKES:
 				var x := fposmod(k * 97.3 + sin(t * 1.3 + k) * 14.0 + t * 12.0, size.x)

@@ -197,6 +197,8 @@ static func willing(state: CampaignState, g: Dictionary) -> int:
 
 ## Places pour des hommes d'un type : régiments entamés, et un nouveau régiment si possible.
 static func room_for(state: CampaignState, type: String) -> int:
+	if Challenges.forbids_type(state.challenges, type):
+		return 0 # Défi « Sans cavalerie »
 	var full := int(UnitTypes.STATS[type]["count"])
 	var room := 0
 	for r in state.company:
@@ -214,6 +216,8 @@ static func enlist(state: CampaignState, index: int) -> String:
 		return "Ces prisonniers ne sont plus là."
 	var g: Dictionary = state.prisoners.list[index]
 	var type := str(g["type"])
+	if Challenges.forbids_type(state.challenges, type):
+		return Challenges.NO_CAVALRY_REFUSAL
 	var n := mini(willing(state, g), room_for(state, type))
 	if n <= 0:
 		return "Plus de place dans la compagnie pour des %s." % CampaignState.type_name(type).to_lower()

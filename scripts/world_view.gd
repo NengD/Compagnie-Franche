@@ -39,8 +39,10 @@ static func build_world(map: Node) -> void:
 	var w := state.world
 	map.add_section("Le pays")
 	map.add_label(w.calendar_text(state.day), 13, Color(1, 0.9, 0.7))
+	if not state.challenges.is_empty():
+		map.add_label("Défis : %s" % Challenges.names(state.challenges), 12, WARN)
 	var notes: Array[String] = []
-	if WorldSim.season_of(state.day) == WorldSim.WINTER:
+	if state.world.season(state.day) == WorldSim.WINTER:
 		notes.append("Hiver : marches plus lentes (x%.1f), le froid emporte des hommes en route." % WorldSim.MARCH_FACTOR[WorldSim.WINTER])
 	if w.raining:
 		notes.append("Une bataille livrée aujourd'hui se fera sous la pluie.")

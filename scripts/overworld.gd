@@ -143,7 +143,7 @@ func hostile(c: CampaignState, p: Party) -> bool:
 
 ## Vitesse d'un groupe à sa position (pixels par heure) : sorte, terrain ou route, saison.
 static func speed_of(c: CampaignState, p: Party) -> float:
-	return p.base_speed() * MapData.speed_at(p.pos) * WorldSim.march_factor(c.day)
+	return p.base_speed() * MapData.speed_at(p.pos) * c.world.march_speed(c.day)
 
 
 # ---------------------------------------------------------------- Ordres de la compagnie
@@ -343,7 +343,7 @@ func population_cap(c: CampaignState, kind: String) -> int:
 			return ceili(PartyAI.places_of(["village"]).size() * k)
 		"caravan":
 			var n := PartyAI.places_of(["town"]).size() * k
-			if WorldSim.season_of(c.day) == WorldSim.WINTER:
+			if c.world.season(c.day) == WorldSim.WINTER:
 				n *= WINTER_CARAVANS
 			return maxi(1, ceili(n))
 		"patrol":
