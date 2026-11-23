@@ -133,6 +133,20 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   - **Armoiries** (`scripts/heraldry.gd`) : votre compagnie porte les siennes sur sa bannière. Tirées au
     hasard au départ (partition, meuble, trois émaux, en respectant la règle des émaux), modifiables dans
     l'onglet **Compagnie** (section « Armoiries » : partition, meuble, couleurs, au hasard) et sauvegardées.
+  - **Villes, châteaux et villages** (`scripts/map_places.gd`) dessinés selon leur taille et leur maître :
+    une **cité** (capitale d'une faction) a une double enceinte, quatre tours et une cathédrale, une **ville**
+    ses remparts, deux tours et un clocher, un **château** son donjon crénelé, un **village** trois à cinq
+    maisons (et une église pour les plus gros). Toits des tours et bannières sont aux couleurs de la faction
+    qui tient le lieu et changent quand il est pris ; un village suit sa ville. Le **fief** de la compagnie
+    arbore ses armoiries (liseré d'or). Une ville ou un fief **assiégé** s'entoure d'un camp de tentes aux
+    couleurs de l'assiégeant, avec ses feux et leurs fumées.
+  - **Portraits** (`scripts/portrait.gd`) : le capitaine (en tabard à vos armoiries), chaque compagnon et le
+    chef de chaque groupe rencontré ont un visage en pixels assemblé d'après une graine (forme du visage,
+    peau, yeux, cheveux, barbe, cicatrice ou bandeau, casque, capuchon ou chapeau, habit selon le métier ;
+    certains surnoms se voient : le Roux, Barbe-Grise, le Borgne, Frère...). Toujours le même pour un même
+    personnage (tiré de la graine de la campagne ou de l'identifiant du groupe : rien de plus à sauvegarder).
+    Ils s'affichent dans l'onglet **Compagnie** (capitaine, compagnons et compagnons à engager) et dans les
+    rencontres.
   - **Saisons et météo visibles** (`scripts/map_sky.gd` et le shader) : prés en fleurs au printemps, blés
     mûrs en été, feuillage roux (orange, rouge, or ; les sapins restent verts) et herbe jaunie en automne ;
     en hiver, la neige tient peu à peu au sol et sur les arbres, la glace borde l'eau, les toits blanchissent,
@@ -639,6 +653,10 @@ scripts/map_icons.gd    Figurines des groupes sur la carte (MapIcons) : caravane
                         bandits, déserteurs, compagnie et sa bannière
 scripts/map_sky.gd      Saisons, lumière et météo de la carte (MapSky) : mélange des saisons, jour et nuit,
                         brouillard, pluie et neige, lumières de la nuit (calques légers)
+scripts/map_places.gd   Villes, châteaux et villages de la carte (MapPlaces) : taille, propriétaire et bannière,
+                        fief de la compagnie à ses armoiries, camp d'un siège
+scripts/portrait.gd     Portraits à graine (Portrait) : pièces, dessin, capitaine, compagnons, groupes rencontrés,
+                        vue des panneaux
 scripts/heraldry.gd     Armoiries de la compagnie (Heraldry) : tirage, validation, dessin, blason, section
                         « Armoiries » de l'onglet Compagnie
 scripts/overworld.gd    Carte en temps réel sans rendu (Overworld) : heure, compagnie, registre des groupes,
@@ -752,6 +770,11 @@ tests/map_capture.gd    Captures de la grande carte (vue éloignée, moyenne, ra
                         nuit, pluie, fenêtre de la compagnie et ses armoiries ; avec fenêtre ; option --out)
 tests/map_visuals_test.gd Test du rendu de la carte : armoiries (tirage, sauvegarde v10, relecture v9, réparation,
                         blason, boutons), saisons, nuit et brouillard, traces et sens de marche, shader et mini-carte
+tests/places_test.gd    Test des lieux et portraits : portrait déterministe pour une graine, variété, surnoms,
+                        stable après relecture ; taille des lieux, bannière qui change avec le propriétaire, fief,
+                        sièges ; portraits dans l'onglet Compagnie et les rencontres
+tests/places_capture.gd Captures des lieux (villes, siège, fief) et des portraits (planche, onglet Compagnie,
+                        rencontre) ; avec fenêtre ; option --out
 tests/audio_test.gd     Test de l'audio (chargement de tous les sons, bus, son coupé pendant les tests, fondu)
 tests/screenshot.gd     Captures d'écran (avec fenêtre)
 tests/terrain_shots.gd  Captures de chaque terrain (avec fenêtre ; option --out)
@@ -814,6 +837,8 @@ godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, béli
 godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, menu_emplacements.png, menu_succes.png, tutoriel.png
 godot --headless --path . -s tests/encounter_test.gd  # rencontres de la carte : choix, bataille, réputation, fuite
+godot --headless --path . -s tests/places_test.gd    # lieux de la carte (bannières, sièges) et portraits à graine
+godot --path . --resolution 1280x720 -s tests/places_capture.gd   # lieux_*.png, portraits_*.png
 godot --path . -s tests/encounter_capture.gd          # rencontre_villageois.png, rencontre_bandits.png
 godot --path . -s tests/report_capture.gd             # bilan_campagne(_stats).png, bilan_escarmouche(_stats).png
 godot --headless --path . -s tests/site_test.gd       # champ tiré de la carte (rivière et pont, route, village...) et alliés

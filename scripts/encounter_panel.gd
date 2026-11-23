@@ -77,7 +77,10 @@ func rebuild() -> void:
 	var title := UiTheme.label(CampaignState.cap_first(other.display_name()), 24, UiTheme.GOLD)
 	title.name = "Titre"
 	box.add_child(title)
-	box.add_child(wrapped(UiTheme.label(Encounter.greeting(state, player, other))))
+	var greet := wrapped(UiTheme.label(Encounter.greeting(state, player, other)))
+	greet.custom_minimum_size.x = 450
+	box.add_child(greet)
+	Portrait.beside(box, 0, Portrait.of_party(other), Vector2(72, 84)).name = "Portrait"
 	box.add_child(wrapped(UiTheme.label(Encounter.strength_line(other), 15, UiTheme.WARN)))
 	box.add_child(wrapped(UiTheme.label(Encounter.player_line(state, player), 15, UiTheme.DIM)))
 	box.add_child(wrapped(UiTheme.label("Or : %d écus — butin : %d écus" % [int(state.gold), state.loot], 14, UiTheme.DIM)))
