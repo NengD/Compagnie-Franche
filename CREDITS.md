@@ -54,6 +54,10 @@ Les licences CC0 n'exigent aucun crédit ; on les cite quand même par politesse
 - Les autres fichiers sont utilisés tels quels (renommés).
 - Les arbalétriers, chevaliers à pied et archers montés n'ont pas de planche à eux : le jeu reprend les planches
   MiniWorld des archers, des épéistes et des cavaliers, teintées en code, et y dessine pavois, plumet et arc.
+- Silhouettes ajoutées en code par-dessus les planches MiniWorld (`BattleRenderer.draw_unit_extras`) : longues
+  piques, arcs longs, arbalètes, lances à pennon, arc et carquois des archers montés, reflets du harnois ;
+  caparaçon des cavaliers repeint sur la planche (`SpriteBank.barding_image`). Débris, flèches plantées, boue
+  et étendards tombés (`scripts/battle_field.gd`) sont aussi dessinés en code : aucun asset ajouté.
 - L'équipement des régiments (casques, armures) est obtenu en repeignant les planches MiniWorld en code
   (`SpriteBank.dress_image`) ; armoiries, drapeaux, éclat des armes, flèches et poussière sont dessinés en
   code : aucun asset ajouté.

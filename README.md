@@ -660,7 +660,11 @@ scripts/battle.gd       Nœud de la bataille (classe Battle) : assemble simulati
                         HUD, son, menu pause ; temps (pause, vitesse, ralenti), campagne et bilan
 scripts/battle_sim.gd   Simulation sans rendu (BattleSim) : monde, armées, déplacements, mêlée, moral,
                         flèches, endurance, retraite, fin ; prévient le reste par des signaux
-scripts/battle_renderer.gd  Rendu pixel art (BattleRenderer, nœud enfant) : sol, soldats, arbres, effets
+scripts/battle_renderer.gd  Rendu pixel art (BattleRenderer, nœud enfant) : sol, soldats, arbres, effets ;
+                            silhouettes par type (piques, arcs longs, arbalètes et rechargement, lances,
+                            harnois), quatre manières de tomber, étendards tombés des régiments brisés
+scripts/battle_field.gd     Traces persistantes (BattleField) : armes et boucliers au sol (morts, fuyards),
+                            flèches plantées, boue des mêlées, étendards tombés ; hasard à part, plafonds
 scripts/battle_orders.gd    Saisie et ordres du joueur (BattleOrders) : sélection, groupes, ligne de front
 scripts/battle_effects.gd   Effets visuels (BattleEffects) : sang, étincelles, éclat des charges, traînées des
                             flèches, fumée, éclaboussures, pluie au sol, étendards ; hasard à part, plafond
@@ -723,6 +727,9 @@ tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauve
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
 tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le niveau, plafond, option)
 tests/effects_capture.gd Captures des effets (village sous la pluie, gué, mêlée, charge, équipement) (avec fenêtre ; option --out)
+tests/field_test.gd     Test des traces de bataille (débris, flèches, boue plafonnés ; étendard tombé à la
+                        déroute, relevé au ralliement ; manières de tomber ; rendu sans erreur)
+tests/field_capture.gd  Captures des silhouettes, des morts, du champ après la mêlée et d'une déroute (avec fenêtre)
 tests/visuals_test.gd   Test du rendu : équipement porté en bataille, planches repeintes, armoiries (sauvegarde),
                         bannières des factions, corps qui gardent leur régiment
 tests/realm_test.gd     Test du domaine (commerce, fiefs et leurs sièges, allégeance, quêtes, sauvegarde, fenêtres)
@@ -829,10 +836,12 @@ godot --headless --path . -s tests/campaign_balance.gd -- --seeds=8 --difficulty
 godot --path . -s tests/terrain_shots.gd              # terrain_*.png
 godot --headless --path . -s tests/effects_test.gd    # effets visuels : déterminisme, plafond, option
 godot --headless --path . -s tests/visuals_test.gd    # équipement visible, armoiries, bannières, corps
+godot --headless --path . -s tests/field_test.gd      # traces de bataille : plafonds, étendard tombé, morts
+godot --path . -s tests/field_capture.gd              # champ_silhouettes.png, champ_morts.png, champ_melee.png, champ_deroute.png
 godot --path . -s tests/effects_capture.gd            # effets_village.png, effets_gue.png, effets_melee.png, effets_charge.png, effets_equipement.png
 godot --path . -s tests/menu_capture.gd -- --out=captures   # met à jour les captures versionnées du dépôt
 ```
-Les scripts de capture (`menu_capture`, `report_capture`, `terrain_shots`, `effects_capture`) écrivent par défaut dans
+Les scripts de capture (`menu_capture`, `report_capture`, `terrain_shots`, `effects_capture`, `field_capture`) écrivent par défaut dans
 `user://captures` (sous Windows : `%APPDATA%\Godot\app_userdata\Compagnie Franche\captures\`), donc hors
 du dépôt. `--out=<dossier>` choisit un autre dossier ; un chemin relatif part de la racine du projet,
 et `--out=captures` remplace les images versionnées de `captures/`.

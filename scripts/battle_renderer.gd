@@ -1,7 +1,7 @@
 class_name BattleRenderer
 extends Node2D
 ## Rendu pixel art de la bataille, dessiné en un seul _draw() : sol, relief et eau, zone de
-## déploiement, corps, poussière, ordres des régiments sélectionnés, soldats, arbres, maisons et
+## déploiement, boue, corps, armes au sol, flèches plantées et étendards tombés (BattleField), poussière, ordres des régiments sélectionnés, soldats, arbres, maisons et
 ## palissades triés par profondeur, flèches, étendards, repères d'ordres et aperçus de la saisie.
 ## Il ne modifie jamais la simulation : il lit battle.sim et battle.orders.
 ##
@@ -23,12 +23,16 @@ const ALLY_DARK := Color(0.08, 0.3, 0.32)
 const ALLY_MOD := Color(0.5, 1.15, 0.62) ## Teinte appliquée aux planches bleues des alliés
 const SKIN := Color(0.93, 0.76, 0.6)
 const STEEL := Color(0.72, 0.74, 0.78)
+const STEEL_BRIGHT := Color(0.79, 0.805, 0.835) ## Pointes des piques et des lances
 const WOOD := Color(0.48, 0.32, 0.17)
 const HORSE := Color(0.42, 0.27, 0.15)
 const HORSE_DARK := Color(0.28, 0.17, 0.09)
 const PX := 2.0 ## Taille d'un « pixel » des dessins en code (repli quand un sprite manque)
 const MARKER_LIFE := 0.6 ## Durée d'un repère d'ordre (secondes)
 const FALL_TIME := 0.45 ## Durée de la chute d'un soldat tué (secondes de bataille)
+const KNEEL_TIME := 1.1 ## Mort à genoux : il s'affaisse, reste un instant, puis bascule
+## Manières de tomber (death_kind)
+enum { DEATH_SIDE, DEATH_BACK, DEATH_FORWARD, DEATH_KNEEL }
 const CORPSE_TINT := Color(0.55, 0.45, 0.42, 0.85) ## Teinte d'un corps au sol
 const ARROW_SHAFT := Color(0.32, 0.22, 0.12)
 const ARROW_FLETCH := Color(0.96, 0.95, 0.9)
@@ -40,6 +44,7 @@ var ground_tex: ImageTexture
 var ground_scale := 1.0 ## Taille d'un pixel de ground_tex dans le monde
 var terrain_tex: ImageTexture = null ## Couche du relief et de l'eau posée sur le sol
 var markers: Array = [] ## Repères d'ordres : [position, couleur, vie restante]
+var field: BattleField ## Traces persistantes : débris, flèches plantées, boue, étendards tombés (battle_field.gd)
 var effects: BattleEffects ## Sang, fumée, éclaboussures, pluie au sol… (battle_effects.gd)
 var arms: Dictionary = Heraldry.DEFAULT ## Armoiries de la compagnie (bannières du joueur)
 var enemy_faction := -1 ## Faction ennemie du contrat (couleurs de ses bannières), -1 : aucune
@@ -51,6 +56,7 @@ func _init(b: Battle) -> void:
 	sim = b.sim
 	name = "Renderer"
 	effects = BattleEffects.new(sim)
+	field = BattleField.new(sim)
 	if b.campaign != null:
 		arms = b.campaign.arms
 		if not b.campaign.pending.is_empty():
@@ -68,6 +74,7 @@ func update_effects(delta: float) -> void:
 		m[2] -= delta
 	markers = markers.filter(func(m): return m[2] > 0.0)
 	effects.update(delta, self)
+	field.update(delta)
 
 
 # ---------------------------------------------------------------- Sol
@@ -176,9 +183,14 @@ func _draw() -> void:
 
 	var view := effects.view
 	var cull := view.has_area()
+	field.draw_mud(self, view)
 	for c in sim.corpses:
 		if not cull or view.has_point(c[0]):
 			draw_corpse(c)
+	field.draw_ground(self, view)
+	for fb in field.fallen:
+		if not cull or view.has_point(fb[0]):
+			draw_fallen_banner(fb)
 
 	draw_dust()
 	effects.draw_ground(self)
@@ -248,8 +260,8 @@ func _draw() -> void:
 		sim.captain.draw(self, sim.state == BattleSim.State.DEPLOY)
 
 	for r in sim.regiments:
-		if r.is_dead() or (r.team == ENEMY and r.hidden):
-			continue
+		if r.is_dead() or (r.team == ENEMY and r.hidden) or field.routed.has(r):
+			continue # L'étendard d'un régiment en déroute est tombé (draw_fallen_banner)
 		draw_banner(r)
 
 	for m in markers:
@@ -340,6 +352,12 @@ func draw_soldier(s: Soldier) -> void:
 		if sim.siege != null:
 			p.y -= roundf(sim.siege.lift(s.pos)) # Sur le chemin de ronde ou à l'échelle
 		p += anim_offset(s, look, anim, t)
+		if r.routing and s.moving:
+			p.y -= roundf(absf(sin(s.anim * 2.2)) * 1.5) # Course éperdue des fuyards
+		elif r.type == "crossbow":
+			var rl := reload_progress(s)
+			if rl >= 0.0 and rl < 0.85 and sin(rl * TAU * 3.0) > 0.0:
+				p.y += 1.0 # Il tend l'arbalète
 		var src: Rect2 = f["src"]
 		var foot: Vector2 = f["foot"]
 		draw_rect(Rect2(p.x - 5, p.y - 1, 10, 3), Color(0, 0, 0, 0.22))
@@ -350,10 +368,12 @@ func draw_soldier(s: Soldier) -> void:
 		if s.flash > 0.0:
 			mod = Color(2.5, 2.5, 2.5, hidden_alpha) # Éclair blanc quand il est touché
 		var lk := look_of(r)
+		if r.facing.y < 0.0 and r.type == "crossbow":
+			draw_pavise(s, p, hidden_alpha) # Pavois du côté de l'ennemi, loin de la caméra : derrière lui
 		draw_texture_rect_region(lk["tex"], Rect2(p - foot, src.size), src, mod)
 		if int(lk["weapon"]) >= 2:
 			draw_weapon_gleam(s, p - foot, r.type, src, int(lk["weapon"]), anim == "attack", hidden_alpha)
-		draw_unit_extras(s, p, hidden_alpha)
+		draw_unit_extras(s, p, p - foot, src, look, anim == "attack", hidden_alpha)
 		return
 	draw_soldier_code(s)
 
@@ -364,8 +384,11 @@ func look_of(r: Regiment) -> Dictionary:
 	if lk == null:
 		var h := r.gear_tier("helmet")
 		var a := r.gear_tier("armor")
+		# Chevaliers à pied : toujours en harnois blanc (plates polies), quel que soit l'équipement
+		var th := maxi(h, 2) if r.type == "foot_knight" else h
+		var ta := 3 if r.type == "foot_knight" else a
 		lk = {"helmet": h, "armor": a, "weapon": r.gear_tier("weapon"),
-			"tex": sprites.dressed_tex(r.type, r.team, h, a) if sprites.has_unit(r.type, r.team) else null}
+			"tex": sprites.dressed_tex(r.type, r.team, th, ta) if sprites.has_unit(r.type, r.team) else null}
 		looks[r] = lk
 	return lk
 
@@ -403,36 +426,183 @@ func draw_weapon_gleam(s: Soldier, origin: Vector2, type: String, src: Rect2, ti
 		draw_rect(Rect2(q.x, q.y - 1, 1, 3), c)
 
 
-## Détails ajoutés aux planches empruntées : pavois des arbalétriers qui tiennent, plumet des
-## chevaliers à pied, arc des archers montés.
-func draw_unit_extras(s: Soldier, p: Vector2, alpha: float) -> void:
+## Avancement du rechargement d'un tireur (0 juste après le tir, 1 prêt), -1 s'il ne recharge pas.
+func reload_progress(s: Soldier) -> float:
 	var r := s.regiment
+	if r.fire_target == null or s.attack_anim > 0.0 or s.cooldown <= 0.0 or s.foe != null:
+		return -1.0
+	var full: float = r.stats["reload"]
+	if full <= 0.0 or s.cooldown > full * 1.3:
+		return -1.0
+	return clampf(1.0 - s.cooldown / full, 0.0, 1.0)
+
+
+## Pavois planté devant un arbalétrier qui tient sa place.
+func draw_pavise(s: Soldier, p: Vector2, alpha: float) -> void:
+	var r := s.regiment
+	if sim.pavise_factor(r) >= 1.0:
+		return
+	var c := p + r.facing.normalized() * 6.0 + Vector2(0, -6)
+	draw_rect(Rect2(c - Vector2(4, 5), Vector2(8, 10)), Color(WOOD, alpha))
+	draw_rect(Rect2(c - Vector2(2, 3), Vector2(4, 5)), Color(TEAM_COLORS[r.team], alpha))
+
+
+## Silhouettes propres à chaque type, dessinées par-dessus les planches : longues piques (dressées,
+## ou baissées face à l'ennemi), arcs longs plus hauts qu'un homme, arbalètes (tendues au pied
+## pendant le rechargement), lances à pennon des cavaliers, arc court et carquois des archers
+## montés, reflets du harnois des chevaliers à pied, pavois des arbalétriers. Les fuyards ont jeté
+## leurs armes (BattleField) : rien n'est dessiné pour eux.
+## p : point des pieds ; origin : coin de la case ; src : case de la planche ; look : regard.
+func draw_unit_extras(s: Soldier, p: Vector2, origin: Vector2, src: Rect2, look: Vector2, striking: bool, alpha: float) -> void:
+	var r := s.regiment
+	var type := r.type
+	if type == "men_at_arms" or (r.routing and type != "crossbow"):
+		return # Rien à ajouter ; les fuyards ont jeté leurs armes
+	if type == "crossbow" and r.facing.y >= 0.0:
+		draw_pavise(s, p, alpha) # Pavois devant l'arbalétrier (vers la caméra) : par-dessus lui
+	if r.routing:
+		return
 	var wood := Color(WOOD, alpha)
-	if sim.pavise_factor(r) < 1.0:
-		var c := p + r.facing.normalized() * 6.0 + Vector2(0, -6)
-		draw_rect(Rect2(c - Vector2(4, 5), Vector2(8, 10)), wood)
-		draw_rect(Rect2(c - Vector2(2, 3), Vector2(4, 5)), Color(TEAM_COLORS[r.team], alpha))
-	if r.stats["steadfast"]:
-		draw_rect(Rect2(p.x - 1, p.y - 18, 2, 3), Color(0.96, 0.92, 0.78, alpha))
-	if r.stats["skirmish"]:
-		draw_arc(p + Vector2(6, -16), 4.0, -PI * 0.5, PI * 0.5, 6, wood, 1.0)
+	var steel := Color(STEEL_BRIGHT, alpha)
+	var f := look.normalized() if look.length_squared() > 0.01 else Vector2.DOWN
+	var tip := Vector2(-1, -1)
+	if type == "spear" or type == "archer":
+		tip = sprites.blade_tip(type, src)
+	var hand := origin + tip if tip.x >= 0.0 else p + Vector2(4, -8)
+	match type:
+		"spear":
+			if s.foe != null or striking:
+				# Pique baissée : elle dépasse loin devant le premier rang
+				var grip := p + Vector2(0, -7)
+				var lunge := f * (3.0 if striking else 0.0)
+				draw_line(grip - f * 8.0 + lunge, grip + f * 26.0 + lunge, wood, 1.0)
+				draw_line(grip + f * 26.0 + lunge, grip + f * 30.0 + lunge, steel, 1.0)
+			else:
+				# Pique dressée : la hampe de la planche prolongée bien au-dessus des têtes
+				var sway := roundf(sin(effects.clock * 1.3 + float(s.get_instance_id() % 53)) * 0.6)
+				var top := Vector2(hand.x + sway, hand.y - 16.0)
+				draw_line(hand, top, wood, 1.0)
+				draw_line(top, top + Vector2(0, -3), steel, 1.0)
+		"archer":
+			# Arc long : une douve plus haute que l'archer, à son côté
+			var bx := hand.x if tip.x >= 0.0 else p.x + 5.0
+			var y0 := p.y - 21.0
+			var y1 := p.y + 1.0
+			var bulge := 2.0 if f.x >= 0.0 else -2.0
+			var mid := Vector2(bx + bulge, (y0 + y1) * 0.5)
+			draw_line(Vector2(bx, y0), mid, wood, 1.0)
+			draw_line(mid, Vector2(bx, y1), wood, 1.0)
+			var string := Color(0.9, 0.9, 0.82, 0.7 * alpha)
+			if striking: # Corde tirée jusqu'à l'oreille
+				var nock := Vector2(bx - bulge * 2.0, mid.y)
+				draw_line(Vector2(bx, y0), nock, string, 1.0)
+				draw_line(nock, Vector2(bx, y1), string, 1.0)
+			else:
+				draw_line(Vector2(bx, y0), Vector2(bx, y1), string, 1.0)
+		"crossbow":
+			var rl := reload_progress(s)
+			if rl >= 0.0 and rl < 0.85:
+				# Rechargement : arbalète tête en bas, le pied dans l'étrier, le cranequin qui tourne
+				var x := p.x + (5.0 if f.x >= 0.0 else -5.0)
+				draw_line(Vector2(x, p.y - 1), Vector2(x, p.y - 10), wood, 2.0)
+				draw_line(Vector2(x - 4, p.y - 1), Vector2(x + 4, p.y - 1), steel, 1.0)
+				var crank := Vector2(x, p.y - 10) + Vector2.from_angle(rl * TAU * 3.0) * 2.0
+				draw_rect(Rect2(crank.round(), Vector2(1, 1)), Color(0.3, 0.3, 0.32, alpha))
+			else:
+				# Arbalète épaulée : fût vers la cible, arc d'acier en travers
+				var grip := p + Vector2(0, -7)
+				var front := grip + f * (8.0 if not striking else 6.0)
+				var n := Vector2(-f.y, f.x * 0.6)
+				draw_line(grip - f * 2.0, front, wood, 2.0)
+				draw_line(front - n * 4.0, front + n * 4.0, steel, 1.0)
+		"foot_knight":
+			# Harnois poli : un reflet qui court sur les plates, le plumet blanc
+			var phase := float(s.get_instance_id() % 89) * 0.53
+			var shine := sin(effects.clock * 1.8 + phase)
+			if shine > 0.55:
+				var y := p.y - 6.0 - roundf((shine - 0.55) / 0.45 * 6.0)
+				draw_rect(Rect2(p.x - 2, y, 1, 1), Color(1, 1, 1, 0.9 * alpha))
+			draw_rect(Rect2(p.x + 1, p.y - 9, 1, 1), Color(1, 1, 1, 0.55 * alpha))
+			draw_rect(Rect2(p.x - 1, p.y - 18, 2, 3), Color(0.96, 0.92, 0.78, alpha))
+		"cavalry":
+			# Lance à pennon : couchée pendant la charge, dressée sinon
+			var pennon := Color(team_color(r), alpha)
+			if s.momentum > 0.5 or striking or (r.running and s.moving):
+				var grip := p + Vector2(0, -14)
+				var end := grip + f * 22.0
+				draw_line(grip - f * 6.0, end, Color(0.62, 0.5, 0.32, alpha), 1.5)
+				draw_line(end, end + f * 3.0, steel, 1.0)
+				draw_rect(Rect2((end - f * 5.0).round() + Vector2(0, -1), Vector2(2, 2)), pennon)
+			else:
+				var x := p.x + (7.0 if f.x >= 0.0 else -7.0)
+				draw_line(Vector2(x, p.y - 4), Vector2(x, p.y - 32), Color(0.62, 0.5, 0.32, alpha), 1.5)
+				draw_line(Vector2(x, p.y - 32), Vector2(x, p.y - 35), steel, 1.0)
+				var wave := roundf(sin(effects.clock * 5.0 + float(s.get_instance_id() % 37)))
+				draw_rect(Rect2(x, p.y - 31 + wave, 4, 2), pennon)
+		"horse_archer":
+			# Arc court recourbé et carquois au dos : pas de lance ni de caparaçon
+			var bx := p.x + (6.0 if f.x >= 0.0 else -6.0)
+			var dirx := 1.0 if f.x >= 0.0 else -1.0
+			draw_line(Vector2(bx - dirx, p.y - 22), Vector2(bx + dirx * 2.0, p.y - 17), wood, 1.0)
+			draw_line(Vector2(bx + dirx * 2.0, p.y - 17), Vector2(bx - dirx, p.y - 12), wood, 1.0)
+			draw_line(Vector2(bx - dirx, p.y - 22), Vector2(bx - dirx * (3.0 if striking else 1.0), p.y - 17), Color(0.9, 0.9, 0.82, 0.7 * alpha), 1.0)
+			draw_line(Vector2(bx - dirx, p.y - 17), Vector2(bx - dirx, p.y - 12), Color(0.9, 0.9, 0.82, 0.7 * alpha), 1.0)
+			var qx := p.x - dirx * 5.0
+			draw_rect(Rect2(qx - 1, p.y - 19, 3, 6), Color(0.36, 0.22, 0.12, alpha))
+			draw_rect(Rect2(qx - 1, p.y - 21, 1, 2), Color(0.92, 0.9, 0.84, alpha))
+			draw_rect(Rect2(qx + 1, p.y - 20, 1, 1), Color(0.92, 0.9, 0.84, alpha))
 
 
-## Corps au sol : le sprite qui bascule sur le côté (chute, FALL_TIME) puis reste couché et
-## assombri, avec son équipement ; ou un petit dessin en code.
+## Manière de tomber d'un corps (stable : tirée de sa position et de l'heure de sa mort, sans
+## toucher au hasard de la simulation). Les montés tombent toujours sur le flanc.
+func death_kind(c: Array) -> int:
+	if c.size() <= 6 or UnitTypes.STATS[c[2]]["mounted"]:
+		return DEATH_SIDE
+	var p: Vector2 = c[0]
+	var h := absi(int(p.x) * 7 + int(p.y) * 13 + int(float(c[4]) * 10.0))
+	return h % 4
+
+
+## Pose d'un corps qui tombe : rotation et échelle verticale autour des pieds, selon la direction
+## où finit la tête (lie). k : avancement de la chute (0 debout, 1 couché).
+static func fall_pose(lie: Vector2, k: float) -> Array:
+	var e := k * k # La chute accélère
+	if absf(lie.x) >= absf(lie.y) * 0.8:
+		return [signf(lie.x) * PI * 0.5 * e, 1.0]
+	if lie.y < 0.0:
+		return [0.0, lerpf(1.0, 0.45, e)] # Tête vers le haut de l'écran : vu en raccourci
+	return [0.0, lerpf(1.0, -0.55, e)] # Tête vers la caméra : le corps passe devant les pieds
+
+
+## Corps au sol : le sprite qui tombe (FALL_TIME, KNEEL_TIME) puis reste couché et assombri, avec
+## son équipement ; quatre manières : sur le côté, à la renverse (loin du coup), en avant (vers le
+## coup), à genoux puis en avant. Repli : un petit dessin en code.
 ## c : [position, camp, type, côté, heure de la mort, régiment, regard] (les 4 premiers suffisent).
 func draw_corpse(c: Array) -> void:
 	var p: Vector2 = c[0]
 	var team: int = c[1]
 	var type: String = c[2]
 	var side: int = c[3]
+	var kind := death_kind(c)
 	var k := 1.0 # Avancement de la chute (1 = couché)
+	var kneel := 0.0 # Affaissement à genoux (0 à 1)
 	if c.size() > 4 and sim.state == BattleSim.State.BATTLE:
-		k = clampf((sim.battle_time - float(c[4])) / FALL_TIME, 0.0, 1.0)
+		var age := sim.battle_time - float(c[4])
+		if kind == DEATH_KNEEL:
+			kneel = clampf(age / (KNEEL_TIME * 0.4), 0.0, 1.0)
+			k = clampf((age - KNEEL_TIME * 0.55) / (KNEEL_TIME * 0.45), 0.0, 1.0)
+		else:
+			k = clampf(age / FALL_TIME, 0.0, 1.0)
+	elif kind == DEATH_KNEEL:
+		kneel = 1.0
 	if sprites.has_unit(type, team):
 		var dir := SpriteBank.DOWN
+		var look := Vector2.DOWN
 		if c.size() > 6:
-			dir = SpriteBank.dir_of(c[6])
+			look = c[6]
+			if look.length_squared() < 0.01:
+				look = Vector2.DOWN
+			dir = SpriteBank.dir_of(look)
 		var f := sprites.frame(type, team, dir, "idle", 0.0)
 		var src: Rect2 = f["src"]
 		var foot: Vector2 = f["foot"]
@@ -442,9 +612,17 @@ func draw_corpse(c: Array) -> void:
 			if lk["tex"] != null:
 				tex = lk["tex"]
 		var tint: Color = f["tint"]
-		# Chute : bascule autour des pieds, de plus en plus vite ; le corps s'assombrit au sol
-		draw_set_transform(p + Vector2(0, -2.0 * k), side * PI * 0.5 * k * k)
-		draw_texture_rect_region(tex, Rect2(Vector2(-src.size.x * 0.5, -foot.y), src.size), src, Color(tint, 1.0).lerp(CORPSE_TINT, k))
+		var lie := Vector2(side, 0)
+		match kind:
+			DEATH_BACK:
+				lie = -look
+			DEATH_FORWARD, DEATH_KNEEL:
+				lie = look
+		var pose := fall_pose(lie, k)
+		var sy: float = float(pose[1]) * lerpf(1.0, 0.72, kneel) if k < 1.0 else float(pose[1])
+		# Bascule autour des pieds ; le corps s'assombrit au sol
+		draw_set_transform(p + Vector2(0, -2.0 * k + kneel * (1.0 - k)), pose[0], Vector2(1.0, sy))
+		draw_texture_rect_region(tex, Rect2(Vector2(-src.size.x * 0.5, -foot.y), src.size), src, Color(tint, 1.0).lerp(CORPSE_TINT, maxf(k, kneel * 0.3)))
 		draw_set_transform(Vector2.ZERO)
 		return
 	draw_set_transform(p, side * PI * 0.5 * (1.0 - k), Vector2(PX, PX))
@@ -615,6 +793,26 @@ func draw_banner(r: Regiment) -> void:
 	draw_set_transform(Vector2.ZERO)
 	if GameOptions.team_shapes:
 		Hud.draw_team_shape(self, r.team, at + Vector2(-23, -15), 4.5)
+
+
+## Étendard tombé d'un régiment brisé (BattleField.fallen) : la hampe bascule autour de son pied
+## (BattleField.BANNER_FALL) puis reste couchée, le drapeau souillé de boue.
+func draw_fallen_banner(fb: Array) -> void:
+	var base: Vector2 = fb[0]
+	var r: Regiment = fb[1]
+	var k := clampf((field.clock - float(fb[2])) / BattleField.BANNER_FALL, 0.0, 1.0)
+	var side := float(fb[3])
+	draw_rect(Rect2(base.x - 4 + side * 8.0 * k, base.y - 1, 8 + 10.0 * k, 3), Color(0, 0, 0, 0.18 * k))
+	draw_set_transform(base, side * PI * 0.5 * 0.9 * k * k, Vector2(PX, PX))
+	draw_line(Vector2.ZERO, Vector2(0, -10), WOOD, 1.0)
+	var flag := Rect2(0, -10, 7, 5)
+	if r.team == PLAYER and not r.allied:
+		Heraldry.draw(self, flag, arms)
+	else:
+		draw_rect(flag, flag_color(r))
+	draw_rect(flag, Color(0.25, 0.18, 0.1, 0.45 * k)) # Boue et ombre
+	draw_rect(flag, Color(0, 0, 0, 0.6), false, 0.5)
+	draw_set_transform(Vector2.ZERO)
 
 
 ## Couleur principale du drapeau : armoiries de la compagnie, couleur de la faction ennemie du
