@@ -64,3 +64,6 @@ Les licences CC0 n'exigent aucun crédit ; on les cite quand même par politesse
 - L'herbe des forêts est assombrie et le sol est assemblé par le jeu à partir des tuiles MiniWorld.
 - Le rempart, les tours, la porte, les échelles, le bélier et le pavé des villes assiégées sont dessinés en code
   (`scripts/siege.gd`) : aucun asset ajouté.
+- Les villes, châteaux et villages de la carte (`scripts/map_places.gd`) et les portraits du capitaine, des
+  compagnons et des groupes rencontrés (`scripts/portrait.gd`, pièces assemblées d'après une graine) sont
+  dessinés en code : aucun asset ajouté.

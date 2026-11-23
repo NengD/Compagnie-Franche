@@ -362,15 +362,11 @@ static func draw_place(map: Node2D, i: int, p: Vector2) -> void:
 	var s: CampaignState = map.state
 	if Fiefs.is_castle(i):
 		var o := s.fiefs.owner_of(i)
-		if o == Fiefs.PLAYER:
-			map.draw_rect(Rect2(p + Vector2(0, -31), Vector2(10, 7)), GOLD)
-			map.draw_rect(Rect2(p + Vector2(1, -30), Vector2(8, 5)), COMPANY)
+		if o == Fiefs.PLAYER: # La bannière aux armoiries est dessinée par MapPlaces
 			map.draw_arc(p, 26.0, 0, TAU, 28, COMPANY, 2.0)
 			var e := s.fiefs.fief(i)
 			if not e.is_empty() and not (e["siege"] as Dictionary).is_empty():
 				map.draw_arc(p, 31.0, 0, TAU, 28, Color(0.9, 0.15, 0.1), 3.0)
-		elif o != int(MapData.place(i).get("faction", -1)) and o >= 0:
-			map.draw_rect(Rect2(p + Vector2(1, -30), Vector2(8, 5)), CampaignState.FACTIONS[o]["color"])
 	for q in s.quests.active:
 		if int(q["target"]) == i:
 			var at := p + Vector2(-16, -30)

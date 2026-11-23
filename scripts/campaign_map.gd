@@ -1112,10 +1112,12 @@ func build_contact() -> void:
 	var ow := state.overworld
 	window_title.text = "Rencontre : %s" % CampaignState.cap_first(contact.display_name())
 	var lines := party_lines(contact)
+	var from := box.get_child_count() # Portrait du chef du groupe à gauche des premières lignes
 	add_label(" · ".join(lines.slice(1, lines.size() - 1)), 12, Color(1, 0.5, 0.4) if ow.hostile(state, contact) else Color(0.92, 0.88, 0.78))
 	var enc := Overworld.encounter_script()
 	if enc != null:
 		add_label(str(enc.call("greeting", state, ow.player, contact)), 12, Color(0.92, 0.88, 0.78))
+	Portrait.beside(box, from, Portrait.of_party(contact), Vector2(56, 64))
 	LifePanel.build_contact(self, contact) # Rapport de l'éclaireur
 	var site := ow.battle_site(contact)
 	add_label("Terrain du combat : %s, %s." % [str(Terrain.NAMES.get(str(site["kind"]), "plaine")).to_lower(), str(site["label"])], 12, Color(0.75, 0.72, 0.65))
@@ -1323,7 +1325,7 @@ func draw_place(i: int, zoom := 1.0) -> void:
 		"town":
 			draw_town(i)
 		"castle":
-			draw_castle(p, f)
+			draw_castle(i)
 		"abbey":
 			draw_abbey(p)
 		"mill":
@@ -1339,7 +1341,7 @@ func draw_place(i: int, zoom := 1.0) -> void:
 		"lair":
 			draw_lair(p)
 		_:
-			draw_village(p)
+			draw_village(i)
 	RealmPanel.draw_place(self, i, p) # Bannière des fiefs, cibles des quêtes
 	var town := kind == "town"
 	if not town and not here and i != hover_place and zoom < 0.55:
@@ -1353,30 +1355,13 @@ func draw_place(i: int, zoom := 1.0) -> void:
 	draw_string(font, Vector2(-80, 0), name, HORIZONTAL_ALIGNMENT_CENTER, 160, size, col)
 	draw_set_transform(Vector2.ZERO)
 
-## Petite ville fortifiée dessinée en pixels (x2), drapeau des contrats, couleurs de la faction.
+## Ville fortifiée (MapPlaces : taille, propriétaire, siège), drapeau des contrats, couleur de la faction.
 func draw_town(i: int) -> void:
 	var p := MapData.place_pos(i).round()
-	draw_set_transform(p, 0.0, Vector2(2, 2))
-	var stone := Color(0.7, 0.68, 0.62)
-	var dark := Color(0.3, 0.28, 0.26)
-	var roof := snowy(Color(0.66, 0.24, 0.16))
-	draw_rect(Rect2(-9, -2, 18, 7), dark)
-	draw_rect(Rect2(-8, -3, 16, 7), stone)
-	for k in 4:
-		draw_rect(Rect2(-8 + k * 5, -4, 2, 1), stone)
-	draw_rect(Rect2(-1, 1, 3, 3), dark)
-	draw_rect(Rect2(-10, -8, 4, 12), stone)
-	draw_rect(Rect2(6, -8, 4, 12), stone)
-	draw_rect(Rect2(-11, -10, 6, 2), roof)
-	draw_rect(Rect2(5, -10, 6, 2), roof)
-	draw_rect(Rect2(-4, -8, 3, 4), Color(0.85, 0.78, 0.6))
-	draw_rect(Rect2(-5, -9, 5, 1), roof)
-	draw_rect(Rect2(1, -9, 3, 5), Color(0.85, 0.78, 0.6))
-	draw_rect(Rect2(0, -10, 5, 1), roof)
-	draw_set_transform(Vector2.ZERO)
+	MapPlaces.draw_town(self, state, i)
 	var n := state.contracts_at(i).size()
 	if n > 0:
-		var f := p + Vector2(14, -22)
+		var f := p + Vector2(34, -18)
 		draw_line(f, f + Vector2(0, 14), WOOD, 2.0)
 		var final_here := int(state.final_contract().get("town", -1)) == i
 		draw_rect(Rect2(f, Vector2(10, 7)), GOLD_COL if final_here else Color(0.8, 0.15, 0.12))
@@ -1390,26 +1375,12 @@ func draw_town(i: int) -> void:
 			draw_rect(Rect2(bar.position + Vector2(4 + k * 11, 0), Vector2(5, 4)), Color(0.55, 0.08, 0.06))
 
 
-func draw_village(p: Vector2) -> void:
-	var wall := Color(0.85, 0.78, 0.6)
-	var roof := snowy(Color(0.55, 0.35, 0.2))
-	for h in [Vector2(-10, 0), Vector2(4, -4), Vector2(-2, 6)]:
-		draw_rect(Rect2(p + h + Vector2(0, 1), Vector2(10, 7)), Color(0, 0, 0, 0.3))
-		draw_rect(Rect2(p + h, Vector2(9, 6)), wall)
-		draw_rect(Rect2(p + h + Vector2(-1, -3), Vector2(11, 3)), roof)
-		draw_rect(Rect2(p + h + Vector2(4, 3), Vector2(2, 3)), Color(0.3, 0.2, 0.12))
+func draw_village(i: int) -> void:
+	MapPlaces.draw_village(self, state, i)
 
 
-func draw_castle(p: Vector2, f: int) -> void:
-	var stone := Color(0.62, 0.6, 0.56)
-	draw_rect(Rect2(p + Vector2(-9, -6), Vector2(20, 16)), Color(0, 0, 0, 0.3))
-	draw_rect(Rect2(p + Vector2(-10, -8), Vector2(20, 16)), stone)
-	draw_rect(Rect2(p + Vector2(-4, -20), Vector2(8, 14)), stone.lightened(0.1))
-	for k in 3:
-		draw_rect(Rect2(p + Vector2(-10 + k * 8, -10), Vector2(4, 2)), stone)
-	draw_rect(Rect2(p + Vector2(-2, 2), Vector2(4, 6)), Color(0.25, 0.2, 0.18))
-	draw_line(p + Vector2(0, -20), p + Vector2(0, -30), WOOD, 1.5)
-	draw_rect(Rect2(p + Vector2(1, -30), Vector2(8, 5)), faction_color(f))
+func draw_castle(i: int) -> void:
+	MapPlaces.draw_castle(self, state, i)
 
 
 static func faction_color(f: int) -> Color:

@@ -160,6 +160,7 @@ static func build_companions(map: Node, state: CampaignState) -> void:
 		if m.is_empty():
 			continue
 		var info: Dictionary = Companions.KINDS[kind]
+		var from: int = map.box.get_child_count() # Portrait à gauche des lignes du compagnon
 		map.add_label("%s, %s — niveau %d (expérience %d / %d)   ·   solde %.1f / jour" % [m["name"], str(info["name"]).to_lower(), int(m["level"]), int(m["xp"]), int(Companions.LEVEL_XP * int(m["level"])), Companions.wage_of(state, m)], 13)
 		if not Companions.available(m, state.day):
 			map.add_label("Blessé : sans effet jusqu'au jour %d." % int(m["wounded_until"]), 12, RED)
@@ -167,6 +168,7 @@ static func build_companions(map: Node, state: CampaignState) -> void:
 		for sk in info["skills"]:
 			parts.append("%s %d/%d" % [info["skills"][sk]["name"], int(m["skills"][sk]), Companions.SKILL_MAX])
 		map.add_label("%s · %s" % [CampaignState.cap_first(str(info["role"])), " · ".join(parts)], 12, DIM)
+		Portrait.beside(map.box, from, Portrait.of_companion(state, m), Vector2(52, 60)).dim = not Companions.available(m, state.day)
 		if int(m["points"]) > 0:
 			map.add_label("%s à dépenser :" % CampaignState.plural(int(m["points"]), "point de compétence", "points de compétence"), 12, GOLD)
 			for sk in info["skills"]:
@@ -176,11 +178,14 @@ static func build_companions(map: Node, state: CampaignState) -> void:
 		for kind in offers:
 			var info: Dictionary = Companions.KINDS[kind]
 			var cost := Companions.hire_cost(state, kind)
+			var from: int = map.box.get_child_count()
 			var b: Button = map.add_button("Engager %s, %s (%s) : %d écus, solde %.1f / jour" % [Companions.offer_name(state, kind), str(info["name"]).to_lower(), info["role"], cost, float(info["wage"]) * Difficulty.value(state.difficulty, "wage")], LifePanel.hire.bind(map, kind), state.gold >= cost and closed == "")
 			var names: Array[String] = []
 			for sk in info["skills"]:
 				names.append("%s (%s)" % [info["skills"][sk]["name"], info["skills"][sk]["text"]])
 			b.tooltip_text = "Compétences : %s." % ", ".join(names)
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			Portrait.beside(map.box, from, Portrait.of_companion(state, {"kind": kind, "name": Companions.offer_name(state, kind)}), Vector2(52, 60))
 
 
 ## Ligne du bilan de fin de bataille (battle_report.gd) : prisonniers faits, blessés graves.

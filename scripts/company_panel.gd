@@ -17,6 +17,7 @@ static func build(map: Node) -> void:
 static func build_captain(map: Node, state: CampaignState) -> void:
 	var cap := state.captain
 	map.add_section("Capitaine")
+	var from: int = map.box.get_child_count() # Portrait à gauche des lignes du capitaine
 	map.add_label("%s — niveau %d (expérience %d / %d)" % [cap.name, cap.level, int(cap.xp), int(Captain.LEVEL_XP * cap.level)], 13)
 	if not cap.available(state.day):
 		map.add_label("Blessé : il garde le lit jusqu'au jour %d (absent des batailles)." % cap.wounded_until, 12, Color(1, 0.5, 0.4))
@@ -24,6 +25,7 @@ static func build_captain(map: Node, state: CampaignState) -> void:
 	for k in Captain.SKILLS:
 		parts.append("%s %d/%d" % [Captain.SKILLS[k]["name"], int(cap.skills[k]), Captain.SKILL_MAX])
 	map.add_label("Aura de moral %d px · %s" % [int(cap.aura_radius()), " · ".join(parts)], 12, DIM)
+	Portrait.beside(map.box, from, Portrait.of_captain(state)).dim = not cap.available(state.day)
 	if cap.points > 0:
 		map.add_label("%s à dépenser :" % CampaignState.plural(cap.points, "point de compétence", "points de compétence"), 12, Color(1, 0.84, 0.4))
 		for k in Captain.SKILLS:
