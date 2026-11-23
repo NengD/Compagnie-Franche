@@ -798,6 +798,8 @@ func move_towards(s: Soldier, goal: Vector2, speed: float, dt: float) -> void:
 		return
 	var dir := v / l
 	speed *= terrain.speed_factor(s.pos, dir, s.regiment.type) # Eau, montée
+	if siege != null:
+		speed *= siege.speed_factor(s.regiment) # Porteurs du bélier
 	var step_len := minf(speed * dt, l)
 	s.move_dir = terrain.steer(s.pos, dir, rad, goal) # Longe maisons et pieux
 	s.pos += s.move_dir * step_len
@@ -1012,6 +1014,8 @@ func arrow_impact(a: Dictionary) -> void:
 	var vr := victim.regiment
 	var armor := lerpf(float(vr.stats["arrow_armor"]), 1.0, float(a.get("pierce", 0.0)))
 	var dmg: float = a["dmg"] * armor
+	if siege != null:
+		dmg *= siege.arrow_factor(vr) # Porteurs du bélier, sans bouclier levé
 	var morale_hit := UnitTypes.MORALE_ARROW_HIT
 	var from: Vector2 = a.get("from", a["to"])
 	var shield := pavise_factor(vr)

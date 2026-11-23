@@ -7,6 +7,11 @@ extends RefCounted
 ##    (les grimpeurs tombent, l'échelle peut se briser) ; les tours tirent sur l'assaillant ;
 ##  - sur le chemin de ronde, on tire plus loin, on frappe d'en haut et le parapet arrête des flèches
 ##    (via Terrain.height et Terrain.wall_shelters) ;
+##  - le bélier avance lentement et ses porteurs, bras pris, craignent les flèches ; s'ils tombent,
+##    le bélier reste sur place et un autre régiment à pied peut le reprendre ;
+##  - au-dessus de la porte, la garnison (au moins DROP_GUARDS hommes) verse l'huile bouillante
+##    (OIL_POTS chaudrons) et jette des pierres sur ceux qui frappent la porte ;
+##  - frapper vers le haut (de l'échelle vers le chemin de ronde) porte moins (WALL_GUARD) ;
 ##  - victoire : l'assaillant prend la ville s'il tient la place HOLD_TIME secondes ; en défense,
 ##    le joueur gagne s'il tient DEFENSE_TIME secondes (ou s'il repousse l'assaut, règle ordinaire).
 ##
@@ -37,6 +42,22 @@ const HOLD_TIME := 20.0 ## Secondes à tenir la place pour prendre la ville
 const HOLD_MIN := 6 ## Soldats nécessaires sur la place
 const DEFENSE_TIME := 300.0 ## Défense : la ville est sauvée après ce temps de bataille
 const STAGING := 380.0 ## L'assaillant attend hors de portée des tours, à cette distance du rempart
+const RAM_SPEED := 0.6 ## Vitesse des porteurs du bélier
+const RAM_ARROW := 1.35 ## Dégâts des flèches sur les porteurs du bélier (pas de bouclier levé)
+const RAM_PICKUP := 45.0 ## Distance pour reprendre un bélier abandonné
+const WALL_GUARD := 0.4 ## Coups portés vers le haut : -40 % par unité de hauteur (Terrain.height_damage)
+const GATE_POST := 44.0 ## Profondeur du poste de l'infanterie qui tient la porte (et le dessus de la porte)
+const DROP_GUARDS := 3 ## Défenseurs au-dessus de la porte pour verser l'huile ou jeter des pierres
+const GUARD_REACH := 120.0 ## Distance de la porte où ils doivent se tenir
+const DROP_REACH := 70.0 ## Les assaillants à cette distance du point d'impact du bélier sont visés
+const OIL_POTS := 2 ## Chaudrons d'huile bouillante
+const OIL_RELOAD := 14.0
+const OIL_DAMAGE := 22.0
+const OIL_RADIUS := 34.0
+const OIL_MORALE := 10.0
+const STONE_RELOAD := 4.5
+const STONE_DAMAGE := 11.0
+const STONE_RADIUS := 14.0
 
 var town: SiegeTerrain
 var attacker := BattleSim.ENEMY ## Camp qui donne l'assaut
@@ -53,6 +74,15 @@ var raised := 0 ## Échelles dressées (en tout)
 var pushed := 0 ## Échelles repoussées
 var reason := "" ## Raison de la fin : « plaza » (ville prise), « time » (défense tenue)
 var sound_cd := 0.0
+var ram_dropped := false ## Bélier abandonné devant la ville (ses porteurs sont morts ou en fuite)
+var ram_pos := Vector2.ZERO ## Où se trouve le bélier (porté ou abandonné)
+var machicolations := true ## Huile et pierres au-dessus de la porte
+var oil_left := OIL_POTS
+var oil_cd := 3.0
+var stone_cd := 1.5
+var oil_poured := 0
+var stones_dropped := 0
+var drops: Array[Dictionary] = [] ## Pour le dessin : {"at", "kind" (« oil »/« stone »), "t0" (battle_time)}
 
 # Rendu (construit à la première image, hors de la simulation)
 var ground_tex: ImageTexture = null
@@ -111,16 +141,19 @@ func deploy(b: BattleSim) -> void:
 			var side := -1.0 if k % 2 == 1 else 1.0
 			@warning_ignore("integer_division")
 			x = town.gate_x + side * (360.0 + ((k - 1) / 2) * 320.0)
-		place(foot[k], town.at_depth(clampf(x, SiegeTerrain.X0 + 120.0, SiegeTerrain.X1 - 120.0), 100.0 if k > 0 else 112.0), face)
+		# Le premier (le plus solide) tient la porte et le dessus de la porte (huile, pierres)
+		place(foot[k], town.at_depth(clampf(x, SiegeTerrain.X0 + 120.0, SiegeTerrain.X1 - 120.0), 100.0 if k > 0 else GATE_POST), face)
 	for k in horse.size():
 		place(horse[k], town.plaza + Vector2((k - (horse.size() - 1) * 0.5) * 110.0, 0), face)
 
 	# Équipement de l'assaillant : le bélier au régiment le plus solide, les échelles aux suivants
 	ram_bearer = null
+	ram_dropped = false
 	ladders.clear()
 	att_foot.sort_custom(func(a, c): return float(a.stats["hp"]) * (1.5 if a.stats["armored"] else 1.0) > float(c.stats["hp"]) * (1.5 if c.stats["armored"] else 1.0))
 	if att_foot.size() >= 2:
 		ram_bearer = att_foot.pop_front()
+		ram_pos = ram_bearer.center
 	var by_x := att_foot.slice(0, LADDERS)
 	by_x.sort_custom(func(a, c): return a.center.x < c.center.x)
 	for r in by_x:
@@ -131,12 +164,13 @@ func deploy(b: BattleSim) -> void:
 			names.append((l["owner"] as Regiment).display_name().to_lower())
 		var txt := "Assaut : "
 		if ram_bearer != null:
-			txt += "vos %s portent le bélier (envoyez-les à la porte), " % ram_bearer.display_name().to_lower()
+			txt += "vos %s portent le bélier (lents et exposés aux flèches : envoyez-les à la porte), " % ram_bearer.display_name().to_lower()
 		if not names.is_empty():
 			txt += "vos %s des échelles (menez-les au pied du rempart). " % ", ".join(names)
 		b.message(txt + "Prenez la place de la ville et tenez-la %d s." % int(HOLD_TIME))
 	else:
 		b.message("Défense : garnissez les murs. Tenez %d min, ou repoussez l'assaut. Si l'ennemi tient la place %d s, la ville tombe." % [int(DEFENSE_TIME / 60.0), int(HOLD_TIME)])
+		b.message("Gardez %d hommes au-dessus de la porte : ils versent l'huile et jettent des pierres sur le bélier." % DROP_GUARDS)
 
 
 func place(r: Regiment, at: Vector2, face: Vector2) -> void:
@@ -160,7 +194,7 @@ func deploy_top(default_top: float) -> float:
 ## Rôle de siège d'un régiment : « ram » (bélier, porte encore debout), « ladder » (échelle pas
 ## encore dressée) ou "".
 func role(r: Regiment) -> String:
-	if r == ram_bearer and not town.gate_open:
+	if r != null and r == ram_bearer and not town.gate_open:
 		return "ram"
 	var l := ladder_of(r)
 	if not l.is_empty() and l["state"] in ["carried", "raising", "down"]:
@@ -190,6 +224,60 @@ func taken_xs(except: Dictionary) -> Array:
 	return out
 
 
+## Facteur de vitesse d'un régiment (les porteurs du bélier sont lents).
+func speed_factor(r: Regiment) -> float:
+	return RAM_SPEED if r == ram_bearer and not town.gate_open else 1.0
+
+
+## Facteur de dégâts d'une flèche sur un soldat du régiment r.
+func arrow_factor(r: Regiment) -> float:
+	return RAM_ARROW if r == ram_bearer and not town.gate_open else 1.0
+
+
+## Régiment à pied de l'assaillant le mieux placé pour reprendre le bélier abandonné (null sinon).
+func ram_claimant(b: BattleSim) -> Regiment:
+	if not ram_dropped or town.gate_open:
+		return null
+	var best: Regiment = null
+	var bd := INF
+	for r in b.regiments:
+		if r.team != attacker or not can_carry_ram(r):
+			continue
+		var d := r.center.distance_to(ram_pos)
+		if d < bd:
+			bd = d
+			best = r
+	return best
+
+
+## Vrai si r peut reprendre le bélier (à pied, assez nombreux, sans échelle à porter).
+func can_carry_ram(r: Regiment) -> bool:
+	return alive_reg(r) and not r.stats["ranged"] and not r.stats["mounted"] and r.alive_n >= 4 and role(r) == ""
+
+
+## Emplacement d'échelle choisi par l'IA pour les porteurs r : loin des autres échelles (on répartit
+## l'assaut), là où la garnison est clairsemée sur le chemin de ronde, sans trop de détour.
+func best_ladder_spot(b: BattleSim, r: Regiment) -> float:
+	var l := ladder_of(r)
+	var taken := taken_xs(l)
+	var best := -1.0
+	var bs := INF
+	var x := SiegeTerrain.X0 + 60.0
+	while x < SiegeTerrain.X1 - 60.0:
+		if town.ladder_ok(x, taken):
+			var score := absf(x - r.center.x) * 0.35
+			for o in taken:
+				score += maxf(300.0 - absf(x - float(o)), 0.0) * 2.0 # Pas deux échelles côte à côte
+			for s in b.soldiers_near(town.ladder_top(x), 170.0):
+				if s.regiment.team == defender and not s.regiment.routing:
+					score += 14.0
+			if score < bs:
+				bs = score
+				best = x
+		x += 24.0
+	return best if best >= 0.0 else town.ladder_spot(r.center.x, taken)
+
+
 func ladders_up() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	for l in ladders:
@@ -216,7 +304,7 @@ func route(s: Soldier, goal: Vector2) -> Vector2:
 	var off := (s.slot_pos - r.dest).limit_length(30.0)
 	match role(r):
 		"ram":
-			return town.ram_spot() + off
+			return town.ram_spot() + off.limit_length(14.0)
 		"ladder":
 			return town.ladder_foot(ladder_x(ladder_of(r))) + off
 	return goal
@@ -239,6 +327,7 @@ func step(b: BattleSim, dt: float) -> void:
 	changed = update_ram(b, dt) or changed
 	if changed:
 		refresh(b)
+	update_machicolations(b, dt)
 	update_towers(b, dt)
 	update_plaza(b, dt)
 
@@ -337,12 +426,25 @@ func update_push(b: BattleSim, l: Dictionary, dt: float) -> bool:
 ## Bélier : ses porteurs, arrivés devant la porte, la frappent jusqu'à ce qu'elle cède.
 ## Renvoie vrai quand la porte vient de céder.
 func update_ram(b: BattleSim, dt: float) -> bool:
-	if ram_bearer == null or town.gate_open:
+	if town.gate_open:
+		return false
+	var mine := attacker == BattleSim.PLAYER
+	if ram_bearer == null:
+		if ram_dropped:
+			# Bélier abandonné : le premier régiment à pied qui le rejoint le reprend
+			for r in b.regiments:
+				if r.team == attacker and can_carry_ram(r) and r.center.distance_to(ram_pos) < RAM_PICKUP:
+					ram_bearer = r
+					ram_dropped = false
+					b.message(("Vos %s reprennent le bélier !" if mine else "Les %s ennemis reprennent le bélier !") % r.display_name().to_lower())
+					break
 		return false
 	if not alive_reg(ram_bearer):
 		ram_bearer = null
-		b.message("Le bélier est abandonné !")
+		ram_dropped = true
+		b.message("Le bélier est abandonné !" + (" Envoyez un régiment à pied le reprendre." if mine else ""))
 		return false
+	ram_pos = ram_position()
 	var spot := town.ram_spot()
 	if ram_bearer.center.distance_to(spot) > RAM_REACH or ram_bearer.alive_n < 3:
 		return false
@@ -360,6 +462,75 @@ func update_ram(b: BattleSim, dt: float) -> bool:
 	b.impact.emit(Vector2(town.gate_x, town.front_y), 0.08)
 	b.cries_played.emit(Vector2(town.gate_x, town.front_y), 3)
 	return true
+
+
+## Mâchicoulis : si assez de défenseurs se tiennent au-dessus de la porte, ils versent l'huile
+## bouillante (rare, en nappe) puis jettent des pierres (souvent, un homme ou deux) sur les assaillants
+## massés devant la porte.
+func update_machicolations(b: BattleSim, dt: float) -> void:
+	var now := b.battle_time
+	drops = drops.filter(func(d): return now - float(d["t0"]) < 1.6)
+	oil_cd -= dt
+	stone_cd -= dt
+	if not machicolations or town.gate_open or (oil_cd > 0.0 and stone_cd > 0.0):
+		return
+	if gate_guards(b) < DROP_GUARDS:
+		return
+	var spot := town.ram_spot()
+	var targets: Array[Soldier] = []
+	for s in b.soldiers_near(spot, DROP_REACH):
+		if s.regiment.team == attacker and town.depth(s.pos) < 0.0:
+			targets.append(s)
+	if targets.is_empty():
+		return
+	# Viser d'abord les porteurs du bélier
+	var aim: Soldier = targets[b.rng.randi() % targets.size()]
+	for s in targets:
+		if s.regiment == ram_bearer:
+			aim = s
+			break
+	if oil_left > 0 and oil_cd <= 0.0 and targets.size() >= 4:
+		oil_left -= 1
+		oil_cd = OIL_RELOAD
+		stone_cd = maxf(stone_cd, 2.0)
+		oil_poured += 1
+		var hit := {}
+		for s in b.soldiers_near(aim.pos, OIL_RADIUS):
+			if s.regiment.team == attacker:
+				b.damage(s, OIL_DAMAGE * b.rng.randf_range(0.8, 1.2), null)
+				hit[s.regiment] = true
+		for r: Regiment in hit:
+			r.morale -= OIL_MORALE
+		drops.append({"at": aim.pos, "kind": "oil", "t0": now})
+		var mine := defender == BattleSim.PLAYER
+		b.message("%s verse l'huile bouillante sur la porte !" % ("Votre garnison" if mine else "La garnison"))
+		b.cries_played.emit(aim.pos, 3)
+		return
+	if stone_cd <= 0.0:
+		stone_cd = STONE_RELOAD * b.rng.randf_range(0.85, 1.15)
+		stones_dropped += 1
+		var at := aim.pos + Vector2(b.rng.randf_range(-6.0, 6.0), b.rng.randf_range(-6.0, 6.0))
+		for s in b.soldiers_near(at, STONE_RADIUS):
+			if s.regiment.team == attacker:
+				b.damage(s, STONE_DAMAGE * b.rng.randf_range(0.8, 1.2), null)
+		drops.append({"at": at, "kind": "stone", "t0": now})
+		b.sound_played.emit("clash", at)
+
+
+## Défenseurs en état au-dessus de la porte (sur le chemin de ronde ou juste derrière la porte).
+func gate_guards(b: BattleSim) -> int:
+	var n := 0
+	for s in b.soldiers_near(gate_top(), GUARD_REACH):
+		if s.regiment.team == defender and not s.regiment.routing:
+			var d := town.depth(s.pos)
+			if d > 0.0 and d < SiegeTerrain.WALL_T * 0.5 + SiegeTerrain.WALK + 40.0:
+				n += 1
+	return n
+
+
+## Dessus de la porte, côté ville.
+func gate_top() -> Vector2:
+	return town.at_depth(town.gate_x, SiegeTerrain.WALL_T * 0.5 + 22.0)
 
 
 ## Les tours tirent sur l'assaillant hors les murs, tant que la garnison les tient.
@@ -440,8 +611,15 @@ func status_text(b: BattleSim) -> String:
 		parts.append("Tenir %d:%02d" % [floori(left / 60.0), int(left) % 60])
 	if not town.gate_open:
 		parts.append("Porte %d %%" % int(ceilf(gate_hp)))
+		if ram_dropped:
+			parts.append("Bélier abandonné")
 	else:
 		parts.append("Porte enfoncée")
+	var up := ladders_up().size()
+	if up > 0:
+		parts.append("Échelles %d" % up)
+	if machicolations and not town.gate_open:
+		parts.append("Huile %d" % oil_left)
 	if hold > 0.0:
 		parts.append("Place %d %%" % int(hold * 100.0))
 	return "  ".join(parts)
@@ -527,6 +705,8 @@ func add_items(items: Array, rd: BattleRenderer) -> void:
 	if ram_bearer != null and alive_reg(ram_bearer) and not town.gate_open:
 		var at := ram_position()
 		items.append([at.y + 6.0, draw_ram.bind(rd, at)])
+	elif ram_dropped and not town.gate_open:
+		items.append([ram_pos.y + 6.0, draw_ram.bind(rd, ram_pos)])
 
 
 ## Segments horizontaux du rempart, hors passage de la porte.
@@ -709,6 +889,36 @@ func draw_air(rd: BattleRenderer) -> void:
 	rd.draw_arc(p, SiegeTerrain.PLAZA_R, 0, TAU, 48, Color(1, 1, 1, 0.12), 2.0)
 	if hold > 0.0:
 		rd.draw_arc(p, SiegeTerrain.PLAZA_R, -PI * 0.5, -PI * 0.5 + TAU * hold, 48, Color(col, 0.85), 4.0)
+	draw_drops(rd)
+	if ram_dropped and not town.gate_open:
+		rd.draw_arc(ram_pos, 26.0, 0, TAU, 24, Color(1, 0.85, 0.4, 0.5), 1.0) # Bélier à reprendre
+
+
+## Huile qui coule et pierres qui tombent du haut de la porte, puis éclaboussure au sol.
+func draw_drops(rd: BattleRenderer) -> void:
+	var now := rd.sim.battle_time
+	var from_y := town.front_y - SiegeTerrain.WALL_H - 6.0
+	for d in drops:
+		var age := now - float(d["t0"])
+		var at: Vector2 = d["at"]
+		var fall := clampf(age / 0.35, 0.0, 1.0)
+		if str(d["kind"]) == "oil":
+			if fall < 1.0:
+				var y := lerpf(from_y, at.y, fall)
+				rd.draw_rect(Rect2(at.x - 3, from_y, 6, y - from_y), Color(0.55, 0.38, 0.08, 0.85))
+			else:
+				var k := clampf((age - 0.35) / 1.2, 0.0, 1.0)
+				rd.draw_circle(at, OIL_RADIUS * (0.5 + 0.5 * k), Color(0.45, 0.3, 0.06, 0.55 * (1.0 - k)))
+				rd.draw_circle(at, OIL_RADIUS * 0.4, Color(0.95, 0.9, 0.8, 0.25 * (1.0 - k))) # Vapeur
+		else:
+			if fall < 1.0:
+				var p := Vector2(at.x, lerpf(from_y, at.y, fall * fall)).round()
+				rd.draw_rect(Rect2(p - Vector2(3, 3), Vector2(6, 5)), STONE_FACE)
+				rd.draw_rect(Rect2(p - Vector2(3, 3), Vector2(6, 1)), STONE_TOP)
+			else:
+				var k := clampf((age - 0.35) / 1.0, 0.0, 1.0)
+				rd.draw_rect(Rect2(at.round() - Vector2(3, 1), Vector2(6, 4)), Color(STONE_FACE, 1.0 - k * 0.6))
+				rd.draw_circle(at, 6.0 + 8.0 * k, Color(0.6, 0.55, 0.45, 0.35 * (1.0 - k))) # Poussière
 
 
 func build_textures() -> void:

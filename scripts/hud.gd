@@ -351,7 +351,7 @@ func draw_top_bar(vs: Vector2) -> void:
 		weather += "  [%s]" % GameOptions.key_label("rain")
 	items.append([weather, Color(0.85, 0.85, 0.85)])
 	items.append(["Terrain : " + battle.terrain.display_name(), Color(0.85, 0.85, 0.85)])
-	if battle.sim.siege != null:
+	if battle.sim.siege != null and battle.sim.objective.shows_panel(): # Sinon : panneau de siège (draw_siege)
 		items.push_front([battle.sim.siege.status_text(battle.sim), Color(1, 0.85, 0.45)])
 	if battle.game_speed != 1.0:
 		items.append(["Vitesse " + GameOptions.speed_label(battle.game_speed), Color(1, 0.85, 0.45)])
@@ -469,8 +469,9 @@ func draw_cards(vs: Vector2) -> void:
 
 ## Messages en haut à gauche, chacun sur un fond sombre.
 ## Rectangle du panneau d'objectif (vide si l'objectif n'en affiche pas : « détruire l'ennemi »).
+## Un vrai siège sans autre panneau y montre l'état de la porte (draw_siege).
 func objective_rect(vs: Vector2) -> Rect2:
-	if not battle.sim.objective.shows_panel():
+	if not battle.sim.objective.shows_panel() and battle.sim.siege == null:
 		return Rect2()
 	var w := clampf(vs.x * 0.42, 260.0, 520.0)
 	return Rect2(vs.x * 0.5 - w * 0.5, BAR_H + 4.0, w, OBJ_H)
@@ -480,6 +481,9 @@ func objective_rect(vs: Vector2) -> Rect2:
 func draw_objective(vs: Vector2) -> void:
 	var r := objective_rect(vs)
 	if not r.has_area():
+		return
+	if not battle.sim.objective.shows_panel():
+		draw_siege(r)
 		return
 	var o := battle.sim.objective
 	draw_rect(r, Color(0.05, 0.04, 0.03, 0.78))
@@ -494,6 +498,27 @@ func draw_objective(vs: Vector2) -> void:
 	var dg := o.danger(battle.sim)
 	if dg > 0.0:
 		draw_rect(Rect2(bar.position + Vector2(0, 6), Vector2(bar.size.x * dg, 2.0)), ENEMY_COL.lightened(0.2))
+
+
+## Panneau de siège : la porte (jauge de solidité, ou enfoncée), le bélier, les échelles dressées,
+## l'huile qui reste et la prise de la place.
+func draw_siege(r: Rect2) -> void:
+	var sg: Siege = battle.sim.siege
+	draw_rect(r, Color(0.05, 0.04, 0.03, 0.78))
+	draw_rect(r, Color(0.55, 0.47, 0.3), false, 1.0)
+	var title := "DÉFENSE DE LA VILLE" if sg.town.defense else "ASSAUT DE LA VILLE"
+	text(r.position + Vector2(8, 16), title, 14, Color(1, 0.86, 0.5))
+	text(r.position + Vector2(8, 32), fit(sg.status_text(battle.sim), 13, r.size.x - 16.0), 13, Color(0.92, 0.9, 0.82))
+	var bar := Rect2(r.position.x + 8.0, r.end.y - 10.0, r.size.x - 16.0, 5.0)
+	draw_rect(bar, Color(0, 0, 0, 0.6))
+	if sg.town.gate_open:
+		draw_rect(bar, Color(0.75, 0.2, 0.15, 0.9)) # Porte enfoncée : jauge rouge pleine
+	else:
+		var k := clampf(sg.gate_hp / Siege.GATE_HP, 0.0, 1.0)
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * k, bar.size.y)), Color(0.6, 0.42, 0.2).lerp(Color(0.85, 0.3, 0.15), 1.0 - k))
+	if sg.hold > 0.0:
+		var col: Color = PLAYER_COL if sg.attacker == Battle.PLAYER else ENEMY_COL
+		draw_rect(Rect2(bar.position + Vector2(0, 6), Vector2(bar.size.x * sg.hold, 2.0)), col.lightened(0.2))
 
 
 func draw_messages() -> void:

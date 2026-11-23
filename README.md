@@ -568,21 +568,34 @@ tenue par l'ennemi) et **défense d'une ville** (`town_defense`, la ville est en
 - **Rempart** de pierre dessiné en code : un front percé d'une **porte**, deux murs latéraux, **6 tours**,
   un **chemin de ronde** derrière le parapet, des maisons et une **place** dallée (avec son puits).
 - Sur le chemin de ronde, on tire 35 % plus loin, on frappe d'en haut (+50 %), et le parapet arrête la
-  moitié des flèches tirées du dehors. Les **tours** tirent seules sur l'assaillant hors les murs (300 px),
+  moitié des flèches tirées du dehors ; frapper vers le haut (de l'échelle ou du pied du mur vers le chemin
+  de ronde) porte 40 % de moins. Les **tours** tirent seules sur l'assaillant hors les murs (300 px),
   tant que la garnison les tient.
 - L'assaillant reçoit au déploiement un **bélier** (son régiment à pied le plus solide) et jusqu'à
-  **3 échelles** (les suivants). Le bélier, mené devant la porte, l'enfonce en 30 s environ (moins s'il
-  perd des hommes, état « Porte » dans la barre du haut). Une échelle se dresse en 3 s quand ses porteurs
+  **3 échelles** (les suivants). Le bélier avance à 60 % de la vitesse et ses porteurs, bras pris, prennent
+  35 % de dégâts de plus des flèches ; mené devant la porte, il l'enfonce en 30 s environ (plus lentement
+  s'il perd des hommes). Tant que la porte tient, on n'entre que par les échelles. Si ses porteurs meurent ou
+  fuient, le bélier reste sur place (cerclé) : un autre régiment à pied le reprend en le rejoignant. Une échelle se dresse en 3 s quand ses porteurs
   arrivent au pied du rempart ; on y monte lentement (40 % de la vitesse), et pas à cheval.
 - La garnison qui se tient au débouché d'une échelle, sans assaillant arrivé en haut pour la tenir, la
   **repousse** : les grimpeurs tombent, l'échelle se redresse 6 s plus tard ou se brise (une fois sur trois).
+- **Mâchicoulis** : avec 3 défenseurs au moins au-dessus de la porte, la garnison verse l'**huile bouillante**
+  (2 chaudrons, 22 points de dégâts en nappe et un coup au moral) et jette des **pierres** (toutes les 4-5 s)
+  sur ceux qui frappent la porte, les porteurs du bélier d'abord. L'infanterie la plus solide de la garnison
+  est postée derrière la porte pour cela, et l'IA l'y laisse tant que la porte tient.
+- **Panneau de siège** sous la barre du haut : solidité de la porte (jauge, puis « Porte enfoncée »), bélier
+  abandonné, échelles dressées, huile restante, temps à tenir et prise de la place.
 - **Victoire** : l'assaillant prend la ville s'il tient la **place** 20 s (6 soldats au moins, trois fois
   plus nombreux que les défenseurs ; un anneau montre l'avancée). En défense, la ville est sauvée après
   **5 min** de bataille, ou si l'assaut est repoussé (déroute ou retraite de l'ennemi).
 - En **défense**, vos tireurs sont postés sur le chemin de ronde, l'infanterie derrière la porte et le
   rempart, la cavalerie sur la place ; vous vous déployez dans la ville. L'IA assaillante attend hors de
-  portée des tours qu'une échelle soit dressée ou la porte enfoncée, puis marche sur la place ; l'IA en
-  garnison ne sort pas des murs, garde le débouché des échelles et charge ce qui entre.
+  portée des tours qu'une échelle soit dressée ou la porte enfoncée, puis marche sur la place. Elle
+  **répartit ses échelles** (loin les unes des autres, là où le chemin de ronde est le moins garni), mène
+  le bélier droit à la porte, fait tirer ses archers sur les défenseurs au-dessus de la porte pour le couvrir
+  et renvoie un régiment reprendre un bélier abandonné. L'IA en garnison ne sort pas des murs, garde le
+  débouché des échelles, tient la porte et charge ce qui entre.
+- **Fiefs** : l'assaut d'un château et la défense de votre château assiégé se jouent aussi sur ces terrains.
 - **Campagne** : environ un contrat sur huit à partir du niveau 2 est un siège (« Assiéger la place
   forte… » ou « Défendre les murs de… »), payé 60 % de plus ; la garnison a des archers de plus, ou
   l'assaillant un régiment de piquiers de plus. Sur la carte, la ligne d'objectif du contrat dit ce qu'il
@@ -668,7 +681,7 @@ scripts/battle_camera.gd    Caméra (BattleCamera) : défilement (touches des Op
                             la taille de l'interface, bornes, secousse
 scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets, passages, rendu du relief
 scripts/siege_terrain.gd  Ville fortifiée (SiegeTerrain) : rempart, porte, tours, chemin de ronde, place, ouvertures
-scripts/siege.gd        Vrai siège (Siege) : bélier, échelles, repoussage, tours, prise de la place, fin, rendu
+scripts/siege.gd        Vrai siège (Siege) : bélier, échelles, repoussage, huile et pierres, tours, prise de la place, fin, rendu
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
@@ -810,7 +823,8 @@ godot --headless --path . -s tests/world_test.gd      # monde vivant : saisons, 
 godot --headless --path . -s tests/overworld_test.gd  # carte en temps réel : marche, terrain, jour, groupes, rencontres
 godot --headless --path . -s tests/party_ai_test.gd   # groupes de la carte : comportements, peuplement, déterminisme
 godot --path . --resolution 1280x720 -s tests/overworld_capture.gd   # carte_ville/marche/nuit/rencontre.png
-godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, campagne
+godot --headless --path . -s tests/siege_test.gd      # sièges : rempart, bélier, échelles, assaut gagné, défense tenue, hauteur,
+                                                      # huile et pierres, bélier repris, fiefs, campagne
 godot --path . -s tests/siege_capture.gd              # siege_assaut*.png, siege_defense*.png (fenêtre)
 godot --path . -s tests/menu_capture.gd               # menu.png, menu_options.png, menu_emplacements.png, menu_succes.png, tutoriel.png
 godot --headless --path . -s tests/encounter_test.gd  # rencontres de la carte : choix, bataille, réputation, fuite
@@ -957,7 +971,7 @@ pas été nécessaire. Sur 10 campagnes, le hasard fait varier le taux de victoi
 graines, réglages presque identiques : normal 6/10 puis 9/10) : mesurer sur 20 graines au moins.
 
 ## Pistes pour continuer
-- Sièges : brancher la prise de la place sur les objectifs de contrat, tours prenables, poix et
-  huile bouillante, sapes, engins de jet.
+- Sièges : brancher la prise de la place sur les objectifs de contrat, tours prenables, sapes, engins de jet,
+  ordre au joueur de verser l'huile lui-même.
 - D'autres types d'unités (piquiers suisses, vétérans d'élite par faction) ; vrais sprites pour les arbalétriers,
   chevaliers à pied et archers montés (ils reprennent aujourd'hui une planche MiniWorld teintée).
