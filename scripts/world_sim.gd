@@ -19,6 +19,10 @@ const SEASONS := ["printemps", "été", "automne", "hiver"]
 const WINTER := 3
 const SEASON_DAYS := 30 ## Durée d'une saison, en jours (le jour 1 est le premier du printemps)
 const RAIN_CHANCE := [0.25, 0.1, 0.5, 0.3] ## Chance de pluie chaque jour, par saison (l'automne est pluvieux)
+const FOG_CHANCE := [0.15, 0.05, 0.25, 0.2] ## Chance de brouillard (temps sec), par saison
+const LOCAL_FOG_CHANCE := 0.25 ## En plus, près de l'eau ou dans les bois (FOGGY_TERRAINS)
+const FOGGY_TERRAINS := ["river", "forest"]
+const WIND_CHANCE := 0.25 ## Chance de vent fort chaque jour
 const MARCH_FACTOR := [1.0, 1.0, 1.0, 0.7] ## Vitesse de marche (compagnie et armées), par saison
 const COLD_CHANCE := 0.5 ## En hiver, chance par jour de marche que le froid emporte des hommes
 const COLD_RATE := 0.02 ## ... part des hommes de chaque régiment
@@ -121,11 +125,48 @@ func roll_weather(day: int) -> void:
 	raining = rng.randf() < float(RAIN_CHANCE[season_of(day)])
 
 
-## « pluie », « temps clair », « froid sec »...
+## Tirage de météo du jour (0 à 1) pour what : déduit de la graine, sans toucher au générateur du
+## monde (les tirages de la campagne ne changent pas, rien de plus à sauvegarder).
+func weather_roll(day: int, what: String) -> float:
+	var lr := RandomNumberGenerator.new()
+	lr.seed = hash("%s-%s-%d" % [str(rng.seed), what, day])
+	return lr.randf()
+
+
+## Brouillard du jour sur tout le pays (jamais sous la pluie).
+func fog_today(day: int) -> bool:
+	return not raining and weather_roll(day, "brume") < float(FOG_CHANCE[season_of(day)])
+
+
+## Vent du jour : 0 par temps calme, sinon de 0,6 à 1, signé (> 0 : vers le sud).
+func wind_today(day: int) -> float:
+	if weather_roll(day, "vent") >= WIND_CHANCE:
+		return 0.0
+	var k := weather_roll(day, "vent-force")
+	return (0.6 + 0.4 * k) * (1.0 if weather_roll(day, "vent-sens") < 0.5 else -1.0)
+
+
+## Météo d'une bataille livrée ce jour, sur ce terrain (Terrain.KINDS), près de cette ville :
+## {"rain", "fog", "wind"} pour BattleWeather.apply. La brume traîne plus près de l'eau et des bois.
+func battle_weather(day: int, kind: String, town := -1) -> Dictionary:
+	var fog := fog_today(day)
+	if not fog and not raining and kind in FOGGY_TERRAINS:
+		fog = weather_roll(day, "brume-%s-%d" % [kind, town]) < LOCAL_FOG_CHANCE
+	return {"rain": raining, "fog": fog, "wind": wind_today(day)}
+
+
+## « pluie », « temps clair », « froid sec », « brouillard, vent fort »...
 func weather_text(day: int) -> String:
-	if season_of(day) == WINTER:
-		return "pluie glacée" if raining else "froid sec"
-	return "pluie" if raining else "temps clair"
+	var t: String
+	if fog_today(day):
+		t = "brouillard"
+	elif season_of(day) == WINTER:
+		t = "pluie glacée" if raining else "froid sec"
+	else:
+		t = "pluie" if raining else "temps clair"
+	if wind_today(day) != 0.0:
+		t += ", vent fort"
+	return t
 
 
 ## « Automne, jour 12 : pluie ».

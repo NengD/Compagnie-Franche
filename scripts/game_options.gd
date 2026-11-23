@@ -28,7 +28,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "halt", "name": "Halte", "key": KEY_H},
 	{"id": "formation", "name": "Formation (ligne / colonne / carré)", "key": KEY_F},
 	{"id": "sound", "name": "Couper / remettre le son", "key": KEY_M},
-	{"id": "rain", "name": "Pluie", "key": KEY_T},
+	{"id": "rain", "name": "Météo (escarmouche)", "key": KEY_T},
 	{"id": "help", "name": "Aide", "key": KEY_F1},
 	{"id": "speed", "name": "Vitesse du jeu", "key": KEY_V},
 	{"id": "hold", "name": "Tenir la position", "key": KEY_G},
@@ -37,6 +37,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "captain", "name": "Capitaine : rejoindre la sélection", "key": KEY_C},
 	{"id": "cards", "name": "Cartes des régiments (afficher / cacher)", "key": KEY_TAB},
 	{"id": "minimap", "name": "Mini-carte (afficher / cacher)", "key": KEY_N},
+	{"id": "relief", "name": "Relever (ou se replier pour souffler)", "key": KEY_E},
 ]
 ## Défilement de la caméra : touches repérées par leur position physique (« key » est un
 ## physical_keycode : W = Z en AZERTY). Les flèches marchent toujours en plus.

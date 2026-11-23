@@ -125,6 +125,16 @@ const RUN_MIN_STAMINA := 0.15 ## En dessous, le régiment refuse de courir
 const STAMINA_TIRED := 0.6 ## Les pénalités commencent sous ce seuil
 const EXHAUSTED_SPEED := 0.6 ## Vitesse d'un régiment épuisé (endurance nulle)
 const EXHAUSTED_DAMAGE := 0.6 ## Dégâts d'un régiment épuisé (endurance nulle)
+## Usure au contact et relève
+const CONTACT_WEAR := 30.0 ## Toutes les 30 s de mêlée continue, l'endurance fond une fois plus vite...
+const CONTACT_WEAR_MAX := 2.0 ## ... jusqu'à 3 fois la perte de départ
+const EXHAUSTED_MORALE := 0.5 ## Moral perdu par seconde de mêlée par un régiment à bout de forces
+const EXHAUSTED_MORALE_AT := 0.15 ## ... sous cette endurance
+const REST_MORALE := 1.5 ## Moral regagné en plus par seconde au repos, loin de l'ennemi
+const REST_SAFE := 250.0 ## « Loin de l'ennemi » : aucun régiment adverse à moins de ça
+const RELIEF_BACK := 260.0 ## Le régiment relevé recule de ça derrière la ligne
+const RELIEF_TIME := 15.0 ## Décrochage : temps maximal pendant lequel il ne cherche plus le contact
+const REST_TIME := 20.0 ## Repos après une relève (l'IA ne le renvoie pas au combat avant)
 
 
 ## Multiplicateur dû à la fatigue : 1 au-dessus de STAMINA_TIRED, puis décroît jusqu'à at_zero.

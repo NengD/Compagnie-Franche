@@ -42,6 +42,13 @@ var evading := 0.0 ## Tirailleurs montés : temps restant du décrochage en cour
 var in_forest := false
 var hidden := false ## Caché à l'ennemi (en forêt, non repéré)
 var revealed := 0.0
+var fog_alpha := 1.0 ## Brouillard : netteté vue du camp adverse (1 : net, 0 : invisible), voir battle_weather.gd
+var fogged := false ## Brouillard : trop loin pour que l'adversaire le voie
+
+## Usure et relève (voir BattleSim.relieve / fall_back)
+var contact_time := 0.0 ## Secondes de mêlée récentes : plus elles s'accumulent, plus le régiment s'use vite
+var relief := 0.0 ## Décrochage en cours (relève ou repli) : les soldats ne cherchent plus le contact
+var rest_until := -1.0 ## Repos après une relève, jusqu'à ce temps de bataille (l'IA le laisse souffler)
 
 ## Rang d'expérience : 0 = recrues, 1 = aguerris, 2 = vétérans
 const RANK_NAMES := ["recrues", "aguerris", "vétérans"]
@@ -200,6 +207,11 @@ func stamina_label() -> String:
 	if stamina >= UnitTypes.STAMINA_TIRED * 0.4:
 		return "fatigués"
 	return "épuisés"
+
+
+## Vrai pendant le repos qui suit une relève ou un repli.
+func is_resting(battle_time: float) -> bool:
+	return relief > 0.0 or battle_time < rest_until
 
 
 func display_name() -> String:
