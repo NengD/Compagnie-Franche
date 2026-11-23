@@ -38,6 +38,7 @@ const ACTIONS: Array[Dictionary] = [
 	{"id": "cards", "name": "Cartes des régiments (afficher / cacher)", "key": KEY_TAB},
 	{"id": "minimap", "name": "Mini-carte (afficher / cacher)", "key": KEY_N},
 	{"id": "relief", "name": "Relever (ou se replier pour souffler)", "key": KEY_E},
+	{"id": "traps", "name": "Pièges (déploiement) : choisir", "key": KEY_P},
 ]
 ## Défilement de la caméra : touches repérées par leur position physique (« key » est un
 ## physical_keycode : W = Z en AZERTY). Les flèches marchent toujours en plus.

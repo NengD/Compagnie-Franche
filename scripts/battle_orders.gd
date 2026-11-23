@@ -86,6 +86,11 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 			if mb.pressed and battle.hud != null and battle.hud.cards_tab_rect(battle.hud.get_viewport_rect().size).has_point(mb.position):
 				toggle_cards() # Onglet des cartes : les cacher ou les montrer
 				return
+			if mb.pressed and trap_button_click(mb.position):
+				return # Bouton de piège du HUD de déploiement
+			if mb.pressed and trap_tool_active():
+				place_trap(wp)
+				return
 			if mb.pressed and minimap_click(mb.position):
 				minimap_dragging = true # Glisser sur la mini-carte : la vue suit
 				return
@@ -100,6 +105,9 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 				dragging = false
 				finish_selection(drag_start, wp, mb.shift_pressed)
 		MOUSE_BUTTON_RIGHT:
+			if mb.pressed and trap_tool_active():
+				remove_trap(wp) # Retire le piège visé, sinon range l'outil
+				return
 			if mb.pressed:
 				line_dragging = true
 				line_double = mb.double_click
@@ -190,6 +198,8 @@ func handle_key(k: InputEventKey) -> void:
 			Captain.order_join(battle)
 		KEY_E:
 			order_relief(sim.regiment_at(battle.get_canvas_transform().affine_inverse() * battle.get_viewport().get_mouse_position(), PLAYER))
+		KEY_P:
+			cycle_trap_tool()
 		KEY_M:
 			battle.audio.set_enabled(not battle.audio.enabled)
 			battle.add_message("Son activé." if battle.audio.enabled else "Son coupé.")
@@ -580,3 +590,70 @@ func order_dest(r: Regiment, dest: Vector2, facing: Vector2, cols := 0) -> Vecto
 	var lo := Vector2(ext.x + 4.0, sim.deploy_top() + ext.y + 2.0)
 	var hi := WORLD_SIZE - ext - Vector2(4, 4)
 	return Vector2(clampf(dest.x, lo.x, maxf(lo.x, hi.x)), clampf(dest.y, lo.y, maxf(lo.y, hi.y)))
+
+
+# ---------------------------------------------------------------- Pièges (déploiement)
+
+## Vrai si un piège est en cours de pose (déploiement seulement).
+func trap_tool_active() -> bool:
+	return sim.traps != null and sim.traps.tool != "" and sim.state == BattleSim.State.DEPLOY
+
+
+## Touche P : piège suivant (aucun → pieux → fossé → chausse-trapes → aucun).
+func cycle_trap_tool() -> void:
+	if sim.traps == null:
+		return
+	if sim.state != BattleSim.State.DEPLOY:
+		battle.add_message("Les pièges se posent pendant le déploiement.")
+		return
+	sim.traps.cycle_tool()
+	announce_tool()
+
+
+## Bouton du HUD : choisit ce piège (un second clic le range).
+func choose_trap_tool(kind: String) -> void:
+	if sim.traps == null or sim.state != BattleSim.State.DEPLOY:
+		return
+	sim.traps.tool = "" if sim.traps.tool == kind else kind
+	announce_tool()
+
+
+func announce_tool() -> void:
+	var t := sim.traps
+	if t.tool == "":
+		battle.add_message("Pose des pièges terminée (reste %d points)." % t.left())
+		return
+	var info: Dictionary = BattleTraps.INFO[t.tool]
+	battle.add_message("%s (%d points, %s) : clic pour poser, clic droit pour retirer ou ranger. Reste %d." % [info["name"], int(info["cost"]), info["text"], t.left()])
+
+
+func place_trap(wp: Vector2) -> void:
+	var t := sim.traps
+	var why := t.place(sim, t.tool, wp)
+	if why != "":
+		battle.add_message(why)
+		return
+	battle.add_marker(wp, Color(1, 0.85, 0.4))
+	if t.left() < BattleTraps.cost(t.tool):
+		battle.add_message("%s posés. Reste %d point%s." % [BattleTraps.INFO[t.tool]["name"], t.left(), "s" if t.left() > 1 else ""])
+
+
+func remove_trap(wp: Vector2) -> void:
+	var t := sim.traps
+	var trap_name := t.remove_at(sim, wp)
+	if trap_name != "":
+		battle.add_message("%s retirés (reste %d points)." % [trap_name, t.left()])
+	else:
+		t.tool = ""
+		announce_tool()
+
+
+## Clic sur un bouton de piège du HUD (déploiement) : choisit ce piège. Faux si aucun bouton visé.
+func trap_button_click(screen_pos: Vector2) -> bool:
+	if battle.hud == null or sim.traps == null or sim.state != BattleSim.State.DEPLOY:
+		return false
+	for b in battle.hud.trap_buttons(battle.hud.get_viewport_rect().size):
+		if (b["rect"] as Rect2).has_point(screen_pos):
+			choose_trap_tool(str(b["kind"]))
+			return true
+	return false

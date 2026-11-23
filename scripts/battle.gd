@@ -119,6 +119,8 @@ func _ready() -> void:
 	if campaign != null:
 		# La météo du jour et du lieu s'impose à la bataille (WorldSim.battle_weather, battle_weather.gd)
 		BattleWeather.apply(sim, campaign.world.battle_weather(campaign.day, sim.terrain.kind, int(campaign.pending.get("town", -1))))
+	EnemyCommander.enter_battle(self) # Chef ennemi sous son étendard (contrats de niveau 2+, bataille décisive)
+	BattleTraps.enter_battle(self) # Budget de pièges selon le terrain et la météo
 
 	camera = BattleCamera.new()
 	add_child(camera)
@@ -148,12 +150,17 @@ func _ready() -> void:
 		add_message("À vos côtés : %s (bannières bleu-vert), sous leurs propres chefs." % sim.allies_names())
 	if sim.objective.briefing() != "":
 		add_message(sim.objective.briefing())
-	add_message("Placez vos troupes, puis appuyez sur Espace pour lancer la bataille.")
+	if sim.traps != null:
+		add_message("Placez vos troupes et vos pièges (%d points, %s), puis Espace pour lancer la bataille." % [sim.traps.budget, GameOptions.key_label("traps")])
+	else:
+		add_message("Placez vos troupes, puis appuyez sur Espace pour lancer la bataille.")
 
 
 func _exit_tree() -> void:
 	if sim.captain != null:
 		sim.captain.leave_field()
+	if sim.commander != null:
+		sim.commander.guard = null
 	sim.clear()
 	orders.groups.clear()
 
@@ -215,6 +222,7 @@ func spawn_armies() -> void:
 
 func start_battle() -> void:
 	sim.start()
+	EnemyCommander.announce(self)
 
 
 # ---------------------------------------------------------------- Boucle
@@ -342,6 +350,7 @@ func order_retreat() -> void:
 ## Reporte les pertes sur la compagnie : les hommes debout et ceux qui ont fui survivent.
 func finish_campaign() -> void:
 	var tally := sim.company_tally(campaign.battle_army().size())
+	EnemyCommander.note_result(campaign.pending, sim) # Tête du chef : payée par finish_battle
 	campaign_result = campaign.finish_battle(sim.state == State.VICTORY, tally["survivors"], tally["kills"], sim.retreated, sim.objective.result(sim), sim.ally_tally())
 	campaign_report = str(campaign_result["text"])
 	campaign.save()
@@ -381,7 +390,8 @@ func build_end_report() -> Dictionary:
 		t["player_healed"] += row["healed"]
 	return {"outcome": outcome, "title": title, "terrain": sim.terrain.display_name(), "duration": sim.battle_time,
 		"tutorial": is_tutorial, "rows": rows, "totals": t, "campaign": campaign_result, "objective": sim.objective.result(sim),
-		"stats": recorder.to_dict(sim, player_roster())}
+		"stats": recorder.to_dict(sim, player_roster()),
+		"commander": EnemyCommander.result_of(sim), "traps": sim.traps.summary() if sim.traps != null else ""}
 
 
 

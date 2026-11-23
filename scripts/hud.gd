@@ -275,6 +275,7 @@ func _draw() -> void:
 	var report_shown: bool = battle.report_panel != null and battle.report_panel.visible
 	if not report_shown:
 		draw_objective(vs)
+		draw_trap_bar(vs)
 		var mm := Minimap.rect(self, vs)
 		if mm.has_area():
 			Minimap.draw(self, mm)
@@ -647,6 +648,8 @@ static func help_lines(rain_key := true) -> Array[String]:
 		"Déploiement : zone bleue, aucun combat",
 		"%s deux fois : sonner la retraite (défaite limitée)" % GameOptions.key_label("retreat"),
 		"Clic : capitaine   %s : il rejoint la sélection" % GameOptions.key_label("captain"),
+		"%s : pièges au déploiement (clic : poser, clic droit : retirer)" % GameOptions.key_label("traps"),
+		"Étendard doré ennemi : son chef (abattu, son armée vacille)",
 		"%s : couper / remettre le son   %s : vitesse" % [GameOptions.key_label("sound"), GameOptions.key_label("speed")],
 		"Alt+Entrée / F11 : plein écran",
 		"Échap : menu pause (options, abandon)",
@@ -669,3 +672,45 @@ static func draw_chevrons(ci: CanvasItem, at: Vector2, rank: int, col := Color(1
 
 func end_hint() -> String:
 	return "Entrée : voir le bilan"
+
+
+# ---------------------------------------------------------------- Pièges (déploiement)
+
+const TRAP_BTN_H := 24.0
+
+## Boutons des pièges pendant le déploiement : [{"kind", "rect", "label"}], au-dessus des cartes.
+func trap_buttons(vs: Vector2) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if battle == null or battle.sim.traps == null or battle.state != Battle.State.DEPLOY:
+		return out
+	var labels: Array[String] = []
+	var total := 0.0
+	for k in BattleTraps.KINDS:
+		var l := "%s (%d)" % [BattleTraps.INFO[k]["name"], BattleTraps.cost(k)]
+		labels.append(l)
+		total += text_width(l, 13) + 18.0 + 6.0
+	var y := cards_tab_rect(vs).position.y - TRAP_BTN_H - 10.0
+	var x := roundf((vs.x - total) * 0.5)
+	for i in BattleTraps.KINDS.size():
+		var w := text_width(labels[i], 13) + 18.0
+		out.append({"kind": BattleTraps.KINDS[i], "rect": Rect2(x, y, w, TRAP_BTN_H), "label": labels[i]})
+		x += w + 6.0
+	return out
+
+
+## Barre des pièges du déploiement : points restants et un bouton par piège (celui en cours surligné).
+func draw_trap_bar(vs: Vector2) -> void:
+	var btns := trap_buttons(vs)
+	if btns.is_empty():
+		return
+	var t := battle.sim.traps
+	var first: Rect2 = btns[0]["rect"]
+	var head := "Pièges : reste %d point(s) sur %d   (%s)" % [t.left(), t.budget, GameOptions.key_label("traps")]
+	text(Vector2(0, first.position.y - 6.0), head, 13, Color(1, 0.88, 0.55), HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+	for b in btns:
+		var r: Rect2 = b["rect"]
+		var on := t.tool == str(b["kind"])
+		var can := BattleTraps.cost(str(b["kind"])) <= t.left()
+		draw_rect(r, Color(0.35, 0.27, 0.1, 0.9) if on else Color(0.05, 0.04, 0.03, 0.78))
+		draw_rect(r, Color(1, 0.85, 0.4) if on else Color(0.45, 0.4, 0.3), false, 1.0)
+		text(r.position + Vector2(9, 17), str(b["label"]), 13, Color(0.95, 0.92, 0.82) if can else Color(0.55, 0.52, 0.48))

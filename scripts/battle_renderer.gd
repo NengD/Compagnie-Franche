@@ -183,6 +183,9 @@ func _draw() -> void:
 	draw_dust()
 	effects.draw_ground(self)
 	sim.objective.draw(self, sim) # Zone à tenir ou à prendre, chariots du convoi, ligne de fuite
+	if sim.traps != null:
+		sim.traps.draw(self, sim.state == BattleSim.State.DEPLOY) # Pieux, fossés, chausse-trapes
+		sim.traps.draw_ghost(self, sim, get_global_mouse_position())
 
 
 	# Ordres des régiments sélectionnés
@@ -246,6 +249,8 @@ func _draw() -> void:
 		draw_team_marks()
 	if sim.captain != null:
 		sim.captain.draw(self, sim.state == BattleSim.State.DEPLOY)
+	if sim.commander != null and sim.commander.guard != null:
+		sim.commander.draw(self, flag_color(sim.commander.guard))
 
 	for r in sim.regiments:
 		if r.is_dead() or (r.team == ENEMY and sim.unseen(r)):

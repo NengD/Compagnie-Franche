@@ -513,6 +513,7 @@ Les touches marquées * se changent dans **Options**.
 | Couper / remettre le son | M * |
 | Sonner la retraite | R * deux fois |
 | Capitaine | Clic sur le capitaine : le sélectionner avec son escorte (son aura s'affiche) ; C * : il rejoint le régiment sélectionné |
+| Pièges (déploiement) | P * : pieux → fossé → chausse-trapes → aucun (ou les boutons au-dessus des cartes) ; clic gauche : poser ; clic droit : retirer le piège visé (remboursé) ou ranger l'outil |
 | Vitesse du jeu x1 → x1,5 → x2 | V * |
 | Aide (repliée par défaut, état mémorisé) | F1 * |
 | Cartes des régiments : cacher / montrer (état mémorisé ; aussi l'onglet cliquable au-dessus des cartes) | Tab * |
@@ -536,6 +537,20 @@ Les touches marquées * se changent dans **Options**.
 - **Capitaine** : visible derrière le régiment qu'il escorte (fanion doré). Son **aura** (180 px) rend du moral
   aux régiments proches, même en mêlée. Les ennemis au contact le blessent ; s'il tombe, chaque régiment perd
   40 points de moral, mais la bataille continue. Si son escorte fuit, il rejoint le régiment le plus proche.
+- **Chef ennemi** : dans les contrats de niveau 2 et plus et la bataille décisive (pas en escarmouche ni dans les
+  embuscades de la route), l'ennemi est mené par un chef nommé : cavalier en heaume doré sous un étendard à
+  queue fourchue, derrière un **régiment de garde** (son infanterie la plus robuste : moral et vie x1,3, coups x1,15).
+  Il recule quand vos soldats approchent à 110 px ; vos soldats au contact et vos flèches qui tombent sur lui le
+  blessent. S'il tombe, **chaque régiment ennemi perd 35 points de moral**. En campagne, sa tête rapporte 25 % de la
+  prime du contrat (60 écus au moins) et +6 de renommée en cas de victoire, +3 de renommée même en cas de défaite ;
+  le bilan l'indique (« Chef ennemi : … est tombé (+N écus, renommée +6) »).
+- **Pièges** (déploiement) : un petit budget de points selon le terrain (rase campagne 6, bois 8, collines 6,
+  rivière 5, village 7, palissade 5 ; pluie −2, au moins 2). **Pieux** (2 points) : un cavalier qui les charge y perd
+  60 à 110 % de sa vie, est rejeté et son régiment s'arrête net (la rangée cède après 10 chocs) ; au pas, on passe
+  lentement (x0,4). **Fossé** (3 points) : x0,4, plus d'élan ni de course, moral qui s'effrite, coups reçus x1,3.
+  **Chausse-trapes** (1 point) : x0,5, plus de charge, les chevaux s'y blessent. Les pièges ne gênent que l'ennemi,
+  se posent dans la zone bleue (ni sur l'eau, ni sur une maison, ni sur un autre piège) et se dessinent sur le terrain ;
+  le bilan dit ce qu'ils ont fait.
 - **Forêts** : ralentissent (surtout les chevaux), arrêtent la moitié des flèches, et **cachent** les troupes. Une attaque sortie d'une forêt déclenche une **embuscade** (gros choc moral).
 - **Météo** (barre du haut ; effets détaillés sous l'onglet d'aide et en tête de l'aide F1, voir `battle_weather.gd`) :
   - **pluie** : arcs -30 % de portée, -25 % de dégâts et tir bien moins juste ; les **arbalètes** n'en perdent que -10 % ;
@@ -704,6 +719,8 @@ scripts/siege_terrain.gd  Ville fortifiée (SiegeTerrain) : rempart, porte, tour
 scripts/siege.gd        Vrai siège (Siege) : bélier, échelles, repoussage, huile et pierres, tours, prise de la place, fin, rendu
 scripts/regiment.gd     Régiment : formation, moral, ordres
 scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
+scripts/enemy_commander.gd Chef ennemi (EnemyCommander) : garde renforcée, recul, mort (moral), tête payée en campagne, dessin
+scripts/battle_traps.gd Pièges du déploiement (BattleTraps) : budget, pose et retrait, pieux / fossé / chausse-trapes, dessin
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
 scripts/equipment.gd    Équipement des régiments (Equipment) : casque, armes, armure en trois qualités, améliorations
 scripts/company_panel.gd Sections « Capitaine » et « Équipement » des fenêtres de la carte
@@ -766,6 +783,9 @@ tests/interface_plus_test.gd Test de la mini-carte (cadre, clic, glisser, touche
                         de la page Succès
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
+tests/chefs_pieges_test.gd Test du chef ennemi (garde, recul, mort et moral, prime) et des pièges (budget, pose en
+                        déploiement seulement, pieux contre une charge, fossé, chausse-trapes, HUD, touche P)
+tests/chefs_pieges_capture.gd Captures des pièges posés et du chef ennemi (avec fenêtre ; option --out)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
 tests/life_test.gd      Test des prisonniers, des vivres et de la fatigue, des blessés graves, des compagnons
                         (dont l'éclaireur sur la carte), de la sauvegarde v10, du début de bataille et des panneaux

@@ -67,6 +67,8 @@ var siege: Siege = null ## Vrai siège (ville fortifiée, voir siege.gd), null s
 var retreated := false ## La bataille s'est terminée par une retraite
 var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
 var captain: Captain = null ## Capitaine du joueur sur le champ (voir captain.gd), null sans capitaine
+var commander: EnemyCommander = null ## Chef ennemi sous son étendard (voir enemy_commander.gd), null sans chef
+var traps: BattleTraps = null ## Pièges posés au déploiement (voir battle_traps.gd), null sans pièges
 var objective: BattleObjectives.Objective = BattleObjectives.create("destroy") ## Condition de victoire (battle_objectives.gd)
 
 
@@ -405,6 +407,10 @@ func step(dt: float) -> void:
 			update_soldier(s, dt)
 	if captain != null:
 		captain.step(self, dt)
+	if commander != null:
+		commander.step(self, dt)
+	if traps != null and state == State.BATTLE:
+		traps.step(self, dt) # Pieux, fossé, chausse-trapes
 	if siege != null:
 		siege.step(self, dt) # Échelles, bélier, tours, place de la ville
 	update_arrows(dt)
@@ -907,6 +913,8 @@ func move_towards(s: Soldier, goal: Vector2, speed: float, dt: float) -> void:
 	speed *= terrain.speed_factor(s.pos, dir, s.regiment.type) # Eau, montée
 	if siege != null:
 		speed *= siege.speed_factor(s.regiment) # Porteurs du bélier
+	if traps != null:
+		speed *= traps.speed_factor(s) # Fossé, chausse-trapes, pieux
 	var step_len := minf(speed * dt, l)
 	s.move_dir = terrain.steer(s.pos, dir, rad, goal) # Longe maisons et pieux
 	s.pos += s.move_dir * step_len
@@ -1036,6 +1044,8 @@ func strike(a: Soldier, b: Soldier) -> void:
 
 	if br.routing:
 		dmg *= 1.5
+	if traps != null:
+		dmg *= traps.damage_taken(b) # Désorganisé dans un fossé
 	dmg *= UnitTypes.fatigue_factor(ar.stamina, UnitTypes.EXHAUSTED_DAMAGE) * ar.rank_damage()
 	dmg *= rng.randf_range(0.7, 1.3)
 	a.attack_dur = 0.3
