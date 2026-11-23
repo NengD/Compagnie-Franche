@@ -1693,6 +1693,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
 	report += captain.after_battle(self, victory)
+	report += EnemyCommander.campaign_reward(self, out, victory) # Tête du chef ennemi
 	report += Supplies.after_battle(self, victory, out) + Prisoners.after_battle(self, victory, out) + companions.after_battle(self, victory)
 	out["gold_battle"] = gold # Or juste après la bataille, avant la solde du jour
 	out["men_battle"] = total_men()

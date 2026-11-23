@@ -197,6 +197,12 @@ func build_totals(box: VBoxContainer) -> void:
 	if int(t["enemy_standing"]) > 0:
 		foe += ", %d encore debout" % int(t["enemy_standing"])
 	box.add_child(UiTheme.label(foe, 15, UiTheme.TEXT))
+	var chief := commander_line()
+	if chief != "":
+		var slain := bool((report.get("commander", {}) as Dictionary).get("slain", false))
+		box.add_child(UiTheme.label(chief, 15, GOOD if slain else UiTheme.TEXT))
+	if str(report.get("traps", "")) != "":
+		box.add_child(UiTheme.label(str(report["traps"]), 15, UiTheme.TEXT))
 	if not is_campaign():
 		return
 	var c: Dictionary = report["campaign"]
@@ -207,6 +213,9 @@ func build_totals(box: VBoxContainer) -> void:
 		money.append("Butin %d écus" % int(c["loot"]))
 		if int(c.get("bonus", 0)) > 0:
 			money.append("%s %d écus" % [str(c.get("bonus_label", "Prime d'objectif")), int(c["bonus"])])
+		var chief_gain: Dictionary = c.get("commander", {})
+		if int(chief_gain.get("bounty", 0)) > 0:
+			money.append("Tête du chef %d écus" % int(chief_gain["bounty"]))
 
 	elif int(c["pillage"]) > 0:
 		money.append(("Bagages abandonnés -%d écus" if bool(c["retreat"]) else "Bagages pillés -%d écus") % int(c["pillage"]))
@@ -459,3 +468,26 @@ func build_buttons(box: VBoxContainer) -> void:
 			b.pressed.connect(func(): battle.back_to_menu())
 		row.add_child(b)
 		buttons.append(b)
+
+
+## Ligne du chef ennemi (enemy_commander.gd) : tombé (et sa prime en campagne), enfui, ou debout.
+func commander_line() -> String:
+	var k: Variant = report.get("commander", {})
+	if not k is Dictionary or not bool((k as Dictionary).get("present", false)):
+		return ""
+	var who := str(k.get("name", "Le chef ennemi"))
+	if bool(k.get("slain", false)):
+		var line := "Chef ennemi : %s est tombé" % who
+		var camp: Variant = report.get("campaign", {})
+		var c: Dictionary = (camp as Dictionary).get("commander", {}) if camp is Dictionary else {}
+		var gains: Array[String] = []
+		if int(c.get("bounty", 0)) > 0:
+			gains.append("+%d écus" % int(c["bounty"]))
+		if int(c.get("fame", 0)) > 0:
+			gains.append("renommée +%d" % int(c["fame"]))
+		if not gains.is_empty():
+			line += " (" + ", ".join(gains) + ")"
+		return line + "."
+	if bool(k.get("fled", false)):
+		return "Chef ennemi : %s s'est enfui." % who
+	return "Chef ennemi : %s a survécu." % who
