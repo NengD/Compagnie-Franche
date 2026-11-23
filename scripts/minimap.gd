@@ -103,6 +103,7 @@ static func draw(hud: Hud, r: Rect2) -> void:
 	hud.text(r.position + Vector2(4, 12), GameOptions.key_label("minimap"), 10, Color(0.9, 0.88, 0.8, 0.7))
 
 
-## Régiment visible sur la mini-carte : tous ceux du joueur, les ennemis non cachés.
+## Régiment visible sur la mini-carte : tous ceux du joueur, les ennemis non cachés (ni en forêt,
+## ni dans le brouillard).
 static func shows(reg: Regiment) -> bool:
-	return reg.team == BattleSim.PLAYER or not reg.hidden
+	return reg.team == BattleSim.PLAYER or not (reg.hidden or reg.fogged)

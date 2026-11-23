@@ -206,6 +206,10 @@ func tooltip_lines(r: Regiment) -> Array[String]:
 	lines.append("Endurance : %d %% (%s)" % [roundi(100.0 * clampf(r.stamina, 0.0, 1.0)), r.stamina_label()])
 	lines.append("Rang : %s" % Regiment.RANK_NAMES[r.rank])
 	lines.append("Formation : %s" % r.formation_name())
+	if r.is_resting(battle.sim.battle_time):
+		lines.append("Relevé : il souffle derrière la ligne")
+	elif r.contact_time > 10.0:
+		lines.append("Usure au contact : fatigue x%.1f" % battle.sim.wear_factor(r))
 	return lines
 
 
@@ -261,6 +265,8 @@ func _draw() -> void:
 		draw_rect(Rect2(Vector2.ZERO, vs), Color(0.1, 0.12, 0.22, 0.2))
 		for d in drops:
 			draw_line(d, d + Vector2(-2, 10), Color(0.75, 0.8, 0.95, 0.35), 1.0)
+	if battle.sim.fog:
+		draw_fog(vs)
 
 	draw_top_bar(vs)
 	draw_cards(vs)
@@ -346,7 +352,7 @@ func draw_top_bar(vs: Vector2) -> void:
 
 	# Côté droit, depuis le bord : météo, terrain, vitesse
 	var items: Array = []
-	var weather := "Pluie" if battle.raining else "Temps clair"
+	var weather := BattleWeather.label(battle.sim)
 	if battle.campaign == null: # En campagne, la météo du jour ne se change pas (pas de touche)
 		weather += "  [%s]" % GameOptions.key_label("rain")
 	items.append([weather, Color(0.85, 0.85, 0.85)])
@@ -547,8 +553,9 @@ func draw_help(vs: Vector2) -> void:
 		draw_rect(r, Color(0.05, 0.04, 0.03, 0.7))
 		draw_rect(r, Color(0.45, 0.4, 0.3), false, 1.0)
 		text(r.position + Vector2(8, 16), tab, 13, Color(0.9, 0.88, 0.8))
+		draw_weather_effects(vs, r.end.y + 18.0)
 		return
-	var lines := help_lines(battle.campaign == null)
+	var lines := shown_help_lines()
 	var lay := help_layout(vs, lines)
 	var hr: Rect2 = lay["rect"]
 	draw_rect(hr, Color(0.05, 0.04, 0.03, 0.78))
@@ -562,8 +569,39 @@ func draw_help(vs: Vector2) -> void:
 func free_width(vs: Vector2) -> float:
 	if not battle.show_help:
 		return vs.x
-	var hr: Rect2 = help_layout(vs, help_lines(battle.campaign == null))["rect"]
+	var hr: Rect2 = help_layout(vs, shown_help_lines())["rect"]
 	return hr.position.x
+
+
+## Lignes de l'aide dépliée : la météo en cours et ses effets, puis l'aide des touches.
+func shown_help_lines() -> Array[String]:
+	var lines: Array[String] = []
+	for e in BattleWeather.effects(battle.sim):
+		lines.append("Météo : " + e)
+	lines.append_array(help_lines(battle.campaign == null))
+	return lines
+
+
+## Effets de la météo en cours, en petit sous l'onglet d'aide (aide repliée).
+func draw_weather_effects(vs: Vector2, y: float) -> void:
+	for e in BattleWeather.effects(battle.sim):
+		var w := text_width(e, 12)
+		draw_rect(Rect2(vs.x - w - 20.0, y - 14.0, w + 12.0, 19.0), Color(0.05, 0.04, 0.03, 0.55))
+		text(Vector2(vs.x - w - 14.0, y), e, 12, Color(0.85, 0.9, 1.0))
+		y += 21.0
+
+
+## Brouillard : voile pâle et nappes qui dérivent lentement (purement visuel).
+func draw_fog(vs: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, vs), Color(0.78, 0.8, 0.82, 0.16))
+	var t := Time.get_ticks_msec() / 1000.0
+	for i in 9:
+		var k := float(i)
+		var x := fposmod(k * 397.0 + t * (8.0 + k), vs.x + 600.0) - 300.0
+		var y := fposmod(k * 233.0, vs.y)
+		var rad := 180.0 + 40.0 * sin(k * 1.7)
+		draw_circle(Vector2(x, y), rad, Color(0.85, 0.87, 0.9, 0.07))
+		draw_circle(Vector2(x + rad * 0.4, y + 20.0), rad * 0.7, Color(0.85, 0.87, 0.9, 0.06))
 
 
 ## Sous-titres au-dessus des cartes, centrés dans la place laissée par l'aide.
@@ -601,7 +639,11 @@ static func help_lines(rain_key := true) -> Array[String]:
 		"%s : archers, tir à volonté / cesser le tir" % GameOptions.key_label("fire"),
 		"%s / flèches / molette (clic) : caméra" % GameOptions.camera_keys_label(),
 		"Molette : zoom   Survol : détails d'un régiment",
-		("%s : pluie   Espace : lancer / pause" % GameOptions.key_label("rain")) if rain_key else "Météo du jour imposée   Espace : lancer / pause",
+		("%s : météo (clair, pluie, brouillard, vent)   Espace : lancer / pause" % GameOptions.key_label("rain")) if rain_key else "Météo du jour et du lieu imposée   Espace : lancer / pause",
+		"Pluie : arcs courts (arbalètes moins), boue : cavalerie lente",
+		"Brouillard : ennemi invisible au loin   Vent : porte les flèches",
+		"%s : relever (survoler l'ami qui prend la place) ou se replier" % GameOptions.key_label("relief"),
+		"Mêlée longue : on s'use vite ; au repos, on récupère",
 		"Déploiement : zone bleue, aucun combat",
 		"%s deux fois : sonner la retraite (défaite limitée)" % GameOptions.key_label("retreat"),
 		"Clic : capitaine   %s : il rejoint la sélection" % GameOptions.key_label("captain"),

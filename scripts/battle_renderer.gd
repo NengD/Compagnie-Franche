@@ -212,8 +212,8 @@ func _draw() -> void:
 	for s in sim.soldiers:
 		if not s.alive:
 			continue
-		if s.regiment.team == ENEMY and s.regiment.hidden:
-			continue
+		if s.regiment.team == ENEMY and sim.unseen(s.regiment):
+			continue # Caché en forêt, ou perdu dans le brouillard
 		items.append([s.pos.y, s])
 	for t in sim.trees:
 		items.append([t.y, t])
@@ -248,7 +248,7 @@ func _draw() -> void:
 		sim.captain.draw(self, sim.state == BattleSim.State.DEPLOY)
 
 	for r in sim.regiments:
-		if r.is_dead() or (r.team == ENEMY and r.hidden):
+		if r.is_dead() or (r.team == ENEMY and sim.unseen(r)):
 			continue
 		draw_banner(r)
 
@@ -325,6 +325,8 @@ func soldier_look(s: Soldier) -> Vector2:
 func draw_soldier(s: Soldier) -> void:
 	var r := s.regiment
 	var hidden_alpha := 0.55 if (r.team == PLAYER and r.hidden) else 1.0
+	if r.team == ENEMY:
+		hidden_alpha = r.fog_alpha # Brouillard : l'ennemi s'estompe avec la distance
 	if sprites.has_unit(r.type, r.team):
 		var look := soldier_look(s)
 		var dir := SpriteBank.dir_of(look)
@@ -473,6 +475,8 @@ func draw_soldier_code(s: Soldier) -> void:
 	if s.moving and int(s.anim) % 2 == 0:
 		step = 1.0
 	var alpha := 0.55 if (r.team == PLAYER and r.hidden) else 1.0
+	if r.team == ENEMY:
+		alpha = r.fog_alpha
 	if alpha < 1.0:
 		col.a = alpha
 		dark.a = alpha
@@ -643,7 +647,7 @@ func draw_team_marks() -> void:
 		if not s.alive:
 			continue
 		var r: Regiment = s.regiment
-		if r.team == ENEMY and r.hidden:
+		if r.team == ENEMY and sim.unseen(r):
 			continue
 		var p: Vector2 = s.pos.round() + Vector2(0, 3)
 		if r.team == PLAYER:

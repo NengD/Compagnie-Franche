@@ -391,7 +391,11 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
     les armées fondent plus vite, et chaque jour de marche
     a une chance sur deux que le **froid** emporte 2 % des hommes. La carte se couvre de neige.
   - **Météo du jour** : pluie 25 % au printemps, 10 % en été, **50 % en automne**, 30 % en hiver. Une bataille
-    livrée un jour de pluie se fait **sous la pluie** (la pluie tombe aussi sur la carte).
+    livrée un jour de pluie se fait **sous la pluie**, sur un sol déjà boueux (la pluie tombe aussi sur la carte).
+    Par temps sec, **brouillard** certains jours (15 % au printemps, 5 % en été, 25 % en automne, 20 % en
+    hiver), plus souvent près de l'eau et dans les bois ; un jour sur quatre, **vent fort**. La météo du jour
+    et du lieu de la rencontre s'impose à la bataille (`WorldSim.battle_weather`, tirée de la graine sans
+    toucher aux tirages de la campagne).
   - **Guerres** : à partir du jour 6, deux factions rivales peuvent se déclarer la guerre (une chance sur 33
     par jour ; une sur 100 pour le Comté et la Ligue, qui ne sont pas rivaux), au plus tôt 12 jours après une
     trêve. Une trêve peut se signer après 20 jours de guerre, de plus en plus probable avec le temps (tout de
@@ -503,7 +507,8 @@ Les touches marquées * se changent dans **Options**.
 | Caméra | ZQSD (ou WASD) *, flèches, clic molette maintenu |
 | Détails d'un régiment (ami ou ennemi) | Survol à la souris |
 | Zoom | Molette |
-| Pluie on/off | T * |
+| Météo (escarmouche) : clair → pluie → brouillard → vent | T * |
+| Relever / se replier | E * : avec un régiment sélectionné, survolez le régiment ami qui prend sa place (ou sélectionnez les deux : le plus frais relève l'autre) ; sans désignation, la sélection rompt le contact et recule pour souffler |
 | Lancer la bataille / pause | Espace (pendant le déploiement, aucun combat : les ordres restent dans la zone bleue et on ne peut pas attaquer) |
 | Couper / remettre le son | M * |
 | Sonner la retraite | R * deux fois |
@@ -532,7 +537,20 @@ Les touches marquées * se changent dans **Options**.
   aux régiments proches, même en mêlée. Les ennemis au contact le blessent ; s'il tombe, chaque régiment perd
   40 points de moral, mais la bataille continue. Si son escorte fuit, il rejoint le régiment le plus proche.
 - **Forêts** : ralentissent (surtout les chevaux), arrêtent la moitié des flèches, et **cachent** les troupes. Une attaque sortie d'une forêt déclenche une **embuscade** (gros choc moral).
-- **Pluie** : les archers tirent moins loin et moins juste, tout le monde avance plus lentement.
+- **Météo** (barre du haut ; effets détaillés sous l'onglet d'aide et en tête de l'aide F1, voir `battle_weather.gd`) :
+  - **pluie** : arcs -30 % de portée, -25 % de dégâts et tir bien moins juste ; les **arbalètes** n'en perdent que -10 % ;
+  - **boue** (elle monte sous la pluie, pleine d'emblée en campagne, puis sèche lentement) : fantassins x0,88,
+    **cavalerie x0,7**, élan des charges réduit de moitié, la course fatigue davantage ;
+  - **brouillard** : un régiment adverse s'estompe au-delà de 220 pas et disparaît au-delà de 380 (ni affiché, ni
+    sur la mini-carte, ni cliquable, ni visé par les archers) ; l'IA y est soumise aussi (ses tireurs ne tirent que
+    sur ce qu'ils voient, elle avance à tâtons d'après ses éclaireurs) ;
+  - **vent** : +15 % de portée vent arrière, -15 % vent de face, et les flèches dérivent.
+- **Usure et relève** : plus une mêlée dure, plus l'endurance fond (jusqu'à 3 fois plus vite après une minute de
+  contact) ; à bout de forces, un régiment au contact perd aussi du moral. La **relève** (E) envoie un régiment frais
+  à la place du régiment usé (il reprend son ennemi, qui se retourne contre lui), le relevé décroche (il ne cherche
+  plus le contact) et recule derrière la ligne pour reprendre endurance et moral (bonus de moral au repos loin de
+  l'ennemi). L'IA ennemie relève aussi ses régiments épuisés en mode normal et difficile. L'info-bulle indique
+  l'usure au contact et le repos.
 - **Course et endurance** : le double clic droit fait courir le régiment (x1,6), mais la course vide l'endurance en une douzaine de secondes ; la mêlée fatigue aussi, lentement. Sous 60 % d'endurance, la vitesse et les dégâts baissent (jusqu'à x0,6 pour un régiment épuisé). La marche et surtout le repos font récupérer. La barre jaune de la carte du régiment montre l'endurance.
 - **Formations** (touche F) : la **ligne** (par défaut) ; la **colonne** (3 de front) avance 15 % plus vite ; le **carré** creux est lent (x0,55) mais n'a ni flanc ni dos : il annule les bonus de flanc et de dos.
 - **Ressenti** : une charge de cavalerie qui percute fait trembler la caméra (moins si elle est loin), les chevaux au galop soulèvent de la poussière, un régiment qui fuit pousse des cris, et la fin de la bataille passe quelques secondes au ralenti.
@@ -672,7 +690,9 @@ scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, éta
 scripts/battle.gd       Nœud de la bataille (classe Battle) : assemble simulation, rendu, ordres, caméra,
                         HUD, son, menu pause ; temps (pause, vitesse, ralenti), campagne et bilan
 scripts/battle_sim.gd   Simulation sans rendu (BattleSim) : monde, armées, déplacements, mêlée, moral,
-                        flèches, endurance, retraite, fin ; prévient le reste par des signaux
+                        flèches, endurance, usure et relève, retraite, fin ; prévient le reste par des signaux
+scripts/battle_weather.gd Météo de bataille (BattleWeather) : pluie, boue, brouillard, vent et leurs effets,
+                        textes de la barre du haut et de l'aide
 scripts/battle_renderer.gd  Rendu pixel art (BattleRenderer, nœud enfant) : sol, soldats, arbres, effets
 scripts/battle_orders.gd    Saisie et ordres du joueur (BattleOrders) : sélection, groupes, ligne de front
 scripts/battle_effects.gd   Effets visuels (BattleEffects) : sang, étincelles, éclat des charges, traînées des
@@ -732,6 +752,7 @@ tests/interface_test.gd Test de l'interface de bataille : numéros fixes, aide, 
                         touches de caméra, zoom et taille de l'interface, HUD et bilan à 150 %
 tests/interface_capture.gd Captures de l'interface de bataille dans user://captures_interface/ (avec fenêtre)
 tests/deploy_pause_test.gd  Test du déploiement (aucun combat, zone bleue) et du menu pause
+tests/weather_test.gd   Test de la météo (pluie, boue, vent, brouillard, météo de campagne) et de la relève
 tests/difficulty_test.gd Test de la difficulté (multiplicateurs, options, sauvegarde, bataille de contrat)
 tests/perf_test.gd      Test de performance (bataille à 2x les effectifs : temps d'étape et d'image)
 tests/effects_test.gd   Test des effets visuels (même bataille quel que soit le niveau, plafond, option)
@@ -815,6 +836,7 @@ godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, t
 godot --headless --path . -s tests/interface_test.gd  # interface de bataille, accessibilité, caméra
 godot --headless --path . -s tests/interface_plus_test.gd  # mini-carte, statistiques du bilan, aperçus, succès
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite
+godot --headless --path . -s tests/weather_test.gd    # pluie, boue, brouillard, vent ; usure, relève, repli, IA
 godot --headless --path . -s tests/difficulty_test.gd # difficulté : ennemis, IA, prix, sauvegarde
 godot --headless --path . -s tests/perf_test.gd      # performance à 2x les effectifs (--factor=K, --out=<fichier.json>)
 godot --headless --path . -s tests/stats_test.gd      # statistiques et succès (fichier de test, jamais le vrai)

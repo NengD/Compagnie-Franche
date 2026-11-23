@@ -43,7 +43,11 @@ static func build_world(map: Node) -> void:
 	if WorldSim.season_of(state.day) == WorldSim.WINTER:
 		notes.append("Hiver : marches plus lentes (x%.1f), le froid emporte des hommes en route." % WorldSim.MARCH_FACTOR[WorldSim.WINTER])
 	if w.raining:
-		notes.append("Une bataille livrée aujourd'hui se fera sous la pluie.")
+		notes.append("Une bataille livrée aujourd'hui se fera sous la pluie (arcs gênés, boue).")
+	elif w.fog_today(state.day):
+		notes.append("Brouillard : en bataille, on ne voit l'ennemi que de près.")
+	if w.wind_today(state.day) != 0.0:
+		notes.append("Vent fort : il porte ou freine les flèches.")
 	if not notes.is_empty():
 		map.add_label(" ".join(notes), 12, DIM)
 	map.add_label("Guerres : %s" % w.wars_text(), 12, WARN if not w.wars.is_empty() else DIM)

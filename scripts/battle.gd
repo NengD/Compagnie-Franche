@@ -117,7 +117,8 @@ func _ready() -> void:
 	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
 	Supplies.enter_battle(self) # Campagne : fatigue, faim, prisonniers enrôlés, sergent
 	if campaign != null:
-		sim.raining = campaign.world.raining # La météo du jour s'impose à la bataille (world_sim.gd)
+		# La météo du jour et du lieu s'impose à la bataille (WorldSim.battle_weather, battle_weather.gd)
+		BattleWeather.apply(sim, campaign.world.battle_weather(campaign.day, sim.terrain.kind, int(campaign.pending.get("town", -1))))
 
 	camera = BattleCamera.new()
 	add_child(camera)
@@ -137,8 +138,8 @@ func _ready() -> void:
 
 	if campaign != null:
 		add_message("Contrat : %s" % campaign.pending["title"])
-		if sim.raining:
-			add_message("Il pleut aujourd'hui : les archers tirent moins loin et moins juste.")
+		if BattleWeather.briefing(sim) != "":
+			add_message(BattleWeather.briefing(sim))
 	if sim.terrain.place_text() != "":
 		add_message("On se bat %s (%s). %s" % [sim.terrain.place_text(), sim.terrain.display_name(), sim.terrain.hint()])
 	elif sim.terrain.kind != "plain":

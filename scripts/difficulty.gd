@@ -23,6 +23,7 @@ const LEVELS := {
 		"ai_advance": 25.0, ## Délai avant que l'IA ne marche sur le joueur, en secondes
 		"ai_cavalry_wait": 40.0, ## Délai avant que la cavalerie ennemie ne quitte la réserve
 		"ai_square": false, ## Les piquiers ennemis forment le carré contre la cavalerie
+		"ai_relief": false, ## L'IA relève ses régiments épuisés par des régiments frais
 		"recruit": 0.8, ## Prix de recrutement
 		"wage": 0.8, ## Solde quotidienne
 		"reward": 1.25, ## Primes des contrats
@@ -38,6 +39,7 @@ const LEVELS := {
 		"ai_advance": 12.0,
 		"ai_cavalry_wait": 20.0,
 		"ai_square": true,
+		"ai_relief": true,
 		"recruit": 1.0,
 		"wage": 1.0,
 		"reward": 1.0,
@@ -53,6 +55,7 @@ const LEVELS := {
 		"ai_advance": 8.0,
 		"ai_cavalry_wait": 15.0,
 		"ai_square": true,
+		"ai_relief": true,
 		"recruit": 1.1,
 		"wage": 1.1,
 		"reward": 0.95,

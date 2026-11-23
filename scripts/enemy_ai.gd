@@ -107,6 +107,13 @@ var think_every := 0.8 ## Intervalle entre deux réflexions, en secondes
 var advance_time := 12.0 ## Délai avant de marcher sur l'ennemi
 var cavalry_wait := CAVALRY_WAIT ## Délai avant que la cavalerie ne quitte la réserve
 var use_square := true ## Les piquiers forment le carré contre une charge
+var use_relief := true ## Relève des régiments épuisés par des régiments frais (normal, difficile)
+var relief_timer := 0.0 ## Délai avant la prochaine relève (une à la fois)
+const RELIEF_EVERY := 4.0 ## Secondes entre deux relèves
+const RELIEF_TIRED := 0.25 ## Endurance sous laquelle un régiment au contact demande à être relevé...
+const RELIEF_SHAKEN := 0.35 ## ... ou part du moral maximal
+const RELIEF_FRESH := 0.7 ## Endurance (et part du moral) minimale du régiment qui relève
+const RELIEF_REACH := 500.0 ## Distance maximale du régiment qui relève
 
 
 ## Applique un niveau de difficulté (« easy », « normal », « hard »).
@@ -115,6 +122,7 @@ func configure(difficulty: String) -> void:
 	advance_time = Difficulty.value(difficulty, "ai_advance")
 	cavalry_wait = Difficulty.value(difficulty, "ai_cavalry_wait")
 	use_square = bool(Difficulty.level(difficulty)["ai_square"])
+	use_relief = bool(Difficulty.level(difficulty).get("ai_relief", true))
 
 
 ## Une réflexion (au plus toutes les think_every secondes). b : la simulation de la bataille.
@@ -134,6 +142,12 @@ func think(b: BattleSim, dt: float) -> void:
 			mine.append(r)
 		elif r.team != team:
 			all_theirs.append(r)
+			if not b.unseen(r):
+				theirs.append(r)
+	if theirs.is_empty() and b.fog:
+		# Brouillard : personne en vue, l'armée avance à tâtons d'après ses éclaireurs (ses tireurs,
+		# eux, ne tirent que sur ce qu'ils voient : BattleSim.update_archers)
+		for r in all_theirs:
 			if not r.hidden:
 				theirs.append(r)
 	if mine.is_empty() or theirs.is_empty():
@@ -168,8 +182,46 @@ func think(b: BattleSim, dt: float) -> void:
 			n += 1
 	line_depth = sum / n if n > 0 else 0.0
 
+	relief_timer -= think_every
+	if use_relief and relief_timer <= 0.0 and plan_relief(b, mine):
+		relief_timer = RELIEF_EVERY
 	for r in mine:
+		if r.is_resting(b.battle_time) and b.nearest_enemy_regiment(r, 120.0, false) == null:
+			continue # Relevé : il souffle derrière la ligne
 		think_regiment(b, r, mine, theirs)
+
+
+## Relève : le régiment de mêlée le plus épuisé au contact est remplacé par le régiment frais le plus
+## proche (ni tireur, ni au contact). Renvoie vrai si une relève a eu lieu.
+func plan_relief(b: BattleSim, mine: Array[Regiment]) -> bool:
+	var tired: Regiment = null
+	for r in mine:
+		if r.stats["ranged"] or not r.engaged or r.relief > 0.0:
+			continue
+		if r.stamina >= RELIEF_TIRED and r.morale >= r.max_morale * RELIEF_SHAKEN:
+			continue
+		if tired == null or r.stamina < tired.stamina:
+			tired = r
+	if tired == null:
+		return false
+	var fresh: Regiment = null
+	var fd := RELIEF_REACH
+	for r in mine:
+		if r == tired or r.stats["ranged"] or r.engaged or r.is_resting(b.battle_time):
+			continue
+		if r.stamina < RELIEF_FRESH or r.morale < r.max_morale * RELIEF_FRESH:
+			continue
+		var d := r.center.distance_to(tired.center)
+		if d < fd:
+			fd = d
+			fresh = r
+	if fresh == null or not b.relieve(tired, fresh):
+		return false
+	posts.erase(tired.id) # Le relevé ne retourne pas à son poste tout de suite
+	if posts.has(fresh.id):
+		posts[fresh.id] = tired.center
+	b.message("%s relèvent leurs %s épuisés." % [b.team_label(fresh), tired.display_name().to_lower()])
+	return true
 
 
 ## Régiments menés par cette IA : tout le camp team (l'IA des alliés, allied_ai.gd, ne mène que
@@ -486,9 +538,7 @@ func must_wade(b: BattleSim, r: Regiment, o: Regiment) -> bool:
 # ---------------------------------------------------------------- Archers
 
 func think_archer(b: BattleSim, r: Regiment, mine: Array[Regiment], theirs: Array[Regiment]) -> void:
-	var range_px: float = r.stats["range"] * b.terrain.range_factor(r.center)
-	if b.raining:
-		range_px *= 0.75
+	var range_px := b.shot_range(r, r.center + Vector2(0, 1 if team == 1 else -1) * 100.0) # Pluie, vent
 	# Recule si une unité de mêlée s'approche
 	var threat: Regiment = null
 	var td := 140.0

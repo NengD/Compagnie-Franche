@@ -355,19 +355,21 @@ func _test_pause_tutorial() -> void:
 	check(battle.pause_menu.last_scene == MENU_SCENE, "tutoriel : Menu principal ne ramène pas au menu")
 
 
-## La touche de pluie (T) : libre en escarmouche et au tutoriel ; en campagne, la météo du jour s'impose,
-## T est sans effet (un court message) et ni la barre ni l'aide ne la proposent.
+## La touche de météo (T) : libre en escarmouche et au tutoriel (clair → pluie → brouillard → vent) ;
+## en campagne, la météo du jour s'impose, T est sans effet (un court message) et ni la barre ni
+## l'aide ne la proposent.
 func _test_rain_key(what: String, free: bool) -> void:
-	var before: bool = battle.sim.raining
+	var before := BattleWeather.kind(battle.sim)
 	var n_msg: int = battle.messages.size()
 	press_key(KEY_T)
-	check(battle.sim.raining == (not before if free else before),
-		"%s : la touche T %s la pluie" % [what, "ne change pas" if free else "change"])
+	check((BattleWeather.kind(battle.sim) != before) == free,
+		"%s : la touche T %s la météo" % [what, "ne change pas" if free else "change"])
 	check(battle.messages.size() > n_msg, "%s : T sans message" % what)
 	if free:
-		press_key(KEY_T) # Remet la météo de départ
-		check(battle.sim.raining == before, "%s : T deux fois ne rend pas la météo de départ" % what)
-	var rain_line := GameOptions.key_label("rain") + " : pluie"
+		for i in BattleWeather.KINDS.size() - 1: # Fait le tour du cycle
+			press_key(KEY_T)
+		check(BattleWeather.kind(battle.sim) == before, "%s : T ne fait pas le tour des temps" % what)
+	var rain_line := GameOptions.key_label("rain") + " : météo"
 	var help := " | ".join(Hud.help_lines(battle.campaign == null))
 	check(help.contains(rain_line) == free, "%s : l'aide F1 %s la touche de pluie" % [what, "ne montre pas" if free else "montre"])
 

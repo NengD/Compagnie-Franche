@@ -39,6 +39,9 @@ enum State { DEPLOY, BATTLE, VICTORY, DEFEAT }
 
 var state: State = State.DEPLOY
 var raining := false
+var fog := false ## Brouillard (voir battle_weather.gd)
+var wind := Vector2.ZERO ## Vent : direction et force (longueur 0 à 1)
+var mud := 0.0 ## Boue : 0 sec, 1 détrempé (la pluie la fait monter)
 var battle_time := 0.0 ## Temps simulé depuis le début de la bataille (hors déploiement)
 var difficulty := "normal" ## Difficulté (voir difficulty.gd), appliquée aux régiments ennemis
 
@@ -394,6 +397,7 @@ func step(dt: float) -> void:
 		if ally_ai != null:
 			ally_ai.think(self, dt)
 	rebuild_grid()
+	BattleWeather.step(self, dt) # Boue, visibilité dans le brouillard
 	for r in regiments:
 		update_regiment(r, dt)
 	for s in soldiers:
@@ -468,7 +472,7 @@ func regiment_at(p: Vector2, team: int) -> Regiment:
 		var r: Regiment = s.regiment
 		if r.team != team or r.routing:
 			continue
-		if team == ENEMY and r.hidden:
+		if team == ENEMY and unseen(r):
 			continue
 		var d: float = s.pos.distance_squared_to(p)
 		if d < bd:
@@ -483,13 +487,23 @@ func nearest_enemy_regiment(r: Regiment, max_dist: float, visible_only: bool) ->
 	for o in regiments:
 		if o.team == r.team or o.is_dead():
 			continue
-		if visible_only and o.hidden:
+		if visible_only and unseen(o):
 			continue
 		var d := r.center.distance_to(o.center)
 		if d < bd:
 			bd = d
 			best = o
 	return best
+
+
+## Vrai si le camp adverse ne voit pas r : caché en forêt, ou perdu dans le brouillard.
+func unseen(r: Regiment) -> bool:
+	return r.hidden or r.fogged
+
+
+## Portée d'un tir de r vers le point to : hauteur, pluie, vent.
+func shot_range(r: Regiment, to: Vector2) -> float:
+	return float(r.stats["range"]) * terrain.range_factor(r.center) * BattleWeather.range_factor(self, r, to)
 
 
 func team_strength(team: int) -> int:
@@ -527,6 +541,10 @@ func update_regiment(r: Regiment, dt: float) -> void:
 	r.engaged = r.engaged_flag
 	r.engaged_flag = false
 	r.revealed = maxf(r.revealed - dt, 0.0)
+	if r.relief > 0.0:
+		r.relief = maxf(r.relief - dt, 0.0)
+		if r.center.distance_to(r.dest) < 24.0:
+			r.relief = 0.0 # Arrivé derrière la ligne : il souffle
 	update_stamina(r, dt)
 
 	# Visibilité : un régiment en forêt est invisible tant qu'aucun ennemi n'est proche
@@ -559,7 +577,12 @@ func update_regiment(r: Regiment, dt: float) -> void:
 		r.morale = minf(r.morale, r.max_morale * 0.45)
 	else:
 		if not r.engaged:
-			r.morale = minf(r.morale + UnitTypes.MORALE_REGEN * dt, r.max_morale)
+			var regen := UnitTypes.MORALE_REGEN
+			if resting_safe(r):
+				regen += UnitTypes.REST_MORALE # Au repos, loin de l'ennemi : on reprend courage
+			r.morale = minf(r.morale + regen * dt, r.max_morale)
+		elif r.stamina < UnitTypes.EXHAUSTED_MORALE_AT:
+			r.morale -= UnitTypes.EXHAUSTED_MORALE * dt # À bout de forces au contact : le courage s'use
 		if r.morale <= 0.0:
 			start_rout(r)
 			return
@@ -592,20 +615,26 @@ func update_regiment(r: Regiment, dt: float) -> void:
 				var dir := r.target.center - r.center
 				if dir.length() > 1.0:
 					r.facing = dir.normalized()
-	elif r.center.distance_to(r.dest) < 24.0 and not r.hold_position:
-		# Au repos : défend sa position si un ennemi s'approche (sauf ordre de tenir la position)
+	elif r.center.distance_to(r.dest) < 24.0 and not r.hold_position and not r.is_resting(battle_time):
+		# Au repos : défend sa position si un ennemi s'approche (sauf ordre de tenir la position ; un
+		# régiment relevé qui souffle ne repart pas de lui-même, il ne rend que les coups reçus)
 		var e := nearest_enemy_regiment(r, 110.0, true)
 		if e != null and state == State.BATTLE and (siege == null or not terrain.wall_blocks(r.center, e.center)):
 			r.target = e
 
 
-## Endurance : la course et la mêlée fatiguent, la marche et le repos reposent.
+## Endurance : la course et la mêlée fatiguent (d'autant plus que la mêlée dure : usure au contact),
+## la marche et le repos reposent.
 func update_stamina(r: Regiment, dt: float) -> void:
 	var marching := r.target != null or r.center.distance_to(r.dest) > 24.0
+	if r.engaged:
+		r.contact_time += dt
+	else:
+		r.contact_time = maxf(r.contact_time - dt * 2.0, 0.0)
 	if r.running and not r.routing:
-		r.stamina -= UnitTypes.RUN_DRAIN * dt
+		r.stamina -= UnitTypes.RUN_DRAIN * BattleWeather.run_drain_factor(self) * dt
 	elif r.engaged:
-		r.stamina -= UnitTypes.FIGHT_DRAIN * dt
+		r.stamina -= UnitTypes.FIGHT_DRAIN * wear_factor(r) * dt
 	elif marching or r.routing:
 		r.stamina += UnitTypes.WALK_REGEN * dt
 	else:
@@ -621,18 +650,30 @@ func update_stamina(r: Regiment, dt: float) -> void:
 		r.running = false # Arrivé, au contact ou à portée de tir
 
 
+## Usure au contact : multiplicateur de l'endurance perdue en mêlée (1 au premier choc, jusqu'à 3).
+func wear_factor(r: Regiment) -> float:
+	return 1.0 + minf(r.contact_time / UnitTypes.CONTACT_WEAR, UnitTypes.CONTACT_WEAR_MAX)
+
+
+## Vrai si r se repose loin de l'ennemi (ni mêlée, ni marche, aucun adversaire à REST_SAFE).
+func resting_safe(r: Regiment) -> bool:
+	if r.engaged or r.routing or r.target != null or r.center.distance_to(r.dest) > 24.0:
+		return false
+	return nearest_enemy_regiment(r, UnitTypes.REST_SAFE, false) == null
+
+
 ## Tireurs : s'arrêtent à portée de leur cible, sinon s'en approchent ; tir à volonté sinon.
+## Portée : hauteur, pluie, vent (shot_range) ; dans le brouillard, on ne tire pas sur ce qu'on ne voit pas.
 func update_archers(r: Regiment, dt: float) -> void:
-	var range_px: float = r.stats["range"] * terrain.range_factor(r.center) # Plus loin en hauteur
-	if raining:
-		range_px *= 0.75
+	var range_px := shot_range(r, r.target.center if r.target != null else r.center + r.facing)
 	r.fire_target = null
 	if r.stats["skirmish"]:
 		update_skirmish(r, dt)
 	var evading := r.evading > 0.0 # Décrochage en cours : on tire sans s'arrêter
 	if r.target != null:
 		var d := r.center.distance_to(r.target.center)
-		if d <= range_px:
+		var seen := not unseen(r.target)
+		if d <= range_px and seen:
 			r.fire_target = r.target
 			if not r.holding and not evading:
 				r.holding = true
@@ -645,17 +686,20 @@ func update_archers(r: Regiment, dt: float) -> void:
 			if r.think <= 0.0 and not evading:
 				r.think = 0.5
 				var dir := (r.target.center - r.center).normalized()
-				r.dest = r.target.center - dir * range_px * 0.85
+				var stand := range_px * 0.85
+				if not seen:
+					stand = minf(stand, BattleWeather.FOG_CLEAR) # Il faut s'approcher pour le voir
+				r.dest = r.target.center - dir * stand
 				r.facing = dir
 	elif r.fire_at_will and (evading or (not r.engaged and r.center.distance_to(r.dest) < 24.0)) and state == State.BATTLE:
 		# Tir à volonté : sur l'ennemi visible le plus proche (pas sur une mêlée)
 		var best: Regiment = null
-		var bd := range_px
+		var bd := INF
 		for o in regiments:
-			if o.team == r.team or o.is_dead() or o.hidden or o.engaged:
+			if o.team == r.team or o.is_dead() or unseen(o) or o.engaged:
 				continue
 			var d := r.center.distance_to(o.center)
-			if d < bd:
+			if d < bd and d <= shot_range(r, o.center):
 				bd = d
 				best = o
 		r.fire_target = best
@@ -670,7 +714,7 @@ func update_skirmish(r: Regiment, dt: float) -> void:
 	var threat: Regiment = null
 	var td := UnitTypes.SKIRMISH_DIST
 	for o in regiments:
-		if o.team == r.team or o.is_dead() or o.routing or o.hidden or o.stats["ranged"]:
+		if o.team == r.team or o.is_dead() or o.routing or unseen(o) or o.stats["ranged"]:
 			continue
 		var d := r.center.distance_to(o.center)
 		if d < td:
@@ -695,6 +739,70 @@ func pavise_factor(r: Regiment) -> float:
 	if r.holding or (r.target == null and r.center.distance_to(r.dest) < 24.0):
 		return f
 	return 1.0
+
+
+## Vrai si r peut décrocher ou relever (debout, ni en fuite, ni allié commandé par d'autres règles).
+func can_relieve(r: Regiment) -> bool:
+	return r != null and not r.is_dead() and not r.routing
+
+
+## Relève : fresh prend la place de tired (même front, même cible), tired recule derrière lui pour
+## souffler. Renvoie false si l'échange est impossible.
+func relieve(tired: Regiment, fresh: Regiment) -> bool:
+	if not can_relieve(tired) or not can_relieve(fresh) or tired == fresh or tired.team != fresh.team:
+		return false
+	var front := tired.center
+	var face := tired.facing
+	var foe: Regiment = tired.target
+	if foe == null or foe.is_dead() or foe.routing:
+		foe = nearest_enemy_regiment(tired, 160.0, false) # Celui qui le presse
+	var away := back_dir(tired, foe)
+	face = -away
+	fresh.dest = front
+	fresh.facing = face
+	fresh.target = foe
+	fresh.holding = false
+	fresh.relief = 0.0
+	fresh.rest_until = -1.0
+	fresh.think = 0.0
+	fresh.running = fresh.center.distance_to(front) > 150.0 and fresh.stamina >= UnitTypes.RUN_MIN_STAMINA
+	fall_back(tired, front + away * (UnitTypes.RELIEF_BACK + 40.0), face)
+	for o in regiments: # Ceux qui le pressaient trouvent le régiment frais en travers du chemin
+		if o.team != tired.team and o.target == tired:
+			o.target = fresh
+	return true
+
+
+## Direction du repli de r : à l'opposé de l'ennemi foe (null : de son front), tirée vers son propre
+## bord du champ (en mêlée, les centres se confondent et ne donnent pas une direction sûre).
+func back_dir(r: Regiment, foe: Regiment) -> Vector2:
+	var home := Vector2.DOWN if r.team == PLAYER else Vector2.UP
+	var away := -r.facing
+	if foe != null and r.center.distance_to(foe.center) > 1.0:
+		away = (r.center - foe.center).normalized()
+	var d := away + home
+	return d.normalized() if d.length() > 0.1 else home
+
+
+## Repli : r rompt le contact et recule vers to (par défaut : RELIEF_BACK et demi à l'opposé de
+## l'ennemi le plus proche), face à l'ennemi, pour récupérer endurance et moral.
+func fall_back(r: Regiment, to := Vector2.INF, face := Vector2.ZERO) -> void:
+	if not can_relieve(r):
+		return
+	if to == Vector2.INF:
+		var away := back_dir(r, nearest_enemy_regiment(r, 500.0, false))
+		face = -away
+		to = r.center + away * UnitTypes.RELIEF_BACK * 1.5
+	if face != Vector2.ZERO:
+		r.facing = face
+	r.dest = to.clamp(Vector2(40, 40), WORLD_SIZE - Vector2(40, 40))
+	r.target = null
+	r.fire_target = null
+	r.holding = false
+	r.hold_position = false
+	r.running = false
+	r.relief = UnitTypes.RELIEF_TIME
+	r.rest_until = battle_time + UnitTypes.REST_TIME
 
 
 func start_rout(r: Regiment) -> void:
@@ -729,8 +837,7 @@ func update_soldier(s: Soldier, dt: float) -> void:
 		speed *= UnitTypes.RUN_SPEED
 	if is_in_forest(s.pos):
 		speed *= float(r.stats["forest_speed"])
-	if raining:
-		speed *= 0.9
+	speed *= BattleWeather.speed_factor(self, r) # Boue
 
 	if r.routing:
 		var edge_y := WORLD_SIZE.y + 80.0 if r.team == PLAYER else -80.0
@@ -752,8 +859,8 @@ func update_soldier(s: Soldier, dt: float) -> void:
 		if r.target != null and not r.stats["ranged"]:
 			radius = 80.0
 		s.foe = find_foe(s, radius)
-	if r.evading > 0.0:
-		s.foe = null # Les tirailleurs qui décrochent ne s'attardent pas au contact
+	if r.evading > 0.0 or r.relief > 0.0:
+		s.foe = null # Tirailleurs qui décrochent, régiment relevé ou qui se replie : on rompt le contact
 
 	# Tenir la position : on frappe ce qui est à portée, sans quitter le rang pour aller au-devant
 	var stay := r.hold_position and r.target == null
@@ -866,6 +973,8 @@ func find_foe(s: Soldier, radius: float) -> Soldier:
 		var d: float = s.pos.distance_squared_to(o.pos)
 		if prefer != null and o.regiment == prefer:
 			d *= 0.5
+		elif o.regiment.is_resting(battle_time):
+			d *= 4.0 # Un régiment relevé a rompu le contact : on frappe d'abord ceux qui font face
 		if d < bd:
 			bd = d
 			best = o
@@ -911,7 +1020,7 @@ func strike(a: Soldier, b: Soldier) -> void:
 
 	# Charge des montés (pas des tirailleurs, qui n'ont pas de lance)
 	if ar.stats["mounted"] and not ar.stats["skirmish"]:
-		dmg *= 1.0 + a.momentum * UnitTypes.CHARGE_BONUS
+		dmg *= 1.0 + a.momentum * UnitTypes.CHARGE_BONUS * BattleWeather.charge_factor(self) # La boue brise l'élan
 		if a.momentum > 0.5:
 			if br.formation == Regiment.Formation.SQUARE:
 				feat.emit("charge_on_square", ar, br)
@@ -970,15 +1079,13 @@ func fire_arrow(s: Soldier, target: Regiment) -> void:
 		return
 	var t: Soldier = alive[rng.randi() % alive.size()]
 	var dist := s.pos.distance_to(t.pos)
-	var spread := 12.0 * (0.5 + dist / 400.0)
-	if raining:
-		spread *= 1.8
+	var spread := 12.0 * (0.5 + dist / 400.0) * BattleWeather.spread_factor(self, s.regiment)
 	if s.moving and s.regiment.stats["skirmish"]:
 		spread *= UnitTypes.SKIRMISH_SPREAD # Tir en marchant (tirailleurs montés)
-	var aim := t.pos + Vector2(rng.randf_range(-spread, spread), rng.randf_range(-spread, spread))
+	var aim := t.pos + Vector2(rng.randf_range(-spread, spread), rng.randf_range(-spread, spread)) + BattleWeather.drift(self, dist)
 	arrows.append({
 		"from": s.pos + Vector2(0, -8), "to": aim, "t": 0.0, "dur": 0.5 + dist / 440.0,
-		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE) * s.regiment.rank_damage(),
+		"dmg": float(s.regiment.stats["ranged_damage"]) * UnitTypes.fatigue_factor(s.regiment.stamina, UnitTypes.EXHAUSTED_DAMAGE) * s.regiment.rank_damage() * BattleWeather.damage_factor(self, s.regiment),
 		"src": s.regiment, # Pour compter les ennemis tués par les flèches
 		"pierce": float(s.regiment.stats["pierce"]), # Carreaux d'arbalète : ignorent une part de l'armure
 		"h": dist * 0.25,

@@ -165,10 +165,9 @@ func handle_key(k: InputEventKey) -> void:
 		KEY_T:
 			if battle.campaign != null:
 				# En campagne, la météo du jour s'impose (world_sim.gd) : T est réservée à l'escarmouche
-				battle.add_message("La météo est celle du jour : on ne commande pas à la pluie.")
+				battle.add_message("La météo est celle du jour : on ne commande pas au ciel.")
 				return
-			sim.raining = not sim.raining
-			battle.add_message("Il pleut : les archers tirent moins loin et moins juste." if sim.raining else "La pluie cesse.")
+			battle.add_message(BattleWeather.cycle(sim)) # Clair → pluie → brouillard → vent
 		KEY_H:
 			halt()
 		KEY_TAB:
@@ -189,6 +188,8 @@ func handle_key(k: InputEventKey) -> void:
 			request_retreat()
 		KEY_C:
 			Captain.order_join(battle)
+		KEY_E:
+			order_relief(sim.regiment_at(battle.get_canvas_transform().affine_inverse() * battle.get_viewport().get_mouse_position(), PLAYER))
 		KEY_M:
 			battle.audio.set_enabled(not battle.audio.enabled)
 			battle.add_message("Son activé." if battle.audio.enabled else "Son coupé.")
@@ -387,6 +388,38 @@ func cycle_formation() -> void:
 		Regiment.Formation.SQUARE:
 			hint = " (lent, ni flanc ni dos)"
 	battle.add_message("Formation : %s%s" % [Regiment.FORMATION_NAMES[f], hint])
+
+
+## Touche de relève (E) : le régiment sélectionné est relevé par le régiment ami survolé (ou, à deux
+## sélectionnés, le plus frais relève l'autre) ; sinon, la sélection se replie pour souffler.
+## designated : régiment ami sous la souris (null si aucun).
+func order_relief(designated: Regiment) -> void:
+	if sim.state != BattleSim.State.BATTLE:
+		return
+	var sel := sim.selected_regiments()
+	if sel.is_empty():
+		return
+	var fresh: Regiment = null
+	var tired: Regiment = null
+	if designated != null and not designated.allied and not designated.selected and sel.size() == 1:
+		tired = sel[0]
+		fresh = designated
+	elif sel.size() == 2:
+		var a := sel[0]
+		var b := sel[1]
+		var fa := a.stamina + a.morale / maxf(a.max_morale, 1.0)
+		var fb := b.stamina + b.morale / maxf(b.max_morale, 1.0)
+		tired = a if fa < fb else b
+		fresh = b if fa < fb else a
+	if fresh != null and sim.relieve(tired, fresh):
+		tired.selected = false
+		fresh.selected = true
+		battle.add_message("Relève : %s prennent la place, les %s reculent souffler." % [sim.team_label(fresh), tired.display_name().to_lower()])
+		battle.add_marker(fresh.dest, Color(0.5, 1, 0.6))
+		return
+	for r in sel:
+		sim.fall_back(r)
+	battle.add_message("Repli : %s rompent le contact pour reprendre leur souffle." % ("vos régiments" if sel.size() > 1 else sim.team_label(sel[0]).to_lower()))
 
 
 ## Touche R : un premier appui demande confirmation, un second (dans les 3 s) sonne la retraite.
