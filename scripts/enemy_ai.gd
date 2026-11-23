@@ -963,10 +963,10 @@ func think_siege(b: BattleSim, r: Regiment, theirs: Array[Regiment]) -> bool:
 
 
 func siege_attack(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment]) -> bool:
-	if r.stats["ranged"]:
-		return false
 	var t := sg.town
 	var inward := Vector2(0, -t.out_dir)
+	if r.stats["ranged"]:
+		return siege_cover(b, sg, r, theirs)
 	match sg.role(r):
 		"ram":
 			r.target = null
@@ -976,9 +976,19 @@ func siege_attack(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment])
 			return true
 		"ladder":
 			r.target = null
-			r.dest = t.ladder_foot(sg.ladder_x(sg.ladder_of(r))) + Vector2(0, t.out_dir * 16.0)
+			var l := sg.ladder_of(r)
+			if float(l["x"]) < 0.0:
+				l["x"] = sg.best_ladder_spot(b, r) # Échelles réparties là où la garnison est clairsemée
+			r.dest = t.ladder_foot(float(l["x"])) + Vector2(0, t.out_dir * 16.0)
 			r.facing = inward
 			return true
+	if sg.ram_claimant(b) == r:
+		# Bélier abandonné : le régiment libre le plus proche va le reprendre
+		r.target = null
+		r.formation = Regiment.Formation.COLUMN
+		r.dest = sg.ram_pos
+		r.facing = inward
+		return true
 	var near := nearest(r, theirs)
 	var nd := r.center.distance_to(near.center)
 	var open: bool = sg.has_opening() and (t.gate_open or not r.stats["mounted"]) # Les chevaux attendent la porte
@@ -1006,6 +1016,25 @@ func siege_attack(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment])
 	r.dest = t.plaza # Par la porte ou les échelles (voir SiegeTerrain.route)
 	r.facing = (t.plaza - r.center).normalized()
 	return true
+
+
+## Tireurs de l'assaillant : tant que la porte tient et que le bélier y frappe, ils visent la garnison
+## au-dessus de la porte (l'huile et les pierres) ; sinon ils jouent comme d'habitude.
+func siege_cover(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment]) -> bool:
+	var t := sg.town
+	if t.gate_open or sg.ram_bearer == null or sg.ram_bearer.center.distance_to(t.ram_spot()) > 250.0:
+		return false
+	var range_px: float = r.stats["range"] * b.terrain.range_factor(r.center)
+	var best: Regiment = null
+	var bd := Siege.GUARD_REACH + 80.0
+	for o in theirs:
+		var d := o.center.distance_to(sg.gate_top())
+		if d < bd and not o.hidden:
+			bd = d
+			best = o
+	if best != null and r.center.distance_to(best.center) < range_px * 1.6:
+		r.target = best # think_archer garde cette cible (et recule toujours devant la mêlée)
+	return false
 
 
 func siege_defend(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment]) -> bool:
@@ -1044,7 +1073,8 @@ func siege_defend(b: BattleSim, sg: Siege, r: Regiment, theirs: Array[Regiment])
 		r.target = threat
 		return true
 	r.target = null
-	if not r.stats["mounted"]:
+	var gate_keeper := not t.gate_open and post.distance_to(sg.gate_top()) < 60.0 # Huile et pierres : il reste
+	if not r.stats["mounted"] and not gate_keeper:
 		# Échelle dressée près du poste : on garde son débouché (et on la repousse)
 		var best := -1.0
 		var bd := 560.0

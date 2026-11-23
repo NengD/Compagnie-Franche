@@ -5,7 +5,11 @@ extends SceneTree
 ##  2. Bélier : il enfonce la porte ; échelle sans personne en haut : la garnison la repousse.
 ##  3. Assaut gagné : le camp du joueur, joué par l'IA, dresse ses échelles, monte aux murs et prend la place.
 ##  4. Défense tenue : l'IA ennemie monte aux murs mais la garnison (IA du joueur) tient la ville.
-##  5. Campagne : contrats de siège rares, mieux payés, sauvegardés, terrain de ville en bataille,
+##  5. Hauteur et bélier : on frappe mal vers le haut, le bélier est lent et craint les flèches.
+##  6. Mâchicoulis : la garnison au-dessus de la porte verse l'huile et jette des pierres (pas sans elle).
+##  7. Bélier abandonné : l'IA assaillante envoie un autre régiment le reprendre.
+##  8. Fiefs : l'assaut et la défense d'un château se jouent sur la ville fortifiée.
+##  9. Campagne : contrats de siège rares, mieux payés, sauvegardés, terrain de ville en bataille,
 ##     vraie ligne d'objectif, et rencontre sur la route jamais jouée sur la palissade.
 ## Code de sortie : 0 si tout va bien, 1 sinon.
 
@@ -30,6 +34,10 @@ func _process(_delta: float) -> bool:
 	ram_and_push_scenario()
 	assault_scenario()
 	defense_scenario()
+	height_and_ram_rules()
+	machicolation_scenario()
+	ram_pickup_scenario()
+	fief_scenario()
 	campaign_scenario()
 	if fails.is_empty():
 		print("SIEGE TEST OK")
@@ -159,6 +167,8 @@ func ram_and_push_scenario() -> void:
 		b.simulate(STEP)
 	print("Bélier : arrivé en %.1f s, porte enfoncée en %.1f s" % [time, b.battle_time - t0])
 	check(t.gate_open, "bélier : la porte n'a pas cédé (%.0f points)" % sg.gate_hp)
+	check(time + b.battle_time - t0 < 90.0, "bélier : porte enfoncée trop lentement (%.0f s)" % (time + b.battle_time - t0))
+	check(b.battle_time - t0 > 15.0, "bélier : porte enfoncée trop vite (%.0f s)" % (b.battle_time - t0))
 	check(not b.terrain.wall_blocks(t.ram_spot(), t.ram_spot() + Vector2(0, -80)), "bélier : la porte enfoncée bloque encore")
 	end_battle(b)
 
@@ -233,10 +243,149 @@ func defense_scenario() -> void:
 	check(b.state == b.State.VICTORY, "défense : la ville n'a pas tenu (état %d, %.0f s)" % [b.state, b.battle_time])
 	check(sg.raised > 0, "défense : l'IA ne dresse aucune échelle")
 	check(sg.climbers.size() > 0, "défense : l'IA ne monte pas aux murs")
+	check(sg.gate_hp < Siege.GATE_HP or sg.town.gate_open, "défense : le bélier ennemi n'a jamais frappé la porte")
+	var xs: Array[float] = []
+	for l in sg.ladders:
+		if float(l["x"]) >= 0.0:
+			xs.append(float(l["x"]))
+	var gap := INF
+	for i in xs.size():
+		for j in range(i + 1, xs.size()):
+			gap = minf(gap, absf(xs[i] - xs[j]))
+	print("Défense : échelles en %s (écart minimal %.0f), huile versée %d, pierres %d" % [str(xs), gap, sg.oil_poured, sg.stones_dropped])
+	check(xs.size() >= 2 and gap >= 200.0, "défense : l'IA ne répartit pas ses échelles (%s)" % str(xs))
 	end_battle(b)
 
 
-# ---------------------------------------------------------------- 5. Campagne
+# ---------------------------------------------------------------- 5. Hauteur et bélier
+
+func height_and_ram_rules() -> void:
+	var b := new_battle("town_defense")
+	var sg: Siege = b.sim.siege
+	var t: SiegeTerrain = sg.town
+	var walk := t.at_depth(t.gate_x + 300.0, SiegeTerrain.WALL_T * 0.5 + 20.0)
+	var below := t.ladder_foot(t.gate_x + 300.0)
+	var up: float = b.terrain.height_damage(below, walk)
+	var down: float = b.terrain.height_damage(walk, below)
+	print("Hauteur : coup vers le haut x%.2f, vers le bas x%.2f, portée sur le mur x%.2f" % [up, down, b.terrain.range_factor(walk)])
+	check(up < 0.8, "hauteur : frapper vers le chemin de ronde n'est pas plus dur (x%.2f)" % up)
+	check(down > 1.2, "hauteur : frapper du haut du mur ne porte pas plus (x%.2f)" % down)
+	check(b.terrain.range_factor(walk) > b.terrain.range_factor(below) + 0.2, "hauteur : les archers du mur ne tirent pas plus loin")
+	check(b.terrain.wall_shelters(below + Vector2(0, 200.0 * t.out_dir), walk), "hauteur : le parapet n'abrite pas le chemin de ronde")
+	var ram := sg.ram_bearer
+	check(ram != null, "bélier : l'IA assaillante n'a pas de bélier")
+	if ram != null:
+		var other: Regiment = null
+		for r: Regiment in b.regiments:
+			if r.team == sg.attacker and r != ram:
+				other = r
+				break
+		check(sg.speed_factor(ram) < 0.8 and sg.speed_factor(other) == 1.0, "bélier : les porteurs ne sont pas ralentis")
+		check(sg.arrow_factor(ram) > 1.2 and sg.arrow_factor(other) == 1.0, "bélier : les porteurs ne craignent pas plus les flèches")
+		t.gate_open = true
+		check(sg.speed_factor(ram) == 1.0, "bélier : toujours lent une fois la porte enfoncée")
+	end_battle(b)
+
+
+# ---------------------------------------------------------------- 6. Mâchicoulis
+
+## Le bélier du joueur frappe la porte ; garde : un régiment ennemi au-dessus de la porte (ou personne).
+func drops_at_gate(guarded: bool) -> Siege:
+	var b := new_battle("town_assault")
+	var sg: Siege = b.sim.siege
+	var t: SiegeTerrain = sg.town
+	b.start_battle()
+	var ram := sg.ram_bearer
+	remove_team(b, BattleSim.PLAYER, [ram])
+	var guard := first_of(b, BattleSim.ENEMY, "spear")
+	var far := first_of(b, BattleSim.ENEMY, "archer")
+	var keep: Array = [far] # Sans personne, la bataille serait gagnée
+	if guarded:
+		keep.append(guard)
+	remove_team(b, BattleSim.ENEMY, keep)
+	sg.place(far, t.at_depth(SiegeTerrain.X0 + 120.0, 650.0), Vector2.DOWN)
+	if guarded:
+		sg.place(guard, sg.gate_top(), Vector2(0, t.out_dir))
+		guard.hold_position = true
+	b.ai.plan_override = "defensive"
+	var hp0 := ram.alive_n
+	march(b, ram, t.ram_spot() + Vector2(0, 16), 60.0)
+	var t0: float = b.battle_time
+	var guards := 0
+	while b.battle_time - t0 < 30.0 and b.state == b.State.BATTLE and not t.gate_open:
+		b.simulate(STEP)
+		guards = maxi(guards, sg.gate_guards(b.sim))
+	print("Mâchicoulis (%s) : gardes %d, huile %d, pierres %d, porteurs %d -> %d" % ["gardée" if guarded else "sans garde",
+		guards, sg.oil_poured, sg.stones_dropped, hp0, ram.alive_n])
+	end_battle(b)
+	return sg
+
+
+func machicolation_scenario() -> void:
+	var sg := drops_at_gate(true)
+	check(sg.oil_poured > 0, "mâchicoulis : pas d'huile versée sur le bélier")
+	check(sg.stones_dropped > 0, "mâchicoulis : pas de pierres jetées")
+	check(sg.oil_left == Siege.OIL_POTS - sg.oil_poured, "mâchicoulis : chaudrons mal comptés")
+	var bare := drops_at_gate(false)
+	check(bare.oil_poured == 0 and bare.stones_dropped == 0, "mâchicoulis : huile ou pierres sans personne au-dessus de la porte")
+
+
+# ---------------------------------------------------------------- 7. Bélier abandonné
+
+func ram_pickup_scenario() -> void:
+	var b := new_battle("town_defense")
+	var sg: Siege = b.sim.siege
+	var t: SiegeTerrain = sg.town
+	var player := TestPlayer.new("ai")
+	b.start_battle()
+	var first := sg.ram_bearer
+	while b.battle_time < 60.0 and first.center.distance_to(t.ram_spot()) > 500.0:
+		player.update(b)
+		b.simulate(STEP)
+	for s in first.soldiers: # Les porteurs tombent
+		s.alive = false
+	first.update_center()
+	var t0: float = b.battle_time
+	while b.state == b.State.BATTLE and b.battle_time - t0 < 60.0 and (sg.ram_bearer == null or sg.ram_bearer == first):
+		player.update(b)
+		b.simulate(STEP)
+	var taker := sg.ram_bearer
+	print("Bélier abandonné : repris en %.1f s par %s" % [b.battle_time - t0, taker.display_name() if taker != null else "personne"])
+	check(taker != null and taker != first and taker.team == BattleSim.ENEMY, "bélier : l'IA ne reprend pas le bélier abandonné")
+	end_battle(b)
+
+
+# ---------------------------------------------------------------- 8. Fiefs
+
+func fief_scenario() -> void:
+	var c := CampaignState.new_game(91)
+	var castle := -1
+	for i in MapData.place_count():
+		if Fiefs.is_castle(i):
+			castle = i
+			break
+	check(castle >= 0, "fief : aucun château sur la carte")
+	if castle < 0:
+		return
+	CampaignState.current = c
+	c.pending = c.fiefs.make_assault(c, castle)
+	var b := scene.instantiate()
+	root.add_child(b)
+	check(b.terrain.kind == Siege.ASSAULT and b.sim.siege != null and b.sim.siege.ram_bearer != null, "fief : assaut du château joué sur %s" % b.terrain.kind)
+	end_battle(b)
+	c.fiefs.grant(c, castle, -1)
+	var e: Dictionary = c.fiefs.fief(castle)
+	e["siege"] = {"faction": 1, "men": 200, "days": 2}
+	c.pending = c.fiefs.make_defense(c, e)
+	b = scene.instantiate()
+	root.add_child(b)
+	check(b.terrain.kind == Siege.DEFENSE and b.sim.siege != null and b.sim.siege.attacker == BattleSim.ENEMY, "fief : défense du château jouée sur %s" % b.terrain.kind)
+	check(b.sim.siege.ram_bearer != null and not b.sim.siege.ladders.is_empty(), "fief : l'assaillant n'a ni bélier ni échelles")
+	end_battle(b)
+	CampaignState.current = null
+
+
+# ---------------------------------------------------------------- 9. Campagne
 
 func campaign_scenario() -> void:
 	var c := CampaignState.new_game(77)

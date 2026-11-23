@@ -367,8 +367,13 @@ func range_factor(p: Vector2) -> float:
 
 
 ## Facteur de dégâts d'un coup porté de a vers b (avantage de la hauteur).
+## En ville fortifiée, frapper vers le haut (du pied du mur ou de l'échelle vers le chemin de ronde)
+## est aussi plus difficile : voir Siege.WALL_GUARD.
 func height_damage(a: Vector2, b: Vector2) -> float:
-	return 1.0 + HILL_DAMAGE * maxf(height(a) - height(b), 0.0)
+	var f := 1.0 + HILL_DAMAGE * maxf(height(a) - height(b), 0.0)
+	if town != null:
+		f *= 1.0 - Siege.WALL_GUARD * maxf(height(b) - height(a), 0.0)
+	return f
 
 
 # ---------------------------------------------------------------- Rivière
