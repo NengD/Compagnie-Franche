@@ -444,6 +444,8 @@ func build_buttons(box: VBoxContainer) -> void:
 	var labels: Array[String] = []
 	if is_campaign():
 		labels = ["Retour à la carte  (Entrée)"]
+	elif bool(report["tutorial"]) and CampaignGuide.after_training:
+		labels = ["Commencer la campagne  (Entrée)" if str(report.get("outcome", "")) == "victory" else "Recommencer  (Entrée)", "Passer à la campagne  (Échap)"]
 	elif bool(report["tutorial"]):
 		labels = ["Recommencer le tutoriel  (Entrée)", "Menu principal  (Échap)"]
 	else:

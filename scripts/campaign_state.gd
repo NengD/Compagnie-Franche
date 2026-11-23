@@ -225,6 +225,7 @@ static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
 ## Version 13 : domaine (fiefs, commerce, diplomatie, quêtes ; bloc « realm », absent avant : rien).
+## Version 14 : étape du tutoriel guidé de campagne (« tutorial », -1 si absent : pas de tutoriel).
 ## Version 12 : vivres, fatigue, blessés, prisonniers et compagnons (dix jours de vivres si absents).
 ## Version 11 : champ de bataille tiré de la carte (« site » du contrat en cours, voir battle_site.gd)
 ## et groupes alliés qui combattent aux côtés de la compagnie (« allies »).
@@ -236,15 +237,16 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée) à 12 restent lisibles
+## Les versions 1 (sans expérience, réputation ni renommée) à 13 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 13
+const SAVE_VERSION := 14
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
 var lenient := false
 var saved_at := 0.0 ## Heure de la dernière sauvegarde (secondes Unix), pour « Continuer »
+var tutorial_step := -1 ## Tutoriel guidé de campagne : étape en cours (CampaignGuide), -1 = aucun
 
 
 static func slot_base() -> String:
@@ -306,6 +308,7 @@ func to_dict() -> Dictionary:
 		"encounters": encounters_to_dict(), # Rencontres de la carte (bloc en fin de fichier)
 		"supplies": supplies.to_dict(), "prisoners": prisoners.to_dict(), "companions": companions.to_dict(),
 		"realm": realm_to_dict(), # Domaine : fiefs, commerce, diplomatie, quêtes (bloc en fin de fichier)
+		"tutorial": tutorial_step,
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
 	# En mode indulgent, elle n'est pas sauvegardée : fermer le jeu revient à l'état d'avant.
@@ -476,6 +479,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.companions = Companions.from_dict(d.get("companions", []))
 	c.supplies = Supplies.from_dict(d.get("supplies", {}), c)
 	c.realm_from_dict(d.get("realm", {})) # Domaine (bloc en fin de fichier)
+	c.tutorial_step = int(d.get("tutorial", -1)) # Avant la version 14 : pas de tutoriel guidé
 	if c.ended == "":
 		c.keep_final_in_patron_town() # Sauvegarde d'avant le correctif : bataille décisive en ville ennemie
 	return c

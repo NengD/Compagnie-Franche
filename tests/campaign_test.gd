@@ -1094,6 +1094,7 @@ func _test_end_scenes() -> void:
 		check(menu.last_scene == menu.END_SCENE, "%s : le bilan ne mène pas à l'écran de fin" % ending)
 		menu.new_campaign()
 		check(menu.page == "new_campaign" and menu.last_scene == menu.END_SCENE, "%s : pas de choix de difficulté" % ending)
+		GameOptions.tutorial_offered = true # Tutoriel guidé déjà proposé (testé dans menu_test.gd)
 		menu.confirm_new_campaign()
 		check(menu.last_scene == menu.CAMPAIGN_SCENE and menu.page == "main" and not CampaignState.current.is_over(), "%s : nouvelle campagne après la fin" % ending)
 		root.remove_child(menu)

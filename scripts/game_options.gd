@@ -82,6 +82,8 @@ static var show_cards := true ## Cartes des régiments affichées en bataille (T
 static var show_minimap := true ## Mini-carte de bataille affichée (N) ; mémorisée aussi
 static var team_shapes := false ## Accessibilité : formes et motifs en plus du bleu et du rouge
 static var subtitles := false ## Accessibilité : sous-titres des évènements sonores importants
+static var tutorial := true ## Tutoriel guidé (bataille d'entraînement puis première semaine de campagne)
+static var tutorial_offered := false ## Le tutoriel guidé a déjà été proposé (à la première nouvelle campagne)
 
 
 ## Charge et applique les options une seule fois par lancement.
@@ -105,6 +107,8 @@ static func reset_all() -> void:
 	show_minimap = true
 	team_shapes = false
 	subtitles = false
+	tutorial = true
+	tutorial_offered = false
 	effects = "full"
 	reset_keys()
 
@@ -138,6 +142,8 @@ static func load_options() -> void:
 	show_minimap = bool(cfg.get_value("interface", "minicarte", show_minimap))
 	team_shapes = bool(cfg.get_value("accessibilite", "formes_camps", team_shapes))
 	subtitles = bool(cfg.get_value("accessibilite", "sous_titres", subtitles))
+	tutorial = bool(cfg.get_value("jeu", "tutoriel", tutorial))
+	tutorial_offered = bool(cfg.get_value("jeu", "tutoriel_propose", tutorial_offered))
 	var fx := str(cfg.get_value("affichage", "effets", effects))
 	effects = fx if fx in EFFECTS else "full"
 	for a in ACTIONS:
@@ -166,6 +172,8 @@ static func save_options() -> bool:
 	cfg.set_value("interface", "minicarte", show_minimap)
 	cfg.set_value("accessibilite", "formes_camps", team_shapes)
 	cfg.set_value("accessibilite", "sous_titres", subtitles)
+	cfg.set_value("jeu", "tutoriel", tutorial)
+	cfg.set_value("jeu", "tutoriel_propose", tutorial_offered)
 	for id in binds:
 		cfg.set_value("touches", id, binds[id])
 	for id in camera_binds:

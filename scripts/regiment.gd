@@ -53,6 +53,9 @@ var morale_mult := 1.0 ## Difficulté : multiplicateur du moral maximal (régime
 var damage_mult := 1.0 ## Difficulté : multiplicateur des dégâts (régiments ennemis)
 var gear: Array = [] ## Équipement porté (identifiants d'Equipment.ITEMS) : se voit sur les soldats (battle_renderer.gd)
 var speed_mult := 1.0 ## Objectif : multiplicateur de vitesse (bande chargée de butin, voir battle_objectives.gd)
+## File d'ordres (Maj + clic droit) : ordres suivants, exécutés quand l'ordre en cours est fini.
+## Chaque ordre : {"kind": "move", "dest", "facing", "cols", "run"} ou {"kind": "attack", "target", "run"}.
+var orders: Array[Dictionary] = []
 
 
 ## Fixe le rang d'expérience : le moral maximal monte avec le rang.
@@ -204,3 +207,55 @@ func stamina_label() -> String:
 
 func display_name() -> String:
 	return str(stats["name"])
+
+
+# ---------------------------------------------------------------- File d'ordres
+
+## Vrai si le régiment exécute un ordre (marche ou attaque) : un ordre avec Maj s'ajoute alors à la file.
+func is_busy() -> bool:
+	return target != null or center.distance_to(dest) >= 24.0 or not orders.is_empty()
+
+
+## Exécute tout de suite un ordre (déplacement ou attaque). Faux si l'ordre n'a plus d'objet
+## (cible morte ou en fuite).
+func apply_order(o: Dictionary) -> bool:
+	if str(o.get("kind", "")) == "attack":
+		var t: Regiment = o.get("target")
+		if t == null or t.is_dead() or t.routing:
+			return false
+		target = t
+		holding = false
+		think = 0.0
+	else:
+		var cols := int(o.get("cols", 0))
+		if cols > 0:
+			cols_override = cols
+			formation = Formation.LINE
+		dest = o["dest"]
+		facing = o["facing"]
+		target = null
+		holding = false
+	running = bool(o.get("run", false)) and stamina >= UnitTypes.RUN_MIN_STAMINA
+	return true
+
+
+## Passe à l'ordre suivant de la file (ceux qui n'ont plus d'objet sont sautés).
+func advance_order() -> void:
+	while not orders.is_empty():
+		var o: Dictionary = orders.pop_front()
+		if apply_order(o):
+			return
+
+
+## Point de départ du prochain ordre ajouté à la file : le dernier point de passage.
+func plan_position() -> Vector2:
+	for i in range(orders.size() - 1, -1, -1):
+		var o: Dictionary = orders[i]
+		if str(o["kind"]) == "move":
+			return o["dest"]
+		var t: Regiment = o.get("target")
+		if t != null and not t.is_dead():
+			return t.center
+	if target != null:
+		return target.center
+	return dest

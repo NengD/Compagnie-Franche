@@ -21,8 +21,26 @@ Graphismes et sons : assets libres (voir [CREDITS.md](CREDITS.md)). Si un fichie
   sauvegarde : le menu ne charge pas les campagnes (une ancienne sauvegarde sans en-tête est lue une fois).
 - **Tutoriel** : petite bataille guidée (4 régiments contre 3). Les consignes s'affichent en haut à droite
   et ne se valident qu'en faisant vraiment l'action : sélectionner, déplacer, tracer une ligne de front,
-  changer de formation, courir, lancer la bataille (l'ennemi attend jusque-là), envoyer la cavalerie
-  sur les archers, gagner. Échap : menu pause (Menu principal pour quitter).
+  changer de formation, courir, cacher les cartes (Tab), ouvrir l'aide (F1), lancer la bataille (l'ennemi
+  attend jusque-là), faire tirer les archers, charger les archers ennemis avec la cavalerie, gagner.
+  Échap : menu pause (Menu principal pour quitter).
+- **Tutoriel guidé** (`scripts/campaign_guide.gd`) : à la **première nouvelle campagne**, le menu propose
+  « bataille d'entraînement, puis campagne guidée », « seulement la campagne guidée » ou « non merci ».
+  Après la bataille d'entraînement (le tutoriel ci-dessus), Entrée mène à la carte, où un panneau en haut
+  à droite guide la **première semaine** : lever un régiment, s'équiper en ville, acheter des vivres,
+  accepter un contrat, marcher, entrer dans une autre ville. Chaque étape avance quand l'action est faite
+  (boutons « Passer l'étape » et « Quitter le tutoriel »). L'étape est sauvegardée (version 14).
+  Option **Tutoriel guidé** (Options et menu pause) : le désactive ; la réactiver le propose de nouveau.
+- **Manette sur la carte de campagne** (`scripts/map_pad.gd`) : stick gauche = curseur (la vue suit au bord),
+  stick droit = vue, **A** = aller au point visé (ville : y entrer ; groupe : le poursuivre), **B** = fermer la
+  fenêtre, **Start** = menu, **Select** = recentrer, **X** = pause, **Y** = halte, **gâchettes** = vitesse
+  (droite : plus vite ; gauche : plus lent, puis pause), **LB / RB** = onglets. Dans une fenêtre, la croix
+  ou le stick déplacent le focus d'un bouton à l'autre (la fenêtre défile), A presse le bouton. La souris
+  ou le clavier reprennent la main dès qu'on les touche.
+- **Infobulles** (`scripts/tooltips.gd`) : boutons d'équipement (la pièce comparée à celle portée, gains en %
+  de vie, moral, dégâts, flèches reçues, vitesse), **chances estimées** de chaque contrat (rapport de force
+  compagnie / ennemi : hommes, rang, équipement, traits, difficulté), compétences du capitaine (effet actuel
+  et au niveau suivant), traits des régiments, terrain d'une rencontre (ce qu'il change, un conseil).
 - **Escarmouche** : bataille libre hors campagne (Échap : menu pause, d'où l'on revient au menu), à la
   difficulté des Options (rappelée sous le bouton et dans la barre du haut en bataille).
 - **Menu pause** (Échap en bataille : contrat, escarmouche ou tutoriel) : la bataille s'arrête.
@@ -372,7 +390,7 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
+  Format versionné (version 14 : étape du tutoriel guidé ; 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
   prisonniers et compagnons ; 11 : champ de bataille tiré de la carte et alliés de la bataille en cours ;
   10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
   8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
@@ -492,6 +510,7 @@ Les touches marquées * se changent dans **Options**.
 |---|---|
 | Sélectionner | Clic gauche ou glisser un cadre (Maj pour ajouter) |
 | Déplacer / attaquer | Clic droit sur le sol / sur un ennemi |
+| File d'ordres | Maj + clic droit (ou ligne tracée) : l'ordre s'ajoute après ceux en cours (points de passage numérotés pour la sélection) ; un ordre sans Maj remplace la file, Halte la vide |
 | Tracer la ligne de front | Clic droit maintenu + glisser : la longueur règle la largeur du front, les troupes font face à l'opposé de leur position |
 | Tout sélectionner / un régiment | Ctrl+A / 1 à 8 |
 | Courir (fatigue) | Double clic droit (sur le sol, un ennemi, ou en traçant une ligne) |
@@ -656,6 +675,9 @@ scripts/difficulty.gd   Niveaux de difficulté (Difficulty) : multiplicateurs en
 scripts/ui_theme.gd     Thème des menus, placement des panneaux selon la taille de la vue
 scripts/display_keys.gd Autoload DisplayKeys : Alt+Entrée / F11 (plein écran) partout, taille minimale de fenêtre
 scripts/tutorial.gd     Tutoriel : hérite de battle.gd, armées réduites, étapes validées par les actions
+scripts/campaign_guide.gd Tutoriel guidé de la première semaine de campagne (CampaignGuide) : étapes, panneau
+scripts/map_pad.gd      Manette sur la carte de campagne (MapPad) : curseur, boutons, gâchettes, focus
+scripts/tooltips.gd     Infobulles calculées (Tooltips) : équipement comparé, chances des contrats, compétences, terrain
 scripts/battle.gd       Nœud de la bataille (classe Battle) : assemble simulation, rendu, ordres, caméra,
                         HUD, son, menu pause ; temps (pause, vitesse, ralenti), campagne et bilan
 scripts/battle_sim.gd   Simulation sans rendu (BattleSim) : monde, armées, déplacements, mêlée, moral,
@@ -714,7 +736,9 @@ tests/encounter_test.gd Test des rencontres : chaque sorte et chaque choix, cont
 tests/encounter_capture.gd Captures du panneau de rencontre dans user://captures (avec fenêtre ; option --out)
 tests/objectives_capture.gd Captures de chaque objectif en bataille (avec fenêtre ; option --out)
 
-tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind) et du tutoriel complet
+tests/menu_test.gd      Test du menu, des options (sauvegarde, rebind), du tutoriel complet et de sa proposition
+tests/confort_test.gd   Test du confort : file d'ordres (enchaînée, remplacée), tutoriel guidé de campagne,
+                        infobulles (différence d'équipement, chances des contrats), manette sur la carte
 tests/interface_test.gd Test de l'interface de bataille : numéros fixes, aide, info-bulle, sous-titres,
                         touches de caméra, zoom et taille de l'interface, HUD et bilan à 150 %
 tests/interface_capture.gd Captures de l'interface de bataille dans user://captures_interface/ (avec fenêtre)
@@ -799,6 +823,7 @@ godot --headless --path . -s tests/smoke_test.gd -- --terrain=siege   # idem sur
 godot --headless --path . -s tests/campaign_test.gd   # campagne : règles, niveaux, fin, batailles, sauvegarde, carte
 godot --headless --path . -s tests/ai_test.gd         # IA : formations, carré, colline, gués, défense, retraite, embuscade
 godot --headless --path . -s tests/menu_test.gd       # options, rebind, menu, tutoriel parcouru étape par étape
+godot --headless --path . -s tests/confort_test.gd    # file d'ordres, tutoriel guidé, infobulles, manette
 godot --headless --path . -s tests/interface_test.gd  # interface de bataille, accessibilité, caméra
 godot --headless --path . -s tests/interface_plus_test.gd  # mini-carte, statistiques du bilan, aperçus, succès
 godot --headless --path . -s tests/deploy_pause_test.gd   # déploiement sans combat, menu pause, abandon = retraite

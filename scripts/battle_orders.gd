@@ -1,7 +1,8 @@
 class_name BattleOrders
 extends RefCounted
 ## Ordres du joueur et saisie : sélection (clic, cadre, Ctrl+A), déplacement et attaque (clic droit),
-## ligne de front (clic droit glissé), course (double clic droit), groupes de contrôle (Ctrl+chiffre),
+## ligne de front (clic droit glissé), course (double clic droit), file d'ordres (Maj + clic droit :
+## l'ordre s'ajoute après ceux en cours ; sans Maj, il remplace la file), groupes de contrôle (Ctrl+chiffre),
 ## halte, formation, tenir la position, tir à volonté, retraite et touches de la bataille.
 ##
 ## Les touches reconfigurables passent par GameOptions.remap_key : on garde ici un simple
@@ -26,6 +27,7 @@ var drag_now := Vector2.ZERO
 var panning := false ## Clic du milieu maintenu
 var minimap_dragging := false ## Clic gauche maintenu sur la mini-carte : la vue suit la souris
 var line_double := false ## Le clic droit en cours est un double clic (ordre de course)
+var line_queue := false ## Le clic droit en cours est fait avec Maj (ordre ajouté à la file)
 var line_dragging := false ## Clic droit maintenu : tracé d'une ligne de formation
 var line_start := Vector2.ZERO
 var line_now := Vector2.ZERO
@@ -103,15 +105,17 @@ func handle_mouse_button(mb: InputEventMouseButton) -> void:
 			if mb.pressed:
 				line_dragging = true
 				line_double = mb.double_click
+				line_queue = mb.shift_pressed
 				line_start = wp
 				line_now = wp
 			elif line_dragging:
 				line_dragging = false
+				var queue := line_queue or mb.shift_pressed
 				if is_line_drag(line_start, wp):
-					issue_line_order(line_start, wp, line_double)
+					issue_line_order(line_start, wp, line_double, queue)
 				else:
 					# Simple clic : déplacement ou attaque ; double clic : la même chose en courant
-					issue_order(line_start, line_double)
+					issue_order(line_start, line_double, queue)
 		MOUSE_BUTTON_WHEEL_UP:
 			if mb.pressed:
 				battle.camera.zoom_at(1.15)
@@ -332,6 +336,7 @@ func halt() -> void:
 		r.target = null
 		r.holding = false
 		r.running = false
+		r.orders.clear()
 		r.dest = r.center
 
 
@@ -413,8 +418,24 @@ func set_running(sel: Array[Regiment], run: bool) -> void:
 		battle.add_message("Trop fatigués pour courir !")
 
 
+## Donne un ordre à r : sans file, il remplace l'ordre en cours et la file ; avec file (Maj),
+## il s'ajoute à la file si le régiment est occupé, sinon il s'exécute tout de suite.
+func give_order(r: Regiment, o: Dictionary, queue: bool) -> void:
+	if queue and r.is_busy():
+		r.orders.append(o)
+		return
+	r.orders.clear()
+	r.apply_order(o)
+
+
+## Position de départ d'un régiment pour un nouvel ordre : le dernier point de sa file avec Maj.
+func start_pos(r: Regiment, queue: bool) -> Vector2:
+	return r.plan_position() if queue and r.is_busy() else r.center
+
+
 ## Clic droit en wp : attaque l'ennemi visé, sinon s'y rend en ligne, face au mouvement.
-func issue_order(wp: Vector2, run := false) -> void:
+## queue (Maj) : l'ordre s'ajoute à la file des régiments au lieu de la remplacer.
+func issue_order(wp: Vector2, run := false, queue := false) -> void:
 	var sel := sim.selected_regiments()
 	if sel.is_empty():
 		return
@@ -425,26 +446,27 @@ func issue_order(wp: Vector2, run := false) -> void:
 		battle.add_message("Pas d'attaque pendant le déploiement : appuyez d'abord sur Espace pour lancer la bataille.")
 		battle.add_marker(wp, Color(1, 0.3, 0.2))
 		return
-	set_running(sel, run)
+	if not queue:
+		set_running(sel, run) # Avec Maj, la course se décide quand l'ordre s'exécute
 	if enemy != null:
 		for r in sel:
-			r.target = enemy
-			r.holding = false
-			r.think = 0.0
+			give_order(r, {"kind": "attack", "target": enemy, "run": r.running if not queue else run}, queue)
 		battle.add_marker(enemy.center, Color(1, 0.3, 0.2))
 		return
 
 	# Déplacement : les régiments se placent côte à côte, face à la direction du mouvement
+	var starts := {}
 	var gc := Vector2.ZERO
 	for r in sel:
-		gc += r.center
+		starts[r] = start_pos(r, queue)
+		gc += starts[r]
 	gc /= sel.size()
 	var dir := wp - gc
 	var facing: Vector2 = sel[0].facing
 	if dir.length() > 40.0:
 		facing = dir.normalized()
 	var right := Vector2(-facing.y, facing.x)
-	sel.sort_custom(func(x, y): return x.center.dot(right) < y.center.dot(right))
+	sel.sort_custom(func(x, y): return (starts[x] as Vector2).dot(right) < (starts[y] as Vector2).dot(right))
 	var widths := []
 	var total := 0.0
 	for r in sel:
@@ -455,17 +477,16 @@ func issue_order(wp: Vector2, run := false) -> void:
 	for i in sel.size():
 		var r: Regiment = sel[i]
 		var w: float = widths[i]
-		r.dest = order_dest(r, (wp + right * (x + w * 0.5)).clamp(Vector2(20, 20), WORLD_SIZE - Vector2(20, 20)), facing)
-		r.facing = facing
-		r.target = null
-		r.holding = false
+		var d := order_dest(r, (wp + right * (x + w * 0.5)).clamp(Vector2(20, 20), WORLD_SIZE - Vector2(20, 20)), facing)
+		give_order(r, {"kind": "move", "dest": d, "facing": facing, "cols": 0, "run": r.running if not queue else run}, queue)
 		x += w
 	battle.add_marker(wp, Color(1, 1, 1))
 
 
 ## Calcule la disposition des régiments le long d'une ligne tracée de a vers b (comme dans
 ## Total War). Renvoie pour chacun : {"reg", "dest", "facing", "cols"}. Ne modifie rien.
-func line_layout(sel: Array[Regiment], a: Vector2, b: Vector2) -> Array[Dictionary]:
+## queue (Maj) : les régiments partent du dernier point de leur file.
+func line_layout(sel: Array[Regiment], a: Vector2, b: Vector2, queue := false) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
 	if sel.is_empty() or a.distance_to(b) < 0.5:
 		return out
@@ -473,9 +494,11 @@ func line_layout(sel: Array[Regiment], a: Vector2, b: Vector2) -> Array[Dictiona
 	var length := a.distance_to(b)
 
 	# Orientation : perpendiculaire à la ligne, du côté opposé à la position actuelle des troupes.
+	var starts := {}
 	var gc := Vector2.ZERO
 	for r in sel:
-		gc += r.center
+		starts[r] = start_pos(r, queue)
+		gc += starts[r]
 	gc /= sel.size()
 	var facing := Vector2(dir.y, -dir.x) # Par défaut : tracé gauche → droite = face vers le haut
 	var side := ((a + b) * 0.5 - gc).dot(facing)
@@ -484,7 +507,7 @@ func line_layout(sel: Array[Regiment], a: Vector2, b: Vector2) -> Array[Dictiona
 
 	# Les régiments gardent leur ordre le long de la ligne (donc leur ordre gauche-droite).
 	var order: Array[Regiment] = sel.duplicate()
-	order.sort_custom(func(x, y): return x.center.dot(dir) < y.center.dot(dir))
+	order.sort_custom(func(x, y): return (starts[x] as Vector2).dot(dir) < (starts[y] as Vector2).dot(dir))
 
 	# La longueur est partagée en proportion de la taille de chaque régiment,
 	# pour que tous aient à peu près la même profondeur.
@@ -505,20 +528,18 @@ func line_layout(sel: Array[Regiment], a: Vector2, b: Vector2) -> Array[Dictiona
 
 
 ## Ordre de formation : place les régiments sélectionnés sur la ligne tracée.
-func issue_line_order(a: Vector2, b: Vector2, run := false) -> void:
+## queue (Maj) : la ligne s'ajoute à la file au lieu de la remplacer.
+func issue_line_order(a: Vector2, b: Vector2, run := false, queue := false) -> void:
 	var sel := sim.selected_regiments()
-	var layout := line_layout(sel, a, b)
+	var layout := line_layout(sel, a, b, queue)
 	if layout.is_empty():
 		return
-	set_running(sel, run)
+	if not queue:
+		set_running(sel, run)
 	for e in layout:
 		var r: Regiment = e["reg"]
-		r.cols_override = e["cols"]
-		r.formation = Regiment.Formation.LINE
-		r.dest = order_dest(r, e["dest"], e["facing"], e["cols"])
-		r.facing = e["facing"]
-		r.target = null
-		r.holding = false
+		var d := order_dest(r, e["dest"], e["facing"], e["cols"])
+		give_order(r, {"kind": "move", "dest": d, "facing": e["facing"], "cols": e["cols"], "run": r.running if not queue else run}, queue)
 	battle.add_marker((a + b) * 0.5, Color(1, 1, 1))
 
 

@@ -23,12 +23,20 @@ static func build_captain(map: Node, state: CampaignState) -> void:
 	var parts: Array[String] = []
 	for k in Captain.SKILLS:
 		parts.append("%s %d/%d" % [Captain.SKILLS[k]["name"], int(cap.skills[k]), Captain.SKILL_MAX])
-	map.add_label("Aura de moral %d px · %s" % [int(cap.aura_radius()), " · ".join(parts)], 12, DIM)
+	var al: Label = map.add_label("Aura de moral %d px · %s" % [int(cap.aura_radius()), " · ".join(parts)], 12, DIM)
+	var tips: Array[String] = []
+	for k in Captain.SKILLS:
+		tips.append(Tooltips.skill_text(cap, k))
+	al.tooltip_text = "
+
+".join(tips)
+	al.mouse_filter = Control.MOUSE_FILTER_PASS
 	if cap.points > 0:
 		map.add_label("%s à dépenser :" % CampaignState.plural(cap.points, "point de compétence", "points de compétence"), 12, Color(1, 0.84, 0.4))
 		for k in Captain.SKILLS:
 			var ok := int(cap.skills[k]) < Captain.SKILL_MAX
-			map.add_button("%s : %s" % [Captain.SKILLS[k]["name"], Captain.SKILLS[k]["text"]], CompanyPanel.learn.bind(map, k), ok)
+			var sb: Button = map.add_button("%s : %s" % [Captain.SKILLS[k]["name"], Captain.SKILLS[k]["text"]], CompanyPanel.learn.bind(map, k), ok)
+			sb.tooltip_text = Tooltips.skill_text(cap, k)
 
 
 static func build_equipment(map: Node, state: CampaignState) -> void:
@@ -50,7 +58,9 @@ static func build_equipment(map: Node, state: CampaignState) -> void:
 			var names: Array[String] = []
 			for id in Traits.of(entry):
 				names.append(str(Traits.TRAITS[id]["name"]))
-			map.add_label("    Traits : %s" % ", ".join(names), 11, DIM)
+			var tl: Label = map.add_label("    Traits : %s" % ", ".join(names), 11, DIM)
+			tl.tooltip_text = Tooltips.traits_text(entry)
+			tl.mouse_filter = Control.MOUSE_FILTER_PASS
 		if not in_town:
 			continue
 		var row := HBoxContainer.new()
@@ -65,8 +75,8 @@ static func build_equipment(map: Node, state: CampaignState) -> void:
 			var label := "%s %s : %d écus" % [str(Equipment.SLOT_NAMES[slot]).capitalize(), ROMAN[int(item["tier"])], price]
 			var b: Button = map.add_button(label, CompanyPanel.buy.bind(map, i, next), why == "" and state.gold >= price and closed == "", row)
 			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.tooltip_text = "%s : %s.%s" % [item["name"], item["text"], ("
-" + why) if why != "" else ""]
+			b.tooltip_text = Tooltips.gear_text(entry, next) + (("
+" + why) if why != "" else "")
 			any = true
 		if any:
 			map.box.add_child(row)

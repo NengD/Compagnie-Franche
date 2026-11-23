@@ -568,6 +568,7 @@ static func help_lines(rain_key := true) -> Array[String]:
 		"Clic droit : se déplacer / attaquer",
 		"Clic droit glissé : tracer la ligne de front",
 		"Double clic droit : courir (fatigue)",
+		"Maj + clic droit : ajouter l'ordre à la file",
 		"Ctrl+A : tout   1-8 : un régiment (numéro fixe)",
 		"Ctrl+1-8 : mémoriser un groupe",
 		"1-8 : rappeler le groupe (2 fois : y aller)",

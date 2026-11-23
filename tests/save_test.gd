@@ -337,6 +337,7 @@ func _test_menu() -> void:
 	m.new_campaign(2)
 	check(m.page == "new_campaign" and m.target_slot == 2 and "Mode indulgent" in _buttons(m), "menu : nouvelle campagne sur l'emplacement 2")
 	m.lenient_choice = true
+	GameOptions.tutorial_offered = true # Tutoriel guidé déjà proposé (testé dans menu_test.gd)
 	m.confirm_new_campaign(Difficulty.HARD)
 	check(m.last_scene == m.CAMPAIGN_SCENE and CampaignState.slot == 2, "menu : campagne lancée sur l'emplacement 2")
 	var l := CampaignState.load_slot(2)

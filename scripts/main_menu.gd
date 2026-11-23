@@ -12,7 +12,7 @@ const MARCH := ["spear", "spear", "men_at_arms", "archer", "spear", "cavalry", "
 
 var change_scenes := true ## Faux dans les tests : on note la scène demandée sans en changer
 var last_scene := "" ## Dernière scène demandée
-var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "options", "stats" ou "achievements"
+var page := "main" ## "main", "slots", "confirm_delete", "new_campaign" (difficulté), "tutorial_offer", "options", "stats" ou "achievements"
 var notice := ""
 var target_slot := 1 ## Emplacement visé par « nouvelle campagne » ou « supprimer »
 var lenient_choice := false ## Case « Mode indulgent » de la nouvelle campagne
@@ -101,6 +101,8 @@ func refresh() -> void:
 			focus_later(add_button("Retour", back_to_main))
 		"new_campaign":
 			build_new_campaign()
+		"tutorial_offer":
+			build_tutorial_offer()
 		"slots":
 			build_slots()
 		"confirm_delete":
@@ -539,6 +541,38 @@ func confirm_new_campaign(level := Difficulty.NORMAL) -> void:
 	CampaignState.delete_save() # L'ancienne campagne et sa copie de secours disparaissent
 	CampaignState.current = CampaignState.new_game(0, level, lenient_choice, true)
 	CampaignState.current.save()
+	if GameOptions.tutorial and not GameOptions.tutorial_offered:
+		page = "tutorial_offer" # Première partie : le tutoriel guidé est proposé
+		refresh()
+		return
+	page = "main"
+	go(CAMPAIGN_SCENE)
+
+
+## Première nouvelle campagne : proposer le tutoriel guidé (bataille d'entraînement, puis
+## première semaine de campagne pas à pas).
+func build_tutorial_offer() -> void:
+	box.add_child(UiTheme.label("Première campagne", 22, UiTheme.GOLD))
+	add_wrapped("Voulez-vous être guidé ? D'abord une petite bataille d'entraînement (sélection, déplacement, formations, tir, charge, cartes et aide), puis la première semaine de campagne : recruter, s'équiper, acheter des vivres, signer un contrat, marcher. Chaque étape avance quand vous avez fait l'action.", 15, UiTheme.TEXT)
+	focus_later(add_button("Oui : bataille d'entraînement, puis campagne guidée", accept_tutorial.bind(true)))
+	add_button("Seulement la campagne guidée", accept_tutorial.bind(false))
+	add_button("Non merci", decline_tutorial)
+	add_wrapped("Le tutoriel se désactive dans les Options (« Tutoriel guidé »).", 13, UiTheme.DIM)
+
+
+func accept_tutorial(training: bool) -> void:
+	GameOptions.tutorial_offered = true
+	GameOptions.save_options()
+	CampaignState.current.tutorial_step = 0
+	CampaignState.current.save()
+	page = "main"
+	CampaignGuide.after_training = training
+	go(TUTORIAL_SCENE if training else CAMPAIGN_SCENE)
+
+
+func decline_tutorial() -> void:
+	GameOptions.tutorial_offered = true
+	GameOptions.save_options()
 	page = "main"
 	go(CAMPAIGN_SCENE)
 
@@ -565,6 +599,7 @@ func confirm_delete() -> void:
 
 
 func start_tutorial() -> void:
+	CampaignGuide.after_training = false # Depuis le menu : retour au menu à la fin
 	go(TUTORIAL_SCENE)
 
 

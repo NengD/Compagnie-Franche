@@ -544,6 +544,8 @@ func update_regiment(r: Regiment, dt: float) -> void:
 	# On ne poursuit pas les fuyards (sauf les montés, s'ils n'ont pas l'ordre de tenir)
 	if r.target != null and (r.target.is_dead() or (r.target.routing and (not r.stats["mounted"] or r.hold_position))):
 		r.target = null
+		if not r.orders.is_empty():
+			r.dest = r.center # Cible abattue : l'ordre suivant de la file part d'ici
 
 	# Moral
 	if r.routing:
@@ -572,7 +574,12 @@ func update_regiment(r: Regiment, dt: float) -> void:
 		s.slot_pos = r.slot_position(i, n)
 
 	if r.routing:
+		r.orders.clear()
 		return
+
+	# File d'ordres (Maj) : ordre en cours fini (arrivé, sans cible) -> ordre suivant
+	if not r.orders.is_empty() and r.target == null and r.center.distance_to(r.dest) < 24.0:
+		r.advance_order()
 
 	if state == State.DEPLOY:
 		# Déploiement : on se place, on n'attaque personne (et les archers ne tirent pas)

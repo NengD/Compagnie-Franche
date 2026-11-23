@@ -197,6 +197,7 @@ func _draw() -> void:
 		elif r.center.distance_to(r.dest) > 24.0:
 			draw_dashed_line(r.center, r.dest, Color(1, 0.6, 0.15, 0.75) if r.running else Color(1, 1, 1, 0.4), 2.0, 8.0)
 			draw_rect(Rect2(r.dest - Vector2(2, 2), Vector2(6, 6)), Color(1, 1, 1, 0.7))
+		draw_order_queue(r)
 
 	# Flèche d'orientation de chaque régiment du joueur (plus visible s'il est sélectionné)
 	for r in sim.regiments:
@@ -270,12 +271,41 @@ func _draw() -> void:
 
 
 ## Aperçu fantôme pendant le tracé : place de chaque soldat et flèche d'orientation.
+## File d'ordres (Maj) d'un régiment sélectionné : points de passage numérotés reliés en pointillés,
+## depuis la fin de l'ordre en cours ; une attaque en file se marque en rouge sur sa cible.
+func draw_order_queue(r: Regiment) -> void:
+	if r.orders.is_empty():
+		return
+	var from := r.target.center if r.target != null else r.dest
+	var font := ThemeDB.fallback_font
+	var n := 1
+	for o in r.orders:
+		var to: Vector2
+		var col := Color(1, 1, 1, 0.55)
+		if str(o["kind"]) == "attack":
+			var t: Regiment = o.get("target")
+			if t == null or t.is_dead():
+				continue
+			to = t.center
+			col = Color(1, 0.35, 0.25, 0.7)
+		else:
+			to = o["dest"]
+			if bool(o.get("run", false)):
+				col = Color(1, 0.6, 0.15, 0.75)
+		draw_dashed_line(from, to, col, 2.0, 6.0)
+		draw_circle(to, 6.0, Color(0.08, 0.06, 0.04, 0.8))
+		draw_arc(to, 6.0, 0.0, TAU, 16, col, 1.5)
+		draw_string(font, to + Vector2(-3.5, 4.0), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(1, 0.95, 0.8))
+		from = to
+		n += 1
+
+
 func draw_line_preview() -> void:
 	var ghost := Color(1, 0.95, 0.4, 0.55)
 	var lw := 1.0 / battle.camera.zoom.x
 	var o := battle.orders
 	draw_line(o.line_start, o.line_now, Color(1, 1, 1, 0.35), lw)
-	for e in o.line_layout(sim.selected_regiments(), o.line_start, o.line_now):
+	for e in o.line_layout(sim.selected_regiments(), o.line_start, o.line_now, o.line_queue):
 		var r: Regiment = e["reg"]
 		var face: Vector2 = e["facing"]
 		var cols: int = e["cols"]
