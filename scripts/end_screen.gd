@@ -114,6 +114,7 @@ func build() -> void:
 		l.custom_minimum_size.x = 300
 		grid.add_child(l)
 		grid.add_child(UiTheme.label(str(row[1]), 15))
+	build_chronicle()
 	box.add_child(HSeparator.new())
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -122,6 +123,26 @@ func build() -> void:
 	var nb := add_button("Nouvelle campagne", new_campaign, row)
 	add_button("Menu principal", to_menu, row)
 	focus_later(nb)
+
+
+## Chronique : le récit de la campagne (chronicle.gd), dans un cadre qui défile s'il est long.
+func build_chronicle() -> void:
+	box.add_child(HSeparator.new())
+	box.add_child(UiTheme.label("Chronique", 18, UiTheme.GOLD))
+	var scroll := ScrollContainer.new()
+	scroll.name = "Chronicle"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(560, 180)
+	box.add_child(scroll)
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 6)
+	scroll.add_child(text)
+	for p in Chronicle.narrate(state):
+		var l := UiTheme.label(p, 14)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size.x = 540
+		text.add_child(l)
 
 
 func add_button(s: String, cb: Callable, parent: Control = null) -> Button:

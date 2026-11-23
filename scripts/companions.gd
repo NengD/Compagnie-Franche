@@ -164,6 +164,7 @@ static func dismiss(state: CampaignState, kind: String) -> String:
 	if m.is_empty():
 		return "Ce compagnon n'est plus là."
 	state.companions.list.erase(m)
+	Officers.clear(state, kind) # Il ne mène plus de régiment
 	state.add_log("Jour %d : %s quitte la compagnie." % [state.day, m["name"]])
 	return ""
 

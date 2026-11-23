@@ -91,8 +91,8 @@ func wounded_total() -> int:
 
 ## Rations mangées chaque jour.
 static func consumption(state: CampaignState) -> float:
-	return state.total_men() + state.supplies.wounded_total() + state.prisoners.total() * PRISONER_RATION \
-		+ state.companions.list.size()
+	return (state.total_men() + state.supplies.wounded_total() + state.prisoners.total() * PRISONER_RATION \
+		+ state.companions.list.size()) * state.captain.food_factor() # Capitaine : économe
 
 
 ## Jours de vivres pour l'effectif du moment.
@@ -117,7 +117,7 @@ static func hungry(state: CampaignState) -> bool:
 static func ration_price(state: CampaignState, town := -1) -> float:
 	if town < 0:
 		town = state.location
-	var p := RATION_PRICE * float(CampaignState.TOWNS[town]["price"]) * Companions.food_factor(state)
+	var p := RATION_PRICE * float(CampaignState.TOWNS[town]["price"]) * Companions.food_factor(state) * state.captain.price_factor()
 	if state.closed_message(town) != "":
 		p *= CLOSED_PRICE
 	return p

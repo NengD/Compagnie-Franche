@@ -280,9 +280,27 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   **intempéries** (un jour de marche perdu), **hameau abandonné** (un régiment le pille et devient « pillards »).
 - **Capitaine** : la compagnie a un capitaine nommé (panneau « Capitaine » de la carte). Il gagne de
   l'expérience à chaque bataille (30 xp, +30 en cas de victoire) et un niveau tous les 100 xp. Chaque niveau donne un
-  point de compétence à dépenser sur la carte : **aura** (rayon +25 % par niveau), **ralliement** (les fuyards
-  proches se rallient, même plusieurs fois), **solde réduite** (-5 % par niveau), 3 niveaux chacune.
-  S'il tombe au combat, il n'est que **blessé** : il manque les batailles des 5 jours suivants.
+  point de compétence (9 au plus) à dépenser dans la fenêtre **Compétences du capitaine** (bouton de la section
+  « Capitaine »), un arbre de trois voies où chaque compétence montre son coût, ses prérequis et son effet :
+
+  | Voie | Compétences (rang max, coût, niveau requis, prérequis) |
+  |---|---|
+  | **Meneur** (en bataille) | Aura (3, 1) : rayon +25 %/rang · Ralliement (3, 1) : les fuyards de l'aura se rallient · Bannière haute (1, 2 pts, niv. 4, Aura + Ralliement) : moral maximal +10 % · Volonté de fer (1, 2 pts, niv. 6) : la chute du capitaine ou d'un officier ébranle moitié moins |
+  | **Tacticien** (en bataille) | Manœuvres (2, 1) : vitesse +5 %/rang · Formations serrées (1, 1, niv. 2) : colonne et carré +25 % · Reconnaissance (1, 2 pts, niv. 4) : zone de déploiement plus profonde de 150 px · Coup d'œil (1, 2 pts, niv. 6) : mêlée +8 % |
+  | **Intendant** (toujours) | Solde réduite (3, 1) : -5 %/rang · Économe (2, 1, niv. 2) : vivres mangés -10 %/rang · Marchandeur (1, 2 pts, niv. 4) : recrues, équipement, vivres -10 % · Pillard avisé (1, 2 pts, niv. 6) : butin +20 % |
+
+  L'arbre coûte 26 points : il faut choisir sa voie. Les effets du Meneur et du Tacticien ne jouent que si le
+  capitaine est sur le champ. S'il tombe au combat, il n'est que **blessé** : il manque les batailles des 5 jours suivants.
+- **Officiers** (`scripts/officers.gd`, section « Officiers » de l'onglet Compagnie) : un compagnon peut être nommé
+  à la tête d'un régiment (boutons « → n », « Relever »). Bonus : sergent mêlée, chirurgien moral, éclaireur
+  vitesse, quartier-maître tir, +10 % au niveau 1 et +2 % par niveau. En bataille, l'officier marche derrière son
+  régiment (petit fanion à sa couleur) ; chaque homme perdu lui fait risquer de tomber (60 % de risque cumulé si
+  tout le régiment y passe, chute certaine s'il est anéanti). Tombé, il est tué (40 %, 25 % avec un chirurgien) ou
+  blessé (6 jours) ; son régiment perd 20 de moral et le bonus. Un officier tué quitte la compagnie (journal,
+  chronique).
+- **Chronique** (`scripts/chronicle.gd`) : les faits marquants (batailles, officiers tombés, fiefs pris ou perdus)
+  sont notés au fil de la campagne ; l'écran de fin et l'onglet Journal en tirent un récit de quelques paragraphes
+  (débuts, plus belle victoire et jour le plus sombre, chutes du capitaine, officiers tombés, domaine, issue).
 - **Traits de régiment** : un trait à chaque promotion (dans un ordre propre au type), d'autres en route.
   **Tenaces** (moral +20 %), **rapides** (vitesse +10 %), **adroits** (dégâts +10 %), **pillards** (+1 écu
   de butin par ennemi tué), **frugaux** (solde -20 %).
@@ -372,15 +390,16 @@ ville donne la faction qui la tient aujourd'hui (les villes changent de mains, v
   devient automatiquement l'emplacement 1 (au premier passage par le menu).
   Écriture sûre : fichier temporaire, puis l'ancienne version devient la **copie de secours** `.bak`.
   Si le fichier est abîmé (ou absent), la sauvegarde est relue depuis le `.bak`.
-  Format versionné (version 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
+  Format versionné (version 14 : officiers des régiments, arbre du capitaine, chronique ; 13 : domaine — fiefs, commerce, allégeance, quêtes ; 12 : vivres, fatigue, blessés,
   prisonniers et compagnons ; 11 : champ de bataille tiré de la carte et alliés de la bataille en cours ;
   10 : armoiries de la compagnie ; 9 : carte en temps réel — heure, position et chemin de la compagnie, groupes ;
   8 : objectifs des contrats ; 7 : monde vivant ; 6 : capitaine ; 5 : emplacements, mode indulgent, bataille en
-  cours) ; les versions 1 à 12 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
+  cours) ; les versions 1 à 13 se relisent (difficulté normale, mode indulgent désactivé, aucune bataille en
   cours, monde neuf et en paix ; avant la version 9, la compagnie se retrouve au matin dans sa ville et les
   armées sont replacées sur la grande carte ; avant la version 10, les armoiries sont tirées de la graine de la
   campagne ; avant la version 12, dix jours de vivres, ni prisonniers ni compagnons ; avant la 13, ni fief, ni
-  cargaison, ni serment, et de premières offres de quêtes).
+  cargaison, ni serment, et de premières offres de quêtes ; avant la 14, ni officier ni chronique, et seules
+  les trois premières compétences du capitaine sont relues).
 - **Bataille en cours sauvegardée** : un contrat accepté ou une embuscade est enregistré avec la campagne.
   Fermer le jeu en pleine bataille puis relancer reprend la bataille (depuis son début, même armée ennemie,
   même terrain) : on ne peut plus annuler une embuscade ni esquiver un contrat mal engagé.
@@ -670,10 +689,12 @@ scripts/terrain.gd      Collines, rivière et gués, village, palissade : effets
 scripts/siege_terrain.gd  Ville fortifiée (SiegeTerrain) : rempart, porte, tours, chemin de ronde, place, ouvertures
 scripts/siege.gd        Vrai siège (Siege) : bélier, échelles, repoussage, tours, prise de la place, fin, rendu
 scripts/regiment.gd     Régiment : formation, moral, ordres
-scripts/captain.gd      Capitaine (Captain) : niveaux, compétences, blessure ; sur le champ : escorte, aura, mort
+scripts/captain.gd      Capitaine (Captain) : niveaux, arbre de compétences (trois voies), blessure ; sur le champ : escorte, aura, mort
 scripts/traits.gd       Traits de régiment (Traits) et application des traits et de l'équipement aux stats
 scripts/equipment.gd    Équipement des régiments (Equipment) : casque, armes, armure en trois qualités, améliorations
-scripts/company_panel.gd Sections « Capitaine » et « Équipement » des fenêtres de la carte
+scripts/company_panel.gd Sections « Capitaine », « Officiers » et « Équipement » ; fenêtre de l'arbre du capitaine
+scripts/officers.gd     Officiers (Officers) : compagnons à la tête des régiments, bonus, chute en bataille, suites
+scripts/chronicle.gd    Chronique (Chronicle) : faits marquants de la campagne et récit de fin (écran de fin, Journal)
 scripts/supplies.gd     Vivres, fatigue, marche forcée, camp et blessés graves (Supplies) ; effets en début de bataille
 scripts/prisoners.gd    Prisonniers (Prisoners) : capture, rançon, enrôlement (rancœur), libération, évasions
 scripts/companions.gd   Compagnons (Companions) : sergent, chirurgien, éclaireur, quartier-maître ; compétences, effets
@@ -733,6 +754,8 @@ tests/interface_plus_test.gd Test de la mini-carte (cadre, clic, glisser, touche
 tests/save_test.gd      Test de la sauvegarde (emplacements, migration, copie .bak, bataille en cours reprise,
                         mode indulgent, versions, menu des emplacements)
 tests/captain_test.gd   Test du capitaine (aura, ralliement, mort, blessure, niveaux), des traits, de l'équipement et de la sauvegarde v6
+tests/officers_test.gd  Test des officiers (nomination, bonus, chute, mort ou blessure), de l'arbre du capitaine
+                        (prérequis, coûts, effets), de la chronique (récit, Journal, écran de fin) et de la sauvegarde v14
 tests/life_test.gd      Test des prisonniers, des vivres et de la fatigue, des blessés graves, des compagnons
                         (dont l'éclaireur sur la carte), de la sauvegarde v10, du début de bataille et des panneaux
 tests/world_test.gd     Test du monde vivant (saisons, 200 jours sur 5 graines, prise d'une ville, contrats de
