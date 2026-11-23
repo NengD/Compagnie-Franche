@@ -113,6 +113,7 @@ static func add_access_options(grid: GridContainer) -> void:
 	var rows := [
 		["Formes des camps", "FormesCamps", GameOptions.team_shapes, "(rond : vous, losange : l'ennemi)"],
 		["Sous-titres", "SousTitres", GameOptions.subtitles, "(cors, charges, embuscades)"],
+		["Tutoriel guidé", "TutorielGuide", GameOptions.tutorial, "(proposé à la première campagne)"],
 	]
 	for row in rows:
 		grid.add_child(UiTheme.label(row[0]))
@@ -123,6 +124,10 @@ static func add_access_options(grid: GridContainer) -> void:
 		c.toggled.connect(func(on: bool) -> void:
 			if which == "FormesCamps":
 				GameOptions.team_shapes = on
+			elif which == "TutorielGuide":
+				GameOptions.tutorial = on
+				if on:
+					GameOptions.tutorial_offered = false # Proposé de nouveau à la prochaine campagne
 			else:
 				GameOptions.subtitles = on
 			GameOptions.save_options())

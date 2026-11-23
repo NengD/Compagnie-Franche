@@ -86,6 +86,8 @@ static var team_shapes := false ## Accessibilité : formes et motifs en plus du 
 static var subtitles := false ## Accessibilité : sous-titres des évènements sonores importants
 ## Dernier réglage de l'escarmouche personnalisée (skirmish_setup.gd), vide : réglage par défaut
 static var skirmish: Dictionary = {}
+static var tutorial := true ## Tutoriel guidé (bataille d'entraînement puis première semaine de campagne)
+static var tutorial_offered := false ## Le tutoriel guidé a déjà été proposé (à la première nouvelle campagne)
 
 
 ## Charge et applique les options une seule fois par lancement.
@@ -109,6 +111,8 @@ static func reset_all() -> void:
 	show_minimap = true
 	team_shapes = false
 	subtitles = false
+	tutorial = true
+	tutorial_offered = false
 	effects = "full"
 	skirmish = {}
 	reset_keys()
@@ -143,6 +147,8 @@ static func load_options() -> void:
 	show_minimap = bool(cfg.get_value("interface", "minicarte", show_minimap))
 	team_shapes = bool(cfg.get_value("accessibilite", "formes_camps", team_shapes))
 	subtitles = bool(cfg.get_value("accessibilite", "sous_titres", subtitles))
+	tutorial = bool(cfg.get_value("jeu", "tutoriel", tutorial))
+	tutorial_offered = bool(cfg.get_value("jeu", "tutoriel_propose", tutorial_offered))
 	var fx := str(cfg.get_value("affichage", "effets", effects))
 	effects = fx if fx in EFFECTS else "full"
 	var sk_text := str(cfg.get_value("escarmouche", "reglage", ""))
@@ -176,6 +182,8 @@ static func save_options() -> bool:
 	cfg.set_value("accessibilite", "sous_titres", subtitles)
 	if not skirmish.is_empty():
 		cfg.set_value("escarmouche", "reglage", JSON.stringify(skirmish))
+	cfg.set_value("jeu", "tutoriel", tutorial)
+	cfg.set_value("jeu", "tutoriel_propose", tutorial_offered)
 	for id in binds:
 		cfg.set_value("touches", id, binds[id])
 	for id in camera_binds:

@@ -75,6 +75,8 @@ var ambushed := false ## Une bataille va commencer (embuscade, rencontre, contra
 var resuming := false ## Une bataille sauvegardée reprend dès l'ouverture
 var end_requested := false ## Campagne terminée : l'écran de fin a été demandé
 var walking := false ## La compagnie marche (pour l'affichage et les tests)
+var pad: MapPad ## Manette (map_pad.gd)
+var guide: CampaignGuide ## Tutoriel guidé de la première semaine (null sans tutoriel)
 
 
 ## Petit emplacement qui dessine les chevrons de rang d'un régiment dans le panneau.
@@ -221,6 +223,8 @@ func _ready() -> void:
 	add_child(cam)
 	cam.make_current()
 	build_ui()
+	pad = MapPad.new(self)
+	guide = CampaignGuide.attach(self)
 	layout()
 	get_viewport().size_changed.connect(layout)
 	center_on(state.overworld.player.pos)
@@ -281,8 +285,18 @@ func game_speed() -> float:
 	return HOURS_PER_SECOND * float(SPEEDS[speed_index])
 
 
+## Manette (map_pad.gd) : avant l'interface, pour reprendre ou rendre la main au clavier et à la souris.
+func _input(event: InputEvent) -> void:
+	if pad != null and pad.input(event):
+		get_viewport().set_input_as_handled()
+
+
 func _process(delta: float) -> void:
 	pan_camera(delta)
+	if pad != null:
+		pad.step(delta)
+	if guide != null:
+		guide.update()
 	update_hover()
 	if not time_stopped():
 		advance_time(delta * game_speed())
@@ -431,6 +445,9 @@ func update_hover() -> void:
 		return
 	var p := get_global_mouse_position()
 	var on_ui := over_ui(get_viewport().get_mouse_position())
+	if pad != null and pad.active:
+		p = pad.world_point()
+		on_ui = panel.visible
 	hover_party = null if on_ui else party_at(p)
 	hover_place = -1 if on_ui or hover_party != null else MapData.place_at(p)
 	if tip == null:
@@ -444,7 +461,7 @@ func update_hover() -> void:
 	if tip.visible:
 		tip_label.text = "\n".join(lines)
 		tip.reset_size()
-		var m := get_viewport().get_mouse_position() + Vector2(18, 12)
+		var m := (pad.cursor if pad != null and pad.active else get_viewport().get_mouse_position()) + Vector2(18, 12)
 		var vs := get_viewport_rect().size
 		tip.position = Vector2(minf(m.x, map_area().x - tip.size.x - 4), minf(m.y, vs.y - tip.size.y - 4))
 
@@ -791,6 +808,7 @@ func build_ui() -> void:
 	head.add_child(close_button)
 	scroll = ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true # Manette : la fenêtre défile jusqu'au bouton choisi
 	col.add_child(scroll)
 	box = VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1032,6 +1050,8 @@ func refresh_ui() -> void:
 			build_menu()
 	scroll.scroll_vertical = 0
 	fit_window()
+	if pad != null:
+		pad.focus_window() # Manette : le focus va au premier bouton de la fenêtre
 
 
 ## Ville ou lieu où la compagnie est entrée : contrats, recrues, compagnie, capitaine.
@@ -1123,7 +1143,9 @@ func build_contact() -> void:
 	Portrait.beside(box, from, Portrait.of_party(contact), Vector2(56, 64))
 	LifePanel.build_contact(self, contact) # Rapport de l'éclaireur
 	var site := ow.battle_site(contact)
-	add_label("Terrain du combat : %s, %s." % [str(Terrain.NAMES.get(str(site["kind"]), "plaine")).to_lower(), str(site["label"])], 12, Color(0.75, 0.72, 0.65))
+	var tl := add_label("Terrain du combat : %s, %s.  (survolez)" % [str(Terrain.NAMES.get(str(site["kind"]), "plaine")).to_lower(), str(site["label"])], 12, Color(0.75, 0.72, 0.65))
+	tl.tooltip_text = Tooltips.terrain_text(str(site["kind"]))
+	tl.mouse_filter = Control.MOUSE_FILTER_PASS
 	var allies := ow.allies_line(state, contact)
 	if allies != "":
 		add_label("À vos côtés : %s." % allies, 12, Color(0.55, 0.85, 0.8))
@@ -1214,7 +1236,11 @@ func build_contracts(here: int, closed: String) -> void:
 		add_label(CampaignState.objective_line(c), 12, Color(0.95, 0.85, 0.6))
 		add_label("Ennemi : %s" % CampaignState.army_summary(c["enemy"]), 12)
 		add_label("Prime : %d écus   ·   difficulté %s   ·   jusqu'au jour %d" % [state.contract_reward(c), stars(int(c["difficulty"])), int(c["expires"])], 12, GOLD_COL)
-		add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not state.is_over() and not ambushed and closed == "" and contact == null and not state.world.has_encounter())
+		var odds := add_label(Tooltips.contract_line(state, c), 12, Color(0.75, 0.85, 0.95))
+		odds.tooltip_text = Tooltips.contract_text(state, c)
+		odds.mouse_filter = Control.MOUSE_FILTER_PASS
+		var ab := add_button("Accepter et livrer bataille", do_accept.bind(c), not state.is_destroyed() and not state.is_over() and not ambushed and closed == "" and contact == null and not state.world.has_encounter())
+		ab.tooltip_text = Tooltips.contract_text(state, c)
 
 
 ## Difficulté d'un contrat en étoiles : « ★★★☆☆ ».
@@ -1306,6 +1332,8 @@ func _draw() -> void:
 	if not p.path.is_empty():
 		draw_arc(p.path[-1], 6.0, 0, TAU, 12, GOLD_COL, 2.0)
 	draw_company(p.pos)
+	if pad != null:
+		pad.draw_cursor()
 	# Brouillard, nuit, lumières et pluie : calques de MapSky (sky_layers), au-dessus
 
 

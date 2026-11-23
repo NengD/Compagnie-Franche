@@ -218,8 +218,23 @@ func _test_menu(m: Node) -> void:
 	var choice := _buttons(m)
 	for want in ["Facile", "Normal", "Difficile", "Retour"]:
 		check(want in choice, "bouton de difficulté « %s »" % want)
+	GameOptions.tutorial = true
+	GameOptions.tutorial_offered = false
+	m.confirm_new_campaign("hard")
+	# Première partie : le tutoriel guidé est proposé
+	check(m.page == "tutorial_offer" and m.last_scene == "", "première campagne : tutoriel guidé proposé (page %s)" % m.page)
+	var offer := _buttons(m)
+	check("Non merci" in offer and "Seulement la campagne guidée" in offer, "boutons de la proposition du tutoriel %s" % str(offer))
+	m.accept_tutorial(true)
+	check(m.last_scene == m.TUTORIAL_SCENE and CampaignGuide.after_training and CampaignState.current.tutorial_step == 0, "tutoriel accepté : bataille d'entraînement, puis campagne guidée")
+	check(CampaignState.load_game().tutorial_step == 0, "étape du tutoriel sauvegardée")
+	check(GameOptions.tutorial_offered, "tutoriel proposé une seule fois")
+	CampaignGuide.after_training = false
+	m.last_scene = ""
+	m.new_campaign()
 	m.confirm_new_campaign("hard")
 	check(m.last_scene == m.CAMPAIGN_SCENE, "nouvelle campagne → carte")
+	check(CampaignState.current.tutorial_step == -1, "deuxième campagne : pas de tutoriel")
 	check(CampaignState.has_save(), "nouvelle campagne sauvegardée")
 	check(CampaignState.current.difficulty == "hard" and CampaignState.load_game().difficulty == "hard", "difficulté de la campagne choisie au menu et sauvegardée")
 	# Avec sauvegarde : même page, avec l'avertissement
@@ -293,7 +308,7 @@ func expect_step(b: Node, id: String) -> void:
 
 
 func _test_tutorial(b: Node2D) -> void:
-	check(b.steps.size() == 8, "8 étapes")
+	check(b.steps.size() == 11, "11 étapes")
 	check(b.player_regiments().size() == 4, "armée réduite du joueur")
 	var enemies := 0
 	for r in b.regiments:
@@ -351,8 +366,20 @@ func _test_tutorial(b: Node2D) -> void:
 	mouse(b, MOUSE_BUTTON_RIGHT, run_to, true, true)
 	mouse(b, MOUSE_BUTTON_RIGHT, run_to, false)
 	b.check_steps()
-	expect_step(b, "start")
+	expect_step(b, "cards")
 	run_for(b, 3.0)
+
+	# 6. Les cartes (Tab) puis l'aide (F1)
+	var cards_before: bool = b.show_cards
+	b._unhandled_input(key_event(GameOptions.key_for("cards")))
+	b.check_steps()
+	check(b.show_cards != cards_before, "Tab cache ou montre les cartes")
+	expect_step(b, "help")
+	b._unhandled_input(key_event(GameOptions.key_for("cards"))) # Les cartes reviennent
+	b._unhandled_input(key_event(GameOptions.key_for("help")))
+	b.check_steps()
+	expect_step(b, "start")
+	b._unhandled_input(key_event(GameOptions.key_for("help")))
 	# L'ennemi n'a pas bougé pendant le déploiement
 	var k := 0
 	for r in b.regiments:
@@ -364,6 +391,21 @@ func _test_tutorial(b: Node2D) -> void:
 	b._unhandled_input(key_event(KEY_SPACE))
 	b.check_steps()
 	check(b.state == 1, "Espace lance la bataille")
+	expect_step(b, "fire")
+
+	# Tirer : les archers (touche 3) sur l'infanterie ennemie
+	var foe: Regiment = null
+	for r in b.regiments:
+		if r.team == 1 and r.type == "spear":
+			foe = r
+	b._unhandled_input(key_event(KEY_3))
+	var arch: Regiment = b.selected_regiments()[0]
+	check(arch.type == "archer", "touche 3 = archers")
+	b.rebuild_grid()
+	mouse(b, MOUSE_BUTTON_RIGHT, foe.alive_soldiers()[0].pos, true)
+	mouse(b, MOUSE_BUTTON_RIGHT, foe.alive_soldiers()[0].pos, false)
+	b.check_steps()
+	check(arch.target == foe, "clic droit des archers sur l'ennemi : tir")
 	expect_step(b, "cavalry")
 
 	# 7. La cavalerie (touche 4) sur les archers ennemis

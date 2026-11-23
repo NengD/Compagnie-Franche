@@ -24,7 +24,9 @@ static func build_captain(map: Node, state: CampaignState) -> void:
 	var parts: Array[String] = []
 	for p in Captain.PATH_ORDER:
 		parts.append("%s %d" % [Captain.PATHS[p]["name"], cap.spent(p)])
-	map.add_label("Aura de moral %d px · points dépensés : %s" % [int(cap.aura_radius()), " · ".join(parts)], 12, DIM)
+	var al: Label = map.add_label("Aura de moral %d px · points dépensés : %s" % [int(cap.aura_radius()), " · ".join(parts)], 12, DIM)
+	al.tooltip_text = Tooltips.skill_text(cap, "aura")
+	al.mouse_filter = Control.MOUSE_FILTER_PASS
 	Portrait.beside(map.box, from, Portrait.of_captain(state)).dim = not cap.available(state.day)
 	var label := "Compétences du capitaine (%s)" % CampaignState.plural(cap.points, "point à dépenser", "points à dépenser") if cap.points > 0 else "Compétences du capitaine"
 	map.add_button(label, map.toggle_view.bind("captain"))
@@ -91,7 +93,7 @@ static func build_tree(map: Node) -> void:
 			col.add_child(tree_label("Coût %s%s" % [CampaignState.plural(int(info["cost"]), "point", "points"), " · requiert " + ", ".join(reqs) if not reqs.is_empty() else ""], 11, Color(0.6, 0.58, 0.52)))
 			var why := cap.refusal(k)
 			var b: Button = map.add_button("Apprendre" if not owned else "Acquis", CompanyPanel.learn.bind(map, k), why == "", col)
-			b.tooltip_text = why if why != "" else "%s : %s" % [info["name"], info["text"]]
+			b.tooltip_text = why if why != "" else Tooltips.skill_text(cap, k)
 			b.set_meta("skill", k)
 	map.add_button("Retour à la compagnie", map.toggle_view.bind("company"))
 
@@ -124,7 +126,9 @@ static func build_equipment(map: Node, state: CampaignState) -> void:
 			var names: Array[String] = []
 			for id in Traits.of(entry):
 				names.append(str(Traits.TRAITS[id]["name"]))
-			map.add_label("    Traits : %s" % ", ".join(names), 11, DIM)
+			var tl: Label = map.add_label("    Traits : %s" % ", ".join(names), 11, DIM)
+			tl.tooltip_text = Tooltips.traits_text(entry)
+			tl.mouse_filter = Control.MOUSE_FILTER_PASS
 		if not in_town:
 			continue
 		var row := HBoxContainer.new()
@@ -139,8 +143,8 @@ static func build_equipment(map: Node, state: CampaignState) -> void:
 			var label := "%s %s : %d écus" % [str(Equipment.SLOT_NAMES[slot]).capitalize(), ROMAN[int(item["tier"])], price]
 			var b: Button = map.add_button(label, CompanyPanel.buy.bind(map, i, next), why == "" and state.gold >= price and closed == "", row)
 			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.tooltip_text = "%s : %s.%s" % [item["name"], item["text"], ("
-" + why) if why != "" else ""]
+			b.tooltip_text = Tooltips.gear_text(entry, next) + (("
+" + why) if why != "" else "")
 			any = true
 		if any:
 			map.box.add_child(row)

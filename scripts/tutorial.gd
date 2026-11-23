@@ -2,6 +2,8 @@ extends Battle
 ## Tutoriel : petite bataille guidée. Les étapes s'affichent en haut à droite et ne se valident
 ## que lorsque le joueur fait vraiment l'action demandée (on observe l'état de la bataille).
 ## L'ennemi attend sans bouger que la bataille soit lancée (étape « Espace »).
+## Proposé avant la première campagne (CampaignGuide.after_training) : la victoire mène alors à la
+## carte de campagne, où le tutoriel guidé continue.
 
 const TUTO_SEED := 4242
 
@@ -10,6 +12,8 @@ var steps: Array[Dictionary] = []
 var step := 0 ## Étape en cours (steps.size() = terminé)
 var step_clock := 0.0 ## Temps passé sur l'étape en cours
 var snapshot := {} ## Destinations des régiments au début de l'étape « déplacer »
+var cards_at_start := true ## Cartes affichées au début de l'étape « cartes »
+var help_at_start := false ## Aide dépliée au début de l'étape « aide »
 var overlay: Control
 
 
@@ -36,6 +40,8 @@ func _ready() -> void:
 
 func build_steps() -> void:
 	var f := GameOptions.key_label("formation")
+	var tab := GameOptions.key_label("cards")
+	var f1 := GameOptions.key_label("help")
 	steps = [
 		{"id": "select", "title": "Sélectionner",
 			"text": "Cliquez sur un de vos régiments (en bleu), ou glissez un cadre avec le clic gauche."},
@@ -47,10 +53,16 @@ func build_steps() -> void:
 			"text": "Appuyez sur %s : ligne → colonne (plus rapide) → carré (lent, sans flanc ni dos)." % f},
 		{"id": "run", "title": "Courir",
 			"text": "Double clic droit sur le sol : le régiment court (x1,6) mais se fatigue vite (barre jaune)."},
+		{"id": "cards", "title": "Les cartes des régiments",
+			"text": "Appuyez sur %s : les cartes du bas (effectif, moral, endurance) se cachent ou reviennent." % tab},
+		{"id": "help", "title": "L'aide",
+			"text": "Appuyez sur %s : toutes les commandes s'affichent (encore %s pour les replier). Maj + clic droit enchaîne les ordres d'un régiment." % [f1, f1]},
 		{"id": "start", "title": "Lancer la bataille",
 			"text": "Placez vos troupes face à l'ennemi, en haut, puis appuyez sur Espace."},
-		{"id": "cavalry", "title": "La cavalerie sur les archers",
-			"text": "Sélectionnez la cavalerie (touche 4), puis clic droit sur les archers ennemis : la cavalerie bat les archers."},
+		{"id": "fire", "title": "Tirer",
+			"text": "Sélectionnez les archers (touche 3), puis clic droit sur un régiment ennemi : ils s'approchent à portée et tirent."},
+		{"id": "cavalry", "title": "Charger",
+			"text": "Sélectionnez la cavalerie (touche 4), puis clic droit sur les archers ennemis : la charge bat les archers. Évitez les piques !"},
 		{"id": "win", "title": "Gagner",
 			"text": "Piquiers contre la cavalerie, hommes d'armes contre les piquiers, frappez de flanc. Mettez l'ennemi en déroute !"},
 	]
@@ -102,6 +114,8 @@ func begin_step() -> void:
 	snapshot.clear()
 	for r in player_regiments():
 		snapshot[r.id] = r.dest
+	cards_at_start = show_cards
+	help_at_start = show_help
 
 
 ## Vrai quand l'action demandée par l'étape en cours a été faite.
@@ -127,8 +141,20 @@ func step_done() -> bool:
 			for r in player_regiments():
 				if r.running:
 					return true
+		"cards":
+			return show_cards != cards_at_start
+		"help":
+			return show_help != help_at_start
 		"start":
 			return state != State.DEPLOY
+		"fire":
+			for r in player_regiments():
+				if r.stats["ranged"] and r.target != null and r.target.team == ENEMY:
+					return true
+			for r in player_regiments():
+				if r.stats["ranged"] and not r.is_dead() and not r.routing:
+					return false
+			return true # Plus d'archers : l'étape n'a plus d'objet
 		"cavalry":
 			for r in player_regiments():
 				if r.type == "cavalry" and r.target != null and r.target.type == "archer":
@@ -150,7 +176,7 @@ func check_steps() -> void:
 		step += 1
 		begin_step()
 		if finished():
-			add_message("Tutoriel terminé ! Échap : menu principal.")
+			add_message("Tutoriel terminé ! Entrée : la campagne commence." if CampaignGuide.after_training else "Tutoriel terminé ! Échap : menu principal.")
 
 
 func _process(delta: float) -> void:
@@ -160,6 +186,26 @@ func _process(delta: float) -> void:
 	if overlay != null:
 		overlay.visible = report_panel == null or not report_panel.visible # Le bilan le remplace
 		overlay.queue_redraw()
+
+
+## Avant la première campagne : la victoire (ou Échap à la fin) mène à la carte de campagne.
+func continue_after_battle() -> void:
+	if CampaignGuide.after_training and state == State.VICTORY:
+		to_campaign()
+	else:
+		super.continue_after_battle()
+
+
+func back_to_menu() -> void:
+	if CampaignGuide.after_training:
+		to_campaign()
+	else:
+		super.back_to_menu()
+
+
+func to_campaign() -> void:
+	CampaignGuide.after_training = false
+	get_tree().change_scene_to_file("res://scenes/campaign.tscn")
 
 
 ## Espace ne lance la bataille qu'à l'étape prévue (l'ennemi attend jusque-là).
@@ -184,13 +230,15 @@ func draw_overlay() -> void:
 	var title := "TUTORIEL TERMINÉ"
 	var head := "Bravo !"
 	var hint := "Vous savez mener une compagnie. Échap : menu principal, Entrée : recommencer."
+	if CampaignGuide.after_training:
+		hint = "Vous savez mener une compagnie. Entrée : la campagne commence."
 	var col := Color(1, 0.95, 0.85)
 	if not finished():
 		title = "TUTORIEL · étape %d / %d" % [step + 1, steps.size()]
 		head = str(steps[step]["title"])
 		hint = str(steps[step]["text"])
 	if state == State.DEFEAT:
-		hint = "Défaite… Entrée pour recommencer le tutoriel, Échap pour le menu."
+		hint = "Défaite… Entrée pour recommencer le tutoriel, Échap pour %s." % ("passer à la campagne" if CampaignGuide.after_training else "le menu")
 		col = Color(1, 0.55, 0.4)
 	var text_h := f.get_multiline_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, w - 28, 14).y
 	var rect := Rect2(vs.x - w - 12, 40, w, 62 + text_h + 10 + steps.size() * 17)
