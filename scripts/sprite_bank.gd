@@ -37,6 +37,7 @@ const UNITS := {
 		"walk": [1, 10, 4, 7], "walk_n": 4,
 		"idle": [0, 9, 3, 6],
 		"attack": [2, 11, 5, 8], "attack_n": 4,
+		"barding": true, # Caparaçon aux couleurs du camp (barding_image)
 	},
 	"crossbow": {
 		"file": "Bowman%s.png", "cell": 16, "foot": Vector2(8, 15),
@@ -48,7 +49,7 @@ const UNITS := {
 		"file": "Swordsman%s.png", "cell": 16, "foot": Vector2(8, 15),
 		"walk": [0, 1, 2, 3], "walk_n": 5,
 		"attack": [4, 5, 6, 7], "attack_n": 4,
-		"tint": Color(0.78, 0.84, 0.98), # Armure de plates
+		"tint": Color(0.93, 0.96, 1.0), # Harnois blanc (repeint en plates polies, voir BattleRenderer.look_of)
 	},
 	"horse_archer": {
 		"file": "%sKnight.png", "cell": 32, "foot": Vector2(16, 25),
@@ -113,7 +114,8 @@ func _load(path: String) -> Texture2D:
 ## (mode sans affichage), la planche d'origine.
 func dressed_tex(type: String, team: int, helmet: int, armor: int) -> Texture2D:
 	var base: Texture2D = unit_tex["%s/%d" % [type, team]]
-	if helmet <= 0 and armor <= 0:
+	var barded: bool = UNITS[type].get("barding", false)
+	if helmet <= 0 and armor <= 0 and not barded:
 		return base
 	var key := "%s/%d/%d/%d" % [type, team, helmet, armor]
 	if dressed.has(key):
@@ -122,6 +124,8 @@ func dressed_tex(type: String, team: int, helmet: int, armor: int) -> Texture2D:
 	var tex := base
 	if img != null:
 		dress_image(img, int(UNITS[type]["cell"]), helmet, armor)
+		if barded:
+			barding_image(img, int(UNITS[type]["cell"]), CAPARISON[team])
 		tex = ImageTexture.create_from_image(img)
 	dressed[key] = tex
 	return tex
@@ -211,6 +215,43 @@ static func dress_image(img: Image, cell: int, helmet: int, armor: int) -> void:
 						for m in metal:
 							if m.y == fy:
 								img.set_pixel(x0 + m.x, y0 + m.y, GOLD)
+
+
+## Couleurs des caparaçons (joueur, ennemi) et de leur galon.
+const CAPARISON: Array[Color] = [Color(0.2, 0.34, 0.8), Color(0.74, 0.14, 0.12)]
+const HEM := Color(0.92, 0.78, 0.36)
+## Rangées du cheval couvertes par le caparaçon dans une case de 32 (au-dessous : les jambes).
+const BARD_TOP := 14
+const BARD_BOTTOM := 22
+
+
+## Pixel de robe de cheval (brun ou fauve, assez saturé).
+static func is_horse(c: Color) -> bool:
+	return c.a > 0.5 and c.s > 0.3 and c.v > 0.2 and (c.h < 0.13 or c.h > 0.96)
+
+
+## Caparaçon des cavaliers lourds : la robe du cheval, de BARD_TOP à BARD_BOTTOM, repeinte à la
+## couleur du camp (ombres gardées), un galon doré sur la rangée du bas et une bande sur deux plus
+## sombre ; les jambes restent nues. Les archers montés n'en ont pas.
+static func barding_image(img: Image, cell: int, col: Color) -> void:
+	@warning_ignore("integer_division")
+	for cy in img.get_height() / cell:
+		@warning_ignore("integer_division")
+		for cx in img.get_width() / cell:
+			var x0 := cx * cell
+			var y0 := cy * cell
+			for y in range(BARD_TOP, mini(BARD_BOTTOM + 1, cell)):
+				for x in cell:
+					var c := img.get_pixel(x0 + x, y0 + y)
+					if not is_horse(c):
+						continue
+					var k := 0.5 + c.v * 0.6
+					var cc := col * k
+					if y == BARD_BOTTOM or (y == BARD_BOTTOM - 1 and not is_horse(img.get_pixel(x0 + x, y0 + y + 1))):
+						cc = HEM * k
+					elif int(x / 3.0) % 2 == 1:
+						cc = cc.darkened(0.15)
+					img.set_pixel(x0 + x, y0 + y, Color(cc, 1.0))
 
 
 ## Pointe de la lame (ou de l'arme) dans la case src d'une planche, pour l'éclat des bonnes armes :
