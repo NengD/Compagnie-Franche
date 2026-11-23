@@ -12,15 +12,37 @@ extends RefCounted
 const NAMES := ["Bertrand de Vaux", "Arnaud le Roux", "Guiraud Sans-Peur", "Thibaut de Montjoie",
 	"Raoul l'Écorcheur", "Enguerrand de Saulx", "Hugues Brise-Lance", "Jehan de Castelnau",
 	"Aymeric le Borgne", "Perrin de Lusse"]
-## Compétences : nom, description, niveau maximal.
-const SKILLS := {
-	"aura": {"name": "Aura", "text": "rayon de l'aura +25 %"},
-	"rally": {"name": "Ralliement", "text": "les fuyards proches se rallient (même deux fois)"},
-	"wages": {"name": "Solde réduite", "text": "solde de la compagnie -5 %"},
+## Arbre de compétences : trois voies (PATHS), quatre compétences chacune. Chaque compétence a
+## un nom, une description, un rang maximal (« max »), un coût en points par rang (« cost »), un
+## niveau de capitaine requis (« level ») et des prérequis (« req » : compétence -> rang minimal).
+## Les effets de bataille (Meneur, Tacticien) ne jouent que si le capitaine est sur le champ ;
+## ceux de l'Intendant jouent toujours.
+const PATHS := {
+	"leader": {"name": "Meneur", "text": "moral et ralliement"},
+	"tactician": {"name": "Tacticien", "text": "manœuvres, formations et déploiement"},
+	"steward": {"name": "Intendant", "text": "solde, vivres et prix"},
 }
-const SKILL_MAX := 3
+const PATH_ORDER := ["leader", "tactician", "steward"]
+const SKILLS := {
+	# Meneur
+	"aura": {"path": "leader", "name": "Aura", "text": "rayon de l'aura de moral +25 % par rang", "max": 3, "cost": 1, "level": 1, "req": {}},
+	"rally": {"path": "leader", "name": "Ralliement", "text": "dans l'aura, les fuyards se rallient (même deux fois), plus vite à chaque rang", "max": 3, "cost": 1, "level": 1, "req": {}},
+	"banner": {"path": "leader", "name": "Bannière haute", "text": "moral maximal des régiments +10 %", "max": 1, "cost": 2, "level": 4, "req": {"aura": 1, "rally": 1}},
+	"iron": {"path": "leader", "name": "Volonté de fer", "text": "la chute du capitaine ou d'un officier ébranle moitié moins", "max": 1, "cost": 2, "level": 6, "req": {"banner": 1}},
+	# Tacticien
+	"drill": {"path": "tactician", "name": "Manœuvres", "text": "vitesse des régiments +5 % par rang", "max": 2, "cost": 1, "level": 1, "req": {}},
+	"formations": {"path": "tactician", "name": "Formations serrées", "text": "en colonne et en carré, les régiments marchent 25 % plus vite", "max": 1, "cost": 1, "level": 2, "req": {"drill": 1}},
+	"scouting": {"path": "tactician", "name": "Reconnaissance", "text": "zone de déploiement plus profonde de 150 pas vers l'ennemi", "max": 1, "cost": 2, "level": 4, "req": {"formations": 1}},
+	"eye": {"path": "tactician", "name": "Coup d'œil", "text": "dégâts en mêlée +8 %", "max": 1, "cost": 2, "level": 6, "req": {"scouting": 1}},
+	# Intendant
+	"wages": {"path": "steward", "name": "Solde réduite", "text": "solde de la compagnie -5 % par rang", "max": 3, "cost": 1, "level": 1, "req": {}},
+	"thrift": {"path": "steward", "name": "Économe", "text": "la compagnie mange 10 % de vivres en moins par rang", "max": 2, "cost": 1, "level": 2, "req": {"wages": 1}},
+	"haggle": {"path": "steward", "name": "Marchandeur", "text": "recrues, équipement et vivres 10 % moins chers", "max": 1, "cost": 2, "level": 4, "req": {"thrift": 1}},
+	"plunder": {"path": "steward", "name": "Pillard avisé", "text": "butin des batailles +20 %", "max": 1, "cost": 2, "level": 6, "req": {"haggle": 1}},
+}
+const SKILL_MAX := 3 ## Rang maximal le plus haut de l'arbre
 const LEVEL_XP := 100.0 ## Expérience pour chaque niveau
-const MAX_LEVEL := 1 + SKILL_MAX * 3 ## Assez de niveaux pour tout apprendre
+const MAX_LEVEL := 10 ## Neuf points en tout : pas assez pour tout l'arbre, il faut choisir sa voie
 const XP_BATTLE := 30.0
 const XP_VICTORY := 30.0
 const WOUND_DAYS := 5 ## Jours d'indisponibilité après être tombé
@@ -29,6 +51,15 @@ const AURA_STEP := 0.25 ## Rayon en plus par niveau d'aura
 const AURA_REGEN := 1.0 ## Moral rendu par seconde dans l'aura (même en mêlée)
 const RALLY_REGEN := 3.0 ## Moral rendu par seconde aux fuyards, par niveau de ralliement
 const WAGE_STEP := 0.05
+const BANNER_MORALE := 0.1
+const IRON_FACTOR := 0.5
+const DRILL_SPEED := 0.05
+const FORMATION_SPEED := 1.25
+const SCOUTING_DEPTH := 150.0
+const EYE_DAMAGE := 0.08
+const THRIFT_STEP := 0.1
+const HAGGLE_PRICE := 0.9
+const PLUNDER_LOOT := 1.2
 const DEATH_MORALE := 40.0 ## Moral perdu par chaque régiment quand le capitaine tombe
 const MAX_HP := 120.0
 const SPEED := 80.0
@@ -40,7 +71,7 @@ var name := "Le capitaine"
 var level := 1
 var xp := 0.0
 var points := 0
-var skills := {"aura": 0, "rally": 0, "wages": 0}
+var skills := Captain.empty_skills()
 var wounded_until := 0 ## Jour à partir duquel il est de nouveau disponible
 
 # ---------------------------------------------------------------- Bataille
@@ -76,7 +107,7 @@ static func from_dict(d: Variant, seed_value: int) -> Captain:
 	var sk: Variant = d.get("skills", {})
 	if sk is Dictionary:
 		for k in c.skills:
-			c.skills[k] = clampi(int(sk.get(k, 0)), 0, SKILL_MAX)
+			c.skills[k] = clampi(int(sk.get(k, 0)), 0, int(SKILLS[k]["max"])) # Version 13 et avant : trois compétences
 	c.wounded_until = maxi(0, int(d.get("wounded_until", 0)))
 	return c
 
@@ -94,17 +125,107 @@ func wage_factor() -> float:
 	return 1.0 - WAGE_STEP * int(skills["wages"])
 
 
-## Apprend une compétence (un point). Renvoie un message d'erreur ou "".
-func learn(skill: String) -> String:
-	if not skills.has(skill):
+static func empty_skills() -> Dictionary:
+	var d := {}
+	for k in SKILLS:
+		d[k] = 0
+	return d
+
+
+func rank(skill: String) -> int:
+	return int(skills.get(skill, 0))
+
+
+## Pourquoi on ne peut pas prendre un rang de plus de cette compétence ("" : possible).
+func refusal(skill: String) -> String:
+	if not SKILLS.has(skill):
 		return "Compétence inconnue."
-	if points <= 0:
-		return "Aucun point de compétence."
-	if int(skills[skill]) >= SKILL_MAX:
-		return "%s est déjà au maximum." % SKILLS[skill]["name"]
-	points -= 1
-	skills[skill] = int(skills[skill]) + 1
+	var info: Dictionary = SKILLS[skill]
+	if rank(skill) >= int(info["max"]):
+		return "%s est déjà au maximum." % info["name"]
+	if level < int(info["level"]):
+		return "%s demande un capitaine de niveau %d." % [info["name"], int(info["level"])]
+	for k in info["req"]:
+		if rank(k) < int(info["req"][k]):
+			return "%s demande d'abord %s." % [info["name"], SKILLS[k]["name"]]
+	if points < int(info["cost"]):
+		return "Aucun point de compétence." if points <= 0 else "Pas assez de points (%d)." % int(info["cost"])
 	return ""
+
+
+## Apprend un rang d'une compétence (son coût en points). Renvoie un message d'erreur ou "".
+func learn(skill: String) -> String:
+	var why := refusal(skill)
+	if why != "":
+		return why
+	points -= int(SKILLS[skill]["cost"])
+	skills[skill] = rank(skill) + 1
+	return ""
+
+
+## Points dépensés dans une voie.
+func spent(path: String) -> int:
+	var n := 0
+	for k in SKILLS:
+		if str(SKILLS[k]["path"]) == path:
+			n += rank(k) * int(SKILLS[k]["cost"])
+	return n
+
+
+# ---------------------------------------------------------------- Effets de l'arbre
+
+func morale_factor() -> float:
+	return 1.0 + BANNER_MORALE * rank("banner")
+
+
+## Moral perdu quand le capitaine ou un officier tombe (multiplicateur).
+func fall_factor() -> float:
+	return IRON_FACTOR if rank("iron") > 0 else 1.0
+
+
+func speed_factor() -> float:
+	return 1.0 + DRILL_SPEED * rank("drill")
+
+
+func formation_factor() -> float:
+	return FORMATION_SPEED if rank("formations") > 0 else 1.0
+
+
+func deploy_depth() -> float:
+	return SCOUTING_DEPTH * rank("scouting")
+
+
+func melee_factor() -> float:
+	return 1.0 + EYE_DAMAGE * rank("eye")
+
+
+## Multiplicateur des vivres mangés chaque jour.
+func food_factor() -> float:
+	return 1.0 - THRIFT_STEP * rank("thrift")
+
+
+## Multiplicateur des prix (recrues, équipement, vivres).
+func price_factor() -> float:
+	return HAGGLE_PRICE if rank("haggle") > 0 else 1.0
+
+
+func loot_factor() -> float:
+	return PLUNDER_LOOT if rank("plunder") > 0 else 1.0
+
+
+## Effets de bataille du Meneur et du Tacticien sur les régiments du joueur (capitaine présent).
+func apply_tree(sim: BattleSim) -> void:
+	sim.deploy_bonus = deploy_depth()
+	var mk := morale_factor()
+	for r in sim.player_regiments():
+		if r.allied:
+			continue
+		r.stats = r.stats.duplicate()
+		r.stats["speed"] = float(r.stats["speed"]) * speed_factor()
+		r.stats["damage"] = float(r.stats["damage"]) * melee_factor()
+		r.drill_mult = formation_factor()
+		r.max_morale *= mk
+		r.morale = minf(r.morale * mk, r.max_morale)
 
 
 ## Après une bataille de campagne : expérience, niveaux, blessure. Renvoie une phrase pour le compte rendu.
@@ -157,6 +278,7 @@ func take_field(sim: BattleSim) -> void:
 	escort = best
 	if escort != null:
 		pos = follow_point()
+	apply_tree(sim)
 
 
 ## Quitte le champ de bataille (fin de scène) : plus de référence aux régiments.
@@ -233,7 +355,7 @@ func die(sim: BattleSim) -> void:
 	escort = null
 	for r in sim.regiments:
 		if r.team == BattleSim.PLAYER and not r.is_dead() and not r.routing:
-			r.morale -= DEATH_MORALE
+			r.morale -= DEATH_MORALE * fall_factor()
 	sim.message("%s est tombé ! La compagnie vacille." % name)
 	sim.cries_played.emit(pos, 6)
 

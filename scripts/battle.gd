@@ -116,6 +116,7 @@ func _ready() -> void:
 	sim.objective.setup(sim) # Zone, convoi, garnison ou bande en fuite
 	Captain.enter_battle(self) # Capitaine sur le champ (ni au tutoriel, ni blessé)
 	Supplies.enter_battle(self) # Campagne : fatigue, faim, prisonniers enrôlés, sergent
+	Officers.enter_battle(self) # Compagnons à la tête des régiments (officers.gd)
 	if campaign != null:
 		# La météo du jour et du lieu s'impose à la bataille (WorldSim.battle_weather, battle_weather.gd)
 		BattleWeather.apply(sim, campaign.world.battle_weather(campaign.day, sim.terrain.kind, int(campaign.pending.get("town", -1))))

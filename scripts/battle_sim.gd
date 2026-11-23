@@ -69,6 +69,7 @@ var retreat_caught := 0 ## Hommes au contact rattrapés pendant la retraite
 var captain: Captain = null ## Capitaine du joueur sur le champ (voir captain.gd), null sans capitaine
 var commander: EnemyCommander = null ## Chef ennemi sous son étendard (voir enemy_commander.gd), null sans chef
 var traps: BattleTraps = null ## Pièges posés au déploiement (voir battle_traps.gd), null sans pièges
+var deploy_bonus := 0.0 ## Profondeur en plus de la zone de déploiement (capitaine tacticien)
 var objective: BattleObjectives.Objective = BattleObjectives.create("destroy") ## Condition de victoire (battle_objectives.gd)
 
 
@@ -168,7 +169,7 @@ func deploy_top() -> float:
 		return minf(DEPLOY_Y, Terrain.WALL_Y + 40.0)
 	if siege != null:
 		return siege.deploy_top(DEPLOY_Y)
-	return DEPLOY_Y
+	return DEPLOY_Y - deploy_bonus
 
 
 # ---------------------------------------------------------------- Armées
@@ -411,6 +412,7 @@ func step(dt: float) -> void:
 		commander.step(self, dt)
 	if traps != null and state == State.BATTLE:
 		traps.step(self, dt) # Pieux, fossé, chausse-trapes
+	Officers.step(self) # Officiers des régiments : risquent de tomber quand leurs hommes tombent
 	if siege != null:
 		siege.step(self, dt) # Échelles, bélier, tours, place de la ville
 	update_arrows(dt)
@@ -838,6 +840,8 @@ func update_soldier(s: Soldier, dt: float) -> void:
 	s.moving = false
 
 	var speed: float = r.stats["speed"] * UnitTypes.FORMATION_SPEED[r.formation] * r.speed_mult
+	if r.formation != Regiment.Formation.LINE:
+		speed *= r.drill_mult # Capitaine tacticien : formations serrées
 	speed *= UnitTypes.fatigue_factor(r.stamina, UnitTypes.EXHAUSTED_SPEED)
 	if r.running:
 		speed *= UnitTypes.RUN_SPEED

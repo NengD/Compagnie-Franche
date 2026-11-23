@@ -59,6 +59,10 @@ var kills := 0 ## Ennemis tués pendant la bataille (mêlée et flèches)
 var morale_mult := 1.0 ## Difficulté : multiplicateur du moral maximal (régiments ennemis)
 var damage_mult := 1.0 ## Difficulté : multiplicateur des dégâts (régiments ennemis)
 var gear: Array = [] ## Équipement porté (identifiants d'Equipment.ITEMS) : se voit sur les soldats (battle_renderer.gd)
+var drill_mult := 1.0 ## Vitesse en colonne et en carré (capitaine tacticien, voir captain.gd)
+var officer: Dictionary = {} ## Compagnon officier à la tête du régiment (voir officers.gd), vide sinon
+var officer_fate := "" ## L'officier est tombé pendant la bataille : "dead" ou "wounded"
+var officer_seen := 0 ## Hommes debout au dernier contrôle de l'officier
 var speed_mult := 1.0 ## Objectif : multiplicateur de vitesse (bande chargée de butin, voir battle_objectives.gd)
 
 

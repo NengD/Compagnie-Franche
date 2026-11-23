@@ -81,7 +81,7 @@ static func cost(state: CampaignState, index: int, id: String) -> int:
 	var old := worn(entry, str(ITEMS[id]["slot"]))
 	if old != "" and old != id:
 		price -= full_price(type, old, state.location)
-	return maxi(price, 0)
+	return maxi(roundi(price * state.captain.price_factor()), 0) # Capitaine : marchandeur
 
 
 ## Pourquoi le régiment index ne peut pas prendre la pièce id ("" : il le peut, or mis à part).

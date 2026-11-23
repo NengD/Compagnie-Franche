@@ -1023,8 +1023,11 @@ func refresh_ui() -> void:
 				add_label("Rien à signaler pour l'instant.", 12, DIM_COL)
 			for s in state.log_lines:
 				add_label(s, 12, Color(0.8, 0.77, 0.7))
+			Chronicle.build_journal(self) # Récit de la campagne (chronicle.gd)
 		"quests":
 			RealmPanel.build_quests(self)
+		"captain":
+			CompanyPanel.build_tree(self) # Arbre de compétences du capitaine
 		"menu":
 			build_menu()
 	scroll.scroll_vertical = 0

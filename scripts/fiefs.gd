@@ -179,6 +179,7 @@ func grant(c: CampaignState, i: int, from: int) -> void:
 	owners[str(i)] = PLAYER
 	held.append({"place": i, "garrison": [], "since": c.day, "from": from, "siege": {}})
 	c.fame += FIEF_FAME
+	Chronicle.note(c, "fief", {"place": "le château de %s" % place_name(i), "bought": from < 0})
 
 
 ## Le fief tombe aux mains de la faction f.
@@ -188,6 +189,7 @@ func lose(c: CampaignState, e: Dictionary, f: int) -> void:
 	owners[str(i)] = f
 	if f == int(MapData.place(i).get("faction", -1)):
 		owners.erase(str(i))
+	Chronicle.note(c, "fief_lost", {"place": "le château de %s" % place_name(i)})
 	c.add_log("Jour %d : %s prend votre château de %s ; la garnison est passée au fil de l'épée." % [c.day, CampaignState.cap_first(str(CampaignState.FACTIONS[f]["short"])), place_name(i)])
 
 

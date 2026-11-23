@@ -381,10 +381,12 @@ func _test_map() -> void:
 	var armor: Button = null
 	for b in m.find_children("*", "Button", true, false):
 		var t := (b as Button).text
-		if t.begins_with("Ralliement") and learn == null:
-			learn = b
 		if t.begins_with("Armure I ") and armor == null:
 			armor = b
+	m.toggle_view("captain") # Fenêtre de l'arbre de compétences
+	for b in m.find_children("*", "Button", true, false):
+		if b.has_meta("skill") and str(b.get_meta("skill")) == "rally" and not b.is_queued_for_deletion():
+			learn = b
 	check(learn != null and armor != null and "écus" in armor.text, "panneau : boutons du capitaine ou de l'équipement absents")
 	if learn != null and armor != null:
 		armor.pressed.emit()

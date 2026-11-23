@@ -263,6 +263,7 @@ func _draw() -> void:
 		sim.captain.draw(self, sim.state == BattleSim.State.DEPLOY)
 	if sim.commander != null and sim.commander.guard != null:
 		sim.commander.draw(self, flag_color(sim.commander.guard))
+	Officers.draw(self, sim) # Officiers à la tête de leurs régiments
 
 	for r in sim.regiments:
 		if r.is_dead() or (r.team == ENEMY and sim.unseen(r)) or field.routed.has(r):

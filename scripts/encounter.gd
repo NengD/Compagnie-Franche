@@ -240,7 +240,7 @@ static func toll(other: Party) -> int:
 ## Prix et rations des vivres vendus en chemin : FOOD_DAYS jours pour l'effectif (supplies.gd),
 ## un peu moins cher qu'en ville.
 static func food_price(state: CampaignState) -> int:
-	return maxi(1, ceili(food_cover(state) * Supplies.RATION_PRICE * FOOD_PRICE * Companions.food_factor(state)))
+	return maxi(1, ceili(food_cover(state) * Supplies.RATION_PRICE * FOOD_PRICE * Companions.food_factor(state) * state.captain.price_factor()))
 
 
 static func food_cover(state: CampaignState) -> float:

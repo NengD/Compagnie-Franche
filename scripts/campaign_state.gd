@@ -143,6 +143,7 @@ var overworld := Overworld.new() ## Carte en temps réel : heure, compagnie et g
 var supplies := Supplies.new() ## Vivres, fatigue, repos et blessés (voir supplies.gd)
 var prisoners := Prisoners.new() ## Prisonniers (voir prisoners.gd)
 var companions := Companions.new() ## Compagnons : sergent, chirurgien, éclaireur, quartier-maître (voir companions.gd)
+var chronicle := Chronicle.new() ## Faits marquants de la campagne, pour le récit de fin (voir chronicle.gd)
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
@@ -239,7 +240,7 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Les versions 1 (sans expérience, réputation ni renommée) à 12 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 13
+const SAVE_VERSION := 14 ## 14 : officiers des régiments, arbre du capitaine, chronique
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -305,6 +306,7 @@ func to_dict() -> Dictionary:
 		"overworld": overworld.to_dict(),
 		"encounters": encounters_to_dict(), # Rencontres de la carte (bloc en fin de fichier)
 		"supplies": supplies.to_dict(), "prisoners": prisoners.to_dict(), "companions": companions.to_dict(),
+		"chronicle": chronicle.to_dict(),
 		"realm": realm_to_dict(), # Domaine : fiefs, commerce, diplomatie, quêtes (bloc en fin de fichier)
 	}
 	# Bataille en cours (B3) : un contrat de la liste (par son rang) ou une embuscade (en entier).
@@ -428,6 +430,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 			var entry := {"type": type, "men": men, "xp": clampf(float(r.get("xp", 0.0)), 0.0, XP_MAX)}
 			Traits.read_entry(entry, r) # Version 6 : traits et équipement
 			Prisoners.read_entry(entry, r) # Version 12 : rancœur des prisonniers enrôlés
+			Officers.read_entry(entry, r) # Version 14 : officier du régiment
 			for key in ["battles", "kills"]: # Statistiques du régiment (absentes avant sa première bataille)
 				if r.has(key):
 					entry[key] = maxi(0, int(r[key]))
@@ -474,6 +477,8 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	# Avant la version 12 : dix jours de vivres, ni prisonniers ni compagnons
 	c.prisoners = Prisoners.from_dict(d.get("prisoners", []))
 	c.companions = Companions.from_dict(d.get("companions", []))
+	Officers.sanitize(c) # Officiers sans compagnon : relevés
+	c.chronicle = Chronicle.from_dict(d.get("chronicle", [])) # Version 13 et avant : chronique vide
 	c.supplies = Supplies.from_dict(d.get("supplies", {}), c)
 	c.realm_from_dict(d.get("realm", {})) # Domaine (bloc en fin de fichier)
 	if c.ended == "":
@@ -812,7 +817,7 @@ static func rank_name(k: int) -> String:
 func recruit_cost(type: String, men: int, town := -1) -> int:
 	if town < 0:
 		town = location
-	return int(ceil(int(RECRUIT_COST[type]) * men * float(TOWNS[town]["price"]) * Difficulty.value(difficulty, "recruit")))
+	return int(ceil(int(RECRUIT_COST[type]) * men * float(TOWNS[town]["price"]) * Difficulty.value(difficulty, "recruit") * captain.price_factor()))
 
 
 static func type_name(type: String) -> String:
@@ -1628,6 +1633,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 			"kills": k, "xp_before": xp0, "xp_after": float(r["xp"]), "rank_before": rank0, "rank_after": rank_of(r),
 			"promoted": after > 0 and rank_of(r) > rank0})
 		out["regiments"][-1].merge({"battles": r["battles"], "kills_total": r["kills"]})
+	var fallen := Officers.lost_regiments(army) # Officiers des régiments anéantis
 	company = company.filter(func(r): return int(r["men"]) > 0)
 	men_lost += lost
 	enemies_killed += killed
@@ -1638,7 +1644,7 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	if victory:
 		victories += 1
 		var reward := contract_reward(pending)
-		var loot := share_loot(killed, company_men, allies, out) + Traits.extra_loot(army, kills)
+		var loot := roundi((share_loot(killed, company_men, allies, out) + Traits.extra_loot(army, kills)) * captain.loot_factor()) # Capitaine : pillard avisé
 		var extra := objective_bonus(pending, objective, reward)
 		out["reward"] = reward
 		out["loot"] = loot
@@ -1692,6 +1698,8 @@ func finish_battle(victory: bool, survivors: Array, kills: Array = [], retreat :
 	report += rep_note
 	if not promoted.is_empty():
 		report += " Promotions : %s." % ", ".join(promoted)
+	Chronicle.note_battle(self, victory, retreat, lost, killed) # Avant que le capitaine ne se relève
+	report += Officers.after_battle(self, fallen) # Officiers tués ou blessés
 	report += captain.after_battle(self, victory)
 	report += EnemyCommander.campaign_reward(self, out, victory) # Tête du chef ennemi
 	report += Supplies.after_battle(self, victory, out) + Prisoners.after_battle(self, victory, out) + companions.after_battle(self, victory)
