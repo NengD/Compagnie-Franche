@@ -86,6 +86,8 @@ func summary_rows() -> Array:
 		["Régiments vétérans / aguerris", "%d / %d" % [vets, seasoned]],
 		["Régiment le plus ancien", Achievements.regiment_text(Achievements.company_best(s.company, "battles"))],
 		["Régiment le plus décoré", Achievements.regiment_text(Achievements.company_best(s.company, "kills"))],
+		["Difficulté", Difficulty.display_name(s.difficulty)],
+		["Défis", Challenges.names(s.challenges) if not s.challenges.is_empty() else "aucun"],
 	]
 
 
@@ -177,7 +179,8 @@ func to_menu() -> void:
 func new_campaign() -> void:
 	var level := CampaignState.current.difficulty if CampaignState.current != null else Difficulty.NORMAL
 	var lenient := CampaignState.current.lenient if CampaignState.current != null else false
-	CampaignState.current = CampaignState.new_game(0, level, lenient, true) # Mêmes réglages qu'avant
+	var defis: Array = CampaignState.current.challenges if CampaignState.current != null else []
+	CampaignState.current = CampaignState.new_game(0, level, lenient, true, defis) # Mêmes réglages qu'avant
 	CampaignState.current.save()
 	go(CAMPAIGN_SCENE)
 

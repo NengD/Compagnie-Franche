@@ -81,6 +81,9 @@ var rng := RandomNumberGenerator.new()
 ## Temps réel (overworld.gd) : les armées avancent à chaque instant (tick) et plus d'un bond par
 ## jour dans advance. Non sauvegardé : la carte en temps réel le remet en marche.
 var realtime := false
+## Défi « Hiver éternel » (challenges.gd) : la saison reste l'hiver. Non sauvegardé ici : la
+## campagne le remet d'après ses défis (CampaignState.new_game, from_dict).
+var eternal_winter := false
 
 
 func _init() -> void:
@@ -91,8 +94,9 @@ func _init() -> void:
 
 
 ## Monde neuf d'une campagne (en paix, une patrouille par faction).
-static func create(seed_value: int) -> WorldSim:
+static func create(seed_value: int, winter_forever := false) -> WorldSim:
 	var w := WorldSim.new()
+	w.eternal_winter = winter_forever
 	w.rng.seed = hash(str(seed_value) + "monde")
 	w.roll_weather(1)
 	for f in CampaignState.FACTIONS.size():
@@ -116,13 +120,24 @@ static func season_day(day: int) -> int:
 	return (maxi(day, 1) - 1) % SEASON_DAYS + 1
 
 
+## Saison de cette campagne au jour day : toujours l'hiver avec le défi « Hiver éternel ».
+## Les règles du monde passent par elle (season_of ne connaît que le calendrier).
+func season(day: int) -> int:
+	return WINTER if eternal_winter else season_of(day)
+
+
+## Vitesse de marche de cette campagne au jour day (défi « Hiver éternel » compris).
+func march_speed(day: int) -> float:
+	return float(MARCH_FACTOR[season(day)])
+
+
 ## Vitesse de marche de la saison (1 hors de l'hiver).
 static func march_factor(day: int) -> float:
 	return float(MARCH_FACTOR[season_of(day)])
 
 
 func roll_weather(day: int) -> void:
-	raining = rng.randf() < float(RAIN_CHANCE[season_of(day)])
+	raining = rng.randf() < float(RAIN_CHANCE[season(day)])
 
 
 ## Tirage de météo du jour (0 à 1) pour what : déduit de la graine, sans toucher au générateur du
@@ -135,7 +150,7 @@ func weather_roll(day: int, what: String) -> float:
 
 ## Brouillard du jour sur tout le pays (jamais sous la pluie).
 func fog_today(day: int) -> bool:
-	return not raining and weather_roll(day, "brume") < float(FOG_CHANCE[season_of(day)])
+	return not raining and weather_roll(day, "brume") < float(FOG_CHANCE[season(day)])
 
 
 ## Vent du jour : 0 par temps calme, sinon de 0,6 à 1, signé (> 0 : vers le sud).
@@ -160,7 +175,7 @@ func weather_text(day: int) -> String:
 	var t: String
 	if fog_today(day):
 		t = "brouillard"
-	elif season_of(day) == WINTER:
+	elif season(day) == WINTER:
 		t = "pluie glacée" if raining else "froid sec"
 	else:
 		t = "pluie" if raining else "temps clair"
@@ -171,6 +186,8 @@ func weather_text(day: int) -> String:
 
 ## « Automne, jour 12 : pluie ».
 func calendar_text(day: int) -> String:
+	if eternal_winter:
+		return "Hiver éternel, jour %d : %s" % [day, weather_text(day)]
 	return "%s, jour %d : %s" % [CampaignState.cap_first(season_name(day)), season_day(day), weather_text(day)]
 
 
@@ -178,7 +195,7 @@ func calendar_text(day: int) -> String:
 
 func advance(c: CampaignState) -> void:
 	aftermath.clear()
-	if season_day(c.day) == 1:
+	if season_day(c.day) == 1 and not eternal_winter:
 		post(c, season_intro(c.day), true)
 	roll_weather(c.day)
 	update_wars(c)
@@ -481,12 +498,12 @@ func add_army(f: int, from: int, to: int, men: int, mode: String) -> WorldArmy:
 
 
 func move_armies(c: CampaignState) -> void:
-	var season := season_of(c.day)
-	var speed := ARMY_SPEED * float(MARCH_FACTOR[season])
+	var s := season(c.day)
+	var speed := ARMY_SPEED * float(MARCH_FACTOR[s])
 	for a in armies.duplicate():
 		if a.force <= 0:
 			continue
-		a.force -= maxi(1, int(round(a.force * float(ATTRITION[season]))))
+		a.force -= maxi(1, int(round(a.force * float(ATTRITION[s]))))
 		if a.mode == "siege":
 			siege_day(c, a)
 			continue
@@ -503,13 +520,13 @@ func move_armies(c: CampaignState) -> void:
 ## route ou terrain, saison). Appelé par Overworld.tick ; la vie quotidienne reste dans advance.
 func tick(c: CampaignState, hours: float) -> void:
 	realtime = true
-	var season := float(MARCH_FACTOR[season_of(c.day)])
+	var season_k := float(MARCH_FACTOR[season(c.day)])
 	for a in armies.duplicate():
 		if a.force <= 0 or a.mode == "siege" or a.route.is_empty():
 			if a.force > 0 and a.mode != "siege" and a.route.is_empty():
 				arrive(c, a)
 			continue
-		var speed: float = a.base_speed() * MapData.speed_at(a.pos) * season
+		var speed: float = a.base_speed() * MapData.speed_at(a.pos) * season_k
 		if a.step(speed * hours):
 			arrive(c, a)
 	armies = armies.filter(func(a: WorldArmy) -> bool: return a.force > 0)
@@ -698,7 +715,7 @@ func on_march_day(c: CampaignState, from: int, to: int, k: float) -> void:
 
 ## Un jour de marche en hiver : le froid emporte parfois des hommes.
 func cold_day(c: CampaignState) -> void:
-	if season_of(c.day) == WINTER and not c.company.is_empty() and rng.randf() < COLD_CHANCE:
+	if season(c.day) == WINTER and not c.company.is_empty() and rng.randf() < COLD_CHANCE:
 		var lost := 0
 		for r in c.company:
 			var n := int(round(int(r["men"]) * COLD_RATE))

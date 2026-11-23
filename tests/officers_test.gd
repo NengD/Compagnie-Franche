@@ -347,7 +347,7 @@ func _test_save() -> void:
 	c.captain.skills["wages"] = 1
 	Chronicle.note(c, "fief", {"place": "le château de Test", "bought": true})
 	var d := JSON.parse_string(JSON.stringify(c.to_dict())) as Dictionary
-	check(int(d["version"]) == 14 or int(d["version"]) == CampaignState.SAVE_VERSION, "version de sauvegarde")
+	check(int(d["version"]) == CampaignState.SAVE_VERSION and CampaignState.SAVE_VERSION >= 14, "version de sauvegarde")
 	var b := CampaignState.from_dict(d)
 	check(b != null, "sauvegarde illisible")
 	if b == null:

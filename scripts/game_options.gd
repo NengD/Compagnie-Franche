@@ -84,6 +84,8 @@ static var show_cards := true ## Cartes des régiments affichées en bataille (T
 static var show_minimap := true ## Mini-carte de bataille affichée (N) ; mémorisée aussi
 static var team_shapes := false ## Accessibilité : formes et motifs en plus du bleu et du rouge
 static var subtitles := false ## Accessibilité : sous-titres des évènements sonores importants
+## Dernier réglage de l'escarmouche personnalisée (skirmish_setup.gd), vide : réglage par défaut
+static var skirmish: Dictionary = {}
 
 
 ## Charge et applique les options une seule fois par lancement.
@@ -108,6 +110,7 @@ static func reset_all() -> void:
 	team_shapes = false
 	subtitles = false
 	effects = "full"
+	skirmish = {}
 	reset_keys()
 
 
@@ -142,6 +145,9 @@ static func load_options() -> void:
 	subtitles = bool(cfg.get_value("accessibilite", "sous_titres", subtitles))
 	var fx := str(cfg.get_value("affichage", "effets", effects))
 	effects = fx if fx in EFFECTS else "full"
+	var sk_text := str(cfg.get_value("escarmouche", "reglage", ""))
+	var sk: Variant = JSON.parse_string(sk_text) if sk_text.begins_with("{") else null
+	skirmish = SkirmishSetup.sanitize(sk) if sk is Dictionary else {}
 	for a in ACTIONS:
 		var id: String = a["id"]
 		binds[id] = int(cfg.get_value("touches", id, binds[id]))
@@ -168,6 +174,8 @@ static func save_options() -> bool:
 	cfg.set_value("interface", "minicarte", show_minimap)
 	cfg.set_value("accessibilite", "formes_camps", team_shapes)
 	cfg.set_value("accessibilite", "sous_titres", subtitles)
+	if not skirmish.is_empty():
+		cfg.set_value("escarmouche", "reglage", JSON.stringify(skirmish))
 	for id in binds:
 		cfg.set_value("touches", id, binds[id])
 	for id in camera_binds:

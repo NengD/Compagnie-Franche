@@ -215,6 +215,8 @@ func levy(c: CampaignState, i: int, type: String) -> String:
 		return "Il faut être au château."
 	if not type in levy_types(c, i):
 		return "On ne lève pas ce type de troupe ici."
+	if Challenges.forbids_type(c.challenges, type):
+		return Challenges.NO_CAVALRY_REFUSAL
 	if c.company.size() >= CampaignState.MAX_REGIMENTS:
 		return "La compagnie compte déjà %d régiments." % CampaignState.MAX_REGIMENTS
 	var men := int(UnitTypes.STATS[type]["count"])

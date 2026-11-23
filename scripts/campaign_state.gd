@@ -144,29 +144,34 @@ var supplies := Supplies.new() ## Vivres, fatigue, repos et blessés (voir suppl
 var prisoners := Prisoners.new() ## Prisonniers (voir prisoners.gd)
 var companions := Companions.new() ## Compagnons : sergent, chirurgien, éclaireur, quartier-maître (voir companions.gd)
 var chronicle := Chronicle.new() ## Faits marquants de la campagne, pour le récit de fin (voir chronicle.gd)
+var challenges: Array[String] = [] ## Défis cochés à la création (voir challenges.gd)
 
 
 ## Nouvelle partie : une petite compagnie à Valombre.
 ## lenient_mode : mode indulgent (la bataille en cours n'est pas sauvegardée, voir « lenient »).
 ## empty : la compagnie part sans un homme, avec de quoi lever ses premiers régiments
 ## (START_GOLD + le prix de START_COMPANY) ; sinon elle part avec START_COMPANY (tests, bancs).
-static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode := false, empty := false) -> CampaignState:
+## challenge_list : défis (identifiants de Challenges.IDS) ; « Homme de fer » interdit le mode indulgent.
+static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode := false, empty := false, challenge_list: Array = []) -> CampaignState:
 	var c := CampaignState.new()
 	c.difficulty = Difficulty.sanitize(level)
-	c.lenient = lenient_mode
+	c.challenges = Challenges.sanitize(challenge_list)
+	c.lenient = lenient_mode and not c.has_challenge(Challenges.IRONMAN)
 	if seed_value != 0:
 		c.rng.seed = seed_value
 	else:
 		c.rng.randomize()
 	c.captain = Captain.recruit(c.rng.seed)
 	c.arms = Heraldry.random(c.rng.seed) # Générateur à part : le hasard de la campagne est intact
-	c.world = WorldSim.create(c.rng.seed)
+	c.world = WorldSim.create(c.rng.seed, c.has_challenge(Challenges.ETERNAL_WINTER))
 	Supplies.start(c) # Vivres de départ
 	if empty:
 		c.gold = float(START_GOLD + c.start_company_value())
 	else:
 		for t in START_COMPANY:
 			c.company.append({"type": t, "men": int(UnitTypes.STATS[t]["count"]), "xp": 0.0})
+	if c.has_challenge(Challenges.POOR_START):
+		c.gold = float(int(c.gold * Challenges.START_GOLD_FACTOR / 10.0) * 10)
 	for i in TOWNS.size():
 		c.refresh_contracts(i)
 	c.overworld = Overworld.create(c)
@@ -176,7 +181,14 @@ static func new_game(seed_value := 0, level := Difficulty.NORMAL, lenient_mode :
 	else:
 		c.add_log("Jour 1 : la compagnie se forme à %s (difficulté : %s). Trouvez un contrat !" % [TOWNS[0]["name"], Difficulty.display_name(c.difficulty).to_lower()])
 	c.add_log("Objectif : %s" % objective_text())
+	if not c.challenges.is_empty():
+		c.add_log("Défis : %s." % Challenges.names(c.challenges))
 	return c
+
+
+## Vrai si le défi id (Challenges.IDS) a été coché à la création de la campagne.
+func has_challenge(id: String) -> bool:
+	return id in challenges
 
 
 ## Prix des régiments de START_COMPANY à la ville de départ : l'or d'une compagnie qui part
@@ -225,6 +237,8 @@ static var slot_prefix := ""
 static var slot := 1 ## Emplacement utilisé par la campagne en cours
 static var save_path := "user://campagne_1.json" ## Fichier de l'emplacement en cours (les tests en changent)
 static var loaded_from_backup := false ## Vrai si le dernier chargement a dû relire le .bak
+## Version 15 : défis de campagne (« challenges », liste d'identifiants ; absente avant : aucun).
+## Version 14 : officiers des régiments, arbre du capitaine, chronique.
 ## Version 13 : domaine (fiefs, commerce, diplomatie, quêtes ; bloc « realm », absent avant : rien).
 ## Version 12 : vivres, fatigue, blessés, prisonniers et compagnons (dix jours de vivres si absents).
 ## Version 11 : champ de bataille tiré de la carte (« site » du contrat en cours, voir battle_site.gd)
@@ -237,10 +251,10 @@ static var loaded_from_backup := false ## Vrai si le dernier chargement a dû re
 ## Version 6 : capitaine, traits et équipement des régiments.
 ## Version 5 : emplacements, mode indulgent, contrat ou embuscade en cours (« pending »).
 ## Version 4 : difficulté. Version 3 : fin de campagne, bilan, niveaux de contrat 4-5 et contrat final.
-## Les versions 1 (sans expérience, réputation ni renommée) à 12 restent lisibles
+## Les versions 1 (sans expérience, réputation ni renommée) à 14 restent lisibles
 ## (difficulté : normal, mode indulgent désactivé, aucune bataille en cours, capitaine neuf,
 ## monde neuf et en paix, contrats « détruire l'ennemi », compagnie dans sa ville au matin).
-const SAVE_VERSION := 14 ## 14 : officiers des régiments, arbre du capitaine, chronique
+const SAVE_VERSION := 15
 
 ## Mode indulgent : la bataille en cours n'est pas sauvegardée. Fermer le jeu pendant un contrat
 ## revient à l'état d'avant la bataille, et une embuscade interrompue est oubliée.
@@ -291,6 +305,7 @@ func to_dict() -> Dictionary:
 		"version": SAVE_VERSION,
 		"difficulty": difficulty,
 		"lenient": lenient,
+		"challenges": Array(challenges),
 		"day": day, "gold": gold, "location": location,
 		"victories": victories, "defeats": defeats,
 		"fame": fame, "reputation": reputation.duplicate(),
@@ -405,7 +420,8 @@ static func from_dict(d: Dictionary) -> CampaignState:
 		return null
 	var c := CampaignState.new()
 	c.difficulty = Difficulty.sanitize(str(d.get("difficulty", Difficulty.NORMAL))) # Versions 1 et 2 : normal
-	c.lenient = bool(d.get("lenient", false)) # Version 4 et avant : non indulgent
+	c.challenges = Challenges.sanitize(d.get("challenges", [])) # Version 14 et avant : aucun défi
+	c.lenient = bool(d.get("lenient", false)) and not c.has_challenge(Challenges.IRONMAN) # Version 4 et avant : non indulgent
 	c.saved_at = float(d.get("saved_at", 0.0))
 	c.day = int(d.get("day", 1))
 	c.gold = float(d.get("gold", 0.0))
@@ -462,6 +478,7 @@ static func from_dict(d: Dictionary) -> CampaignState:
 	c.world = WorldSim.from_dict(d.get("world", {}), c.rng.seed, c.day, MapData.SCALE if version <= 8 else 1.0)
 	if c.world == null:
 		return null
+	c.world.eternal_winter = c.has_challenge(Challenges.ETERNAL_WINTER)
 	# Version 8 et avant : la compagnie est placée dans sa ville, au matin
 	c.overworld = Overworld.from_dict(d.get("overworld", {}) if version >= 9 else {}, c)
 	# Version 2 et avant : campagne en cours, bilan à zéro
@@ -488,8 +505,13 @@ static func from_dict(d: Dictionary) -> CampaignState:
 
 ## Écrit la sauvegarde sans risque de la corrompre : fichier temporaire, l'ancienne version
 ## devient la copie de secours (.bak), puis le temporaire remplace le fichier.
+## « Homme de fer » (challenges.gd) : pas de copie de secours, et la sauvegarde d'une compagnie
+## ruinée est effacée (on garde le bilan en mémoire pour l'écran de fin).
 func save() -> bool:
 	var path := save_path
+	if has_challenge(Challenges.IRONMAN) and ended == "ruin":
+		delete_file(path)
+		return true
 	var tmp := path + ".tmp"
 	var bak := path + ".bak"
 	saved_at = Time.get_unix_time_from_system()
@@ -501,7 +523,12 @@ func save() -> bool:
 		return false
 	f.store_string(JSON.stringify(d, "\t"))
 	f.close()
-	if FileAccess.file_exists(path):
+	if has_challenge(Challenges.IRONMAN):
+		if FileAccess.file_exists(bak):
+			DirAccess.remove_absolute(bak) # Homme de fer : une seule sauvegarde
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+	elif FileAccess.file_exists(path):
 		# Seule une sauvegarde lisible devient la copie de secours (un fichier abîmé ne l'écrase pas)
 		if read_file(path) != null:
 			if FileAccess.file_exists(bak):
@@ -601,6 +628,8 @@ func summary() -> String:
 	var s := "Jour %d · %d écus · %s · %s" % [day, int(gold), plural(total_men(), "homme", "hommes"), Difficulty.display_name(difficulty)]
 	if lenient:
 		s += " · indulgent"
+	if not challenges.is_empty():
+		s += " · défis : " + Challenges.names(challenges)
 	return s
 
 
@@ -671,6 +700,8 @@ func reputation_label(f: int) -> String:
 func contract_reward(contract: Dictionary) -> int:
 	var f := int(contract.get("faction", -1))
 	var base := int(contract["reward"]) * Difficulty.value(difficulty, "reward")
+	if has_challenge(Challenges.LEAN_CONTRACTS):
+		base *= Challenges.REWARD_FACTOR
 	if f < 0:
 		return int(round(base / 10.0)) * 10
 	var mult := clampf(1.0 + reputation[f] * REP_REWARD, 0.5, 1.5)
@@ -714,7 +745,7 @@ func can_recruit_here() -> bool:
 	if closed_message(location) != "":
 		return false
 	for t in TOWNS[location]["recruits"]:
-		if gold >= recruit_cost(t, int(UnitTypes.STATS[t]["count"])):
+		if not Challenges.forbids_type(challenges, t) and gold >= recruit_cost(t, int(UnitTypes.STATS[t]["count"])):
 			return true
 	return false
 
@@ -746,6 +777,8 @@ func recruit(type: String) -> String:
 		return closed
 	if not type in TOWNS[location]["recruits"]:
 		return "On ne lève pas ce type de troupe ici."
+	if Challenges.forbids_type(challenges, type):
+		return Challenges.NO_CAVALRY_REFUSAL
 	if company.size() >= MAX_REGIMENTS:
 		return "La compagnie compte déjà %d régiments." % MAX_REGIMENTS
 	var men: int = UnitTypes.STATS[type]["count"]
@@ -767,6 +800,8 @@ func refill(index: int) -> String:
 	var type: String = r["type"]
 	if not type in TOWNS[location]["recruits"]:
 		return "On ne lève pas ce type de troupe ici."
+	if Challenges.forbids_type(challenges, type):
+		return Challenges.NO_CAVALRY_REFUSAL
 	var missing := refill_missing(index)
 	if missing <= 0:
 		return "Ce régiment est déjà au complet."
@@ -839,7 +874,7 @@ func neighbours(town: int) -> Array[int]:
 func travel_days(to: int) -> int:
 	var a: Vector2 = TOWNS[location]["pos"]
 	var b: Vector2 = TOWNS[to]["pos"]
-	return maxi(1, ceili(a.distance_to(b) / (TRAVEL_PX_PER_DAY * WorldSim.march_factor(day)))) # Hiver : plus lent
+	return maxi(1, ceili(a.distance_to(b) / (TRAVEL_PX_PER_DAY * world.march_speed(day)))) # Hiver : plus lent
 
 
 ## Marche vers une ville voisine : chaque jour coûte la solde et peut amener un évènement de route.
