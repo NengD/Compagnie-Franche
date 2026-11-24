@@ -1,0 +1,91 @@
+# Publication de Compagnie Franche : à chaque étiquette « vX.Y.Z » poussée, lance les tests,
+# exporte les versions Windows et Linux avec Godot 4.7.2, puis crée la publication GitHub
+# (Releases) avec les deux archives zip. On peut aussi la relancer à la main (onglet Actions)
+# pour une étiquette existante.
+name: Publication
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Étiquette à publier (ex. v0.7.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GODOT_VERSION: "4.7.2"
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Vérifier la version
+        run: |
+          version=$(sed -n 's/^config\/version="\([^"]*\)".*/\1/p' project.godot)
+          if [ -z "$version" ]; then
+            echo "::error::config/version introuvable dans project.godot"; exit 1
+          fi
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::L'étiquette $TAG ne correspond pas à la version $version de project.godot"; exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Télécharger Godot et les modèles d'export
+        run: |
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          curl -fsSL -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip -d "$RUNNER_TEMP/godot"
+          echo "GODOT=$RUNNER_TEMP/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
+          # Seuls les modèles Windows et Linux sont extraits de l'archive des modèles
+          curl -fsSL -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          dest="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$dest"
+          unzip -q -j templates.tpz templates/windows_release_x86_64.exe templates/linux_release.x86_64 templates/version.txt -d "$dest"
+          rm templates.tpz godot.zip
+
+      - name: Lancer les tests
+        run: bash tools/run_tests.sh
+
+      - name: Exporter Windows et Linux
+        run: |
+          "$GODOT" --headless --path . --import
+          mkdir -p build/windows build/linux
+          "$GODOT" --headless --path . --export-release "Windows" build/windows/CompagnieFranche.exe
+          "$GODOT" --headless --path . --export-release "Linux" build/linux/CompagnieFranche.x86_64
+          test -f build/windows/CompagnieFranche.exe
+          test -f build/linux/CompagnieFranche.x86_64
+          python3 tools/make_zip.py "build/CompagnieFranche-$VERSION-windows.zip" \
+            build/windows/CompagnieFranche.exe CREDITS.md README.md
+          python3 tools/make_zip.py "build/CompagnieFranche-$VERSION-linux.zip" \
+            build/linux/CompagnieFranche.x86_64 CREDITS.md README.md \
+            --exec build/linux/CompagnieFranche.x86_64
+          ls -lh build/*.zip
+
+      - name: Créer la publication GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files="build/CompagnieFranche-$VERSION-windows.zip build/CompagnieFranche-$VERSION-linux.zip"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # Publication déjà là (relance) : on remplace les archives
+            gh release upload "$TAG" $files --clobber
+          else
+            gh release create "$TAG" $files --title "Compagnie Franche $VERSION" --generate-notes
+          fi
+
+      - name: Journaux des tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs
+          path: build/test-logs/

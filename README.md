@@ -946,7 +946,8 @@ powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1 -Only smoke,menu -T
 bash tools/run_tests.sh          # Linux / macOS (Godot : variable GODOT ou « godot » dans le PATH)
 ```
 Les journaux complets vont dans `build/test-logs/`. Une GitHub Action facultative
-(`.github/workflows/tests.yml`) télécharge Godot 4.7.2 et lance `tools/run_tests.sh` à chaque push.
+(`.github/workflows/tests.yml`) télécharge Godot 4.7.2 et lance `tools/run_tests.sh` à chaque push ;
+`.github/workflows/release.yml` publie les archives à chaque étiquette de version (voir « Exporter le jeu »).
 
 Un test à la fois :
 ```
@@ -1030,6 +1031,21 @@ Les préréglages « Windows » et « Linux » (`export_presets.cfg`) excluent `
 On peut aussi exporter depuis l'éditeur : *Projet → Exporter… → Windows*.
 Pour distribuer : envoyez le zip de `build/` (l'exe et les deux fichiers .md).
 L'icône de l'exe vient de `assets/icon.ico` (générée avec `tools/make_icon.py`, comme `assets/icon.png`).
+
+### Publication automatique sur GitHub
+Le workflow `.github/workflows/release.yml` se déclenche quand on pousse une étiquette `vX.Y.Z` :
+il vérifie que l'étiquette correspond à `config/version` de `project.godot`, télécharge Godot 4.7.2 et
+ses modèles d'export, lance les tests, exporte Windows et Linux, puis crée la publication GitHub
+(onglet *Releases*) avec `CompagnieFranche-<version>-windows.zip` et `-linux.zip`. Si les tests échouent,
+rien n'est publié. Pour publier une version :
+1. changez `config/version` dans `project.godot` et committez ;
+2. étiquetez et poussez :
+   ```
+   git tag v0.7.1
+   git push origin main v0.7.1
+   ```
+On peut aussi le relancer à la main (onglet *Actions* → *Publication* → *Run workflow*, avec l'étiquette) :
+les archives d'une publication existante sont alors remplacées.
 
 ## Équilibrage
 Réglages dans `scripts/unit_types.gd` (statistiques, moral, charge) et `scripts/enemy_ai.gd`.
